@@ -163,6 +163,11 @@ def add_invoice(user_id, from_name, from_address, amount_usdc, description, due_
     return iid
 
 
+def clear_invoices(user_id):
+    with conn() as c:
+        c.execute("DELETE FROM invoices WHERE user_id=?", (user_id,))
+
+
 def open_invoices(user_id) -> list[dict]:
     with conn() as c:
         return [dict(r) for r in c.execute("SELECT * FROM invoices WHERE user_id=? AND status='open' ORDER BY due", (user_id,))]

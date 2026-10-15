@@ -1,4 +1,11 @@
-# U-bot Pay 🎙⚡
+# U-bot Pay
+
+> **Live on Avalanche mainnet.** Two real transactions from the demo treasury:
+> - 🗣 *"Send 100 baht to mom"* → 2.91 USDC settled in 1.78 s — [tx](https://snowtrace.io/tx/0xc0f12055984a3ddf34b889624416330f52b1799f72cd7fcf0a358a550028623d)
+> - 🤖 *"Ask DataAgent about Sequoia"* → U-bot paid another agent 0.50 USDC via x402 (EIP-3009) in 2.23 s — [tx](https://snowtrace.io/tx/0x3d21c0b74c0f8a1ea3097258049702ff2dd7afa5dfa624e6e73a5d3b03f067fe)
+>
+> Try it: **https://ubotpay.com** (press 🎙) · **[@Ubotpaybot](https://t.me/Ubotpaybot)** · API **https://api.ubotpay.com/docs** · paid agent **https://agent.ubotpay.com**
+ 🎙⚡
 
 **Talk to U-bot. Money moves.**
 A voice-first finance agent for the [U-topia](https://u-topia.com) ecosystem — speak in any language, settle in USDC on **Avalanche** in under a second.
@@ -47,7 +54,7 @@ U-bot Pay is the missing layer: **a voice you can trust with your money.**
  │                 POST /turn   (FastAPI)           │
  │   brain.py  →  Claude intent parser              │
  │   core.py   →  users · contacts · FX · policy    │
- │   chain.py  →  Avalanche Fuji · USDC · EIP-3009  │
+ │   chain.py  →  Avalanche C-Chain (mainnet; Fuji for tests) · USDC · EIP-3009  │
  └──────────────────────┬───────────────────────────┘
                         ▼
               Avalanche C-Chain (USDC)

@@ -3,7 +3,7 @@
 **Setup before going on stage**
 - Open https://www.ubotpay.com on the laptop (mic allowed), full screen. Console on the right is the "proof" screen.
 - Phone with Telegram open on **@Ubotpaybot** (backup channel if the room wifi is bad).
-- Treasury funded: `GET https://api.ubotpay.com/health` shows `avax > 0.05`, `usdc > 20`.
+- Treasury funded on **Avalanche MAINNET**: `GET https://api.ubotpay.com/health` shows `avax > 0.05`, `usdc > 20`. Real money — one full run costs ~20 USDC and it all lands in wallets we control.
 - Co-signer set: on the approver's phone `/start` on @Ubotpaybot, then owner runs `/cosigner <approver_telegram_id>`.
 - ElevenLabs quota ≥ 5,000 chars left (Starter plan recommended for demo day).
 
@@ -19,8 +19,8 @@
 > "Ninety languages. Same brain."
 
 ## 0:40 — Remittance with FX + voice confirmation (45s)
-🎙 **"Send 2,000 baht to mom"**
-🤖 *"That's 58.14 USDC to Mom in Chiang Mai, FX 34.4, zero fees. Shall I send it?"*
+🎙 **"Send 100 baht to mom"**
+🤖 *"That's 2.91 USDC to Mom in Chiang Mai, FX 34.4, zero fees. Shall I send it?"*
 → console shows the QUOTE badge.
 🎙 **"Yes"**
 🤖 *"Done. Sent in 0.9 seconds."* → console shows SETTLED + tx link. Click it → Snowtrace.
@@ -31,12 +31,12 @@
 🎙 **"¿Qué facturas tengo pendientes?"**
 🤖 lists 3 invoices in Spanish.
 🎙 **"Paga la de VietSupply"**
-🤖 quotes 1,240 USDC → 🎙 **"Sí"** → settled.
+🤖 quotes 5 USDC → 🎙 **"Sí"** → settled.
 
 > "A supplier in Vietnam just got paid by a Thai SME in Spanish. Settlement on Avalanche."
 
 ## 1:55 — Dual control (30s)
-🎙 **"Pay the office rent"** (2,600 USDC ≥ threshold)
+🎙 **"Pay the office rent"** (12 USDC ≥ 10 threshold)
 🤖 *"That amount needs a second approval. I've asked your co-signer."*
 → Approver's phone buzzes with the Telegram request → they tap `/approve pay_xxx` → owner gets "Approved & sent in 0.8s".
 

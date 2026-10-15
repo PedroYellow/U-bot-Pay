@@ -91,9 +91,9 @@ footer{margin-top:90px;border-top:1px solid var(--line);padding-top:24px;color:v
     <div class="console-h"><b>Live console</b><span id="mode">text mode · press 🎙 for voice</span></div>
     <div class="orb" id="orb"></div><div class="orbstate" id="orbstate">U-bot is ready</div>
     <div class="microw" id="microw" style="display:none"><span>🎤</span><div class="meter"><div id="lvl"></div></div><select id="micsel" title="Microphone"></select></div>
-    <div id="log"><div class="msg sys">Try: “How much do I have?” · “Send 2000 baht to mom” · “What invoices do I have?” · “Pay the Vietnam one” · “Ask DataAgent about Sequoia”</div></div>
+    <div id="log"><div class="msg sys">Try: “How much do I have?” · “Send 100 baht to mom” · “What invoices do I have?” · “Pay the Vietnam one” · “Ask DataAgent about Sequoia”</div></div>
     <div class="inputrow"><button class="btn mic" id="mic" title="Talk to U-bot">🎙</button><input id="inp" placeholder="Type to U-bot… or press 🎙 and speak" autocomplete="off"><button class="btn" id="send">Send</button></div>
-    <div class="kpis"><div class="kpi"><small>Treasury USDC</small><b id="k_usdc">—</b></div><div class="kpi"><small>Last settlement</small><b id="k_lat">—</b></div><div class="kpi"><small>Chain</small><b>Fuji · 43113</b></div></div>
+    <div class="kpis"><div class="kpi"><small>Treasury USDC</small><b id="k_usdc">—</b></div><div class="kpi"><small>Last settlement</small><b id="k_lat">—</b></div><div class="kpi"><small>Chain</small><b id="k_chain">Avalanche</b></div></div>
   </div>
 </div>
 
@@ -136,7 +136,7 @@ footer{margin-top:90px;border-top:1px solid var(--line);padding-top:24px;color:v
                        ▼
             Avalanche C-Chain — USDC — sub-second finality
   </pre></div>
-  <div class="chips" style="margin-top:14px"><a class="chip" href="https://api.ubotpay.com/docs" target="_blank">API docs ↗</a><a class="chip" href="https://api.ubotpay.com/health" target="_blank">/health ↗</a><a class="chip" href="https://testnet.snowtrace.io/address/0x673678B1870Ae7ef598A5982D25ffdee68d85669" target="_blank">Treasury on Snowtrace ↗</a></div>
+  <div class="chips" style="margin-top:14px"><a class="chip" href="https://api.ubotpay.com/docs" target="_blank">API docs ↗</a><a class="chip" href="https://api.ubotpay.com/health" target="_blank">/health ↗</a><a class="chip" href="https://snowtrace.io/address/0x673678B1870Ae7ef598A5982D25ffdee68d85669" target="_blank">Treasury on Snowtrace ↗</a></div>
 </section>
 
 <footer><span>U-bot Pay · built in 48h at U-Hackathon 2026, FLOW Summit Bangkok</span><span>Partners: ElevenLabs · Avalanche · U-topia</span></footer>
@@ -177,7 +177,7 @@ document.getElementById("send").onclick = () => send(inp.value);
 inp.addEventListener("keydown", e => { if (e.key === "Enter") send(inp.value); });
 
 // health
-const refreshHealth = () => fetch(API + "/health").then(r=>r.json()).then(h=>{ document.getElementById("netstat").textContent = "Avalanche Fuji · live"; document.getElementById("k_usdc").textContent = h.treasury?.usdc ?? "—"; }).catch(()=>{ document.getElementById("netstat").textContent = "API offline"; document.getElementById("dot").style.background="var(--bad)"; });
+const refreshHealth = () => fetch(API + "/health").then(r=>r.json()).then(h=>{ document.getElementById("netstat").textContent = (h.chain||"avalanche") + " · live"; document.getElementById("k_chain").textContent = h.chain === "avalanche-mainnet" ? "Mainnet · 43114" : h.chain; document.getElementById("k_usdc").textContent = h.treasury?.usdc ?? "—"; }).catch(()=>{ document.getElementById("netstat").textContent = "API offline"; document.getElementById("dot").style.background="var(--bad)"; });
 refreshHealth(); setInterval(refreshHealth, 10000);
 
 // ── ElevenLabs voice (WebRTC via SDK) ──

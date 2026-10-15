@@ -30,7 +30,7 @@ _seen_nonces: set[str] = set()
 
 def requirements(resource: str) -> dict:
     return {"x402Version": 1, "accepts": [{
-        "scheme": "exact", "network": "avalanche-fuji", "asset": chain.USDC, "payTo": PAYEE,
+        "scheme": "exact", "network": chain.NETWORK_NAME, "asset": chain.USDC, "payTo": PAYEE,
         "maxAmountRequired": str(chain.to_units(PRICE_USDC)), "amount_usdc": PRICE_USDC,
         "resource": resource, "description": f"DataAgent company report ({PRICE_USDC} USDC per query)",
         "mimeType": "application/json", "maxTimeoutSeconds": 60,
@@ -79,7 +79,7 @@ async def make_report(company: str) -> dict:
 
 @app.get("/")
 def root():
-    return {"service": "DataAgent", "price_usdc": PRICE_USDC, "payTo": PAYEE, "protocol": "x402 / EIP-3009 on Avalanche Fuji",
+    return {"service": "DataAgent", "price_usdc": PRICE_USDC, "payTo": PAYEE, "protocol": f"x402 / EIP-3009 on {chain.NETWORK_NAME}",
             "erc8004": AGENT_ID_8004, "try": "GET /report?company=Sequoia"}
 
 

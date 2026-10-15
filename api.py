@@ -9,7 +9,7 @@ POST /demo/seed       create demo user + contacts + invoices
 GET  /health
 """
 import os, time, json, asyncio, logging
-import httpx
+import httpx, urllib.parse
 from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -61,7 +61,7 @@ def health():
         b = chain.balance(os.environ["UBOT_WALLET_ADDRESS"])
     except Exception as e:
         b = {"error": str(e)[:80]}
-    return {"ok": True, "chain": "avalanche-fuji", "treasury": b, "ts": int(time.time())}
+    return {"ok": True, "chain": chain.NETWORK_NAME, "treasury": b, "ts": int(time.time())}
 
 
 @app.post("/turn")
@@ -145,7 +145,7 @@ async def turn(t: Turn, x_api_key: str | None = Header(default=None)):
         q = (it.get("query") or it.get("recipient") or "").strip()
         if not q:
             return {"say": it.get("reply") or "Which company should I research?", "action": "ask", "data": {}}
-        url = f"{os.environ.get('DATAAGENT_URL', 'http://127.0.0.1:8091')}/report?company={httpx.utils.quote(q)}"
+        url = f"{os.environ.get('DATAAGENT_URL', 'http://127.0.0.1:8091')}/report?company={urllib.parse.quote(q)}"
         try:
             r = await x402_client.pay_and_fetch(url, os.environ["UBOT_PRIVATE_KEY"], max_usdc=float(user.get("daily_limit") or 5))
         except Exception as e:
@@ -242,7 +242,7 @@ class X402Quote(BaseModel):
 @app.post("/x402/quote")
 def x402_quote(q: X402Quote):
     """A service agent announces its price. Returns a 402-like payload the payer agent signs."""
-    return JSONResponse(status_code=402, content={"x402": 1, "chain": "avalanche-fuji", "asset": chain.USDC,
+    return JSONResponse(status_code=402, content={"x402": 1, "chain": chain.NETWORK_NAME, "asset": chain.USDC,
                                                   "payTo": os.environ["UBOT_WALLET_ADDRESS"], "amount_usdc": q.price_usdc,
                                                   "scheme": "eip3009-transferWithAuthorization", "service": q.service})
 
@@ -263,7 +263,7 @@ class AgentQuery(BaseModel):
 async def agent_query(q: AgentQuery, x_api_key: str | None = Header(default=None)):
     """U-bot hires DataAgent: GET → 402 → sign EIP-3009 → retry with X-PAYMENT → report + on-chain receipt."""
     auth(x_api_key)
-    url = f"{os.environ.get('DATAAGENT_URL', 'http://127.0.0.1:8091')}/report?company={httpx.utils.quote(q.company)}"
+    url = f"{os.environ.get('DATAAGENT_URL', 'http://127.0.0.1:8091')}/report?company={urllib.parse.quote(q.company)}"
     return await x402_client.pay_and_fetch(url, os.environ["UBOT_PRIVATE_KEY"])
 
 
@@ -282,8 +282,10 @@ def _seed_for(uid):
     core.add_contact(uid, "vietsupply", "VietSupply Co.", demo, "VN")
     core.add_contact(uid, "somchai", "Somchai Restaurant", demo, "TH")
     core.add_contact(uid, "dataagent", "DataAgent (AI service)", demo, "—", is_agent=1)
+    if os.environ.get("DEMO_RESET_INVOICES") == "1":
+        core.clear_invoices(uid)
     if not core.open_invoices(uid):
-        core.add_invoice(uid, "VietSupply Co.", demo, 1240.0, "Invoice #VS-2041 packaging", 5)
-        core.add_invoice(uid, "Somchai Restaurant", demo, 86.5, "Team dinner 12 Oct", 3)
-        core.add_invoice(uid, "Bangkok Office Rent", demo, 2600.0, "October rent", 9)
-    core.set_policy(uid, daily_limit=5000, dual_threshold=2000)
+        core.add_invoice(uid, "VietSupply Co.", demo, float(os.environ.get("DEMO_INV_1", "5")), "Invoice #VS-2041 packaging", 5)
+        core.add_invoice(uid, "Somchai Restaurant", demo, float(os.environ.get("DEMO_INV_2", "3")), "Team dinner 12 Oct", 3)
+        core.add_invoice(uid, "Bangkok Office Rent", demo, float(os.environ.get("DEMO_INV_3", "12")), "October rent", 9)
+    core.set_policy(uid, daily_limit=float(os.environ.get("DEMO_DAILY_LIMIT", "40")), dual_threshold=float(os.environ.get("DEMO_DUAL_THRESHOLD", "10")))

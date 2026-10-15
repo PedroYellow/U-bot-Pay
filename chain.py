@@ -14,6 +14,7 @@ RPC = os.environ.get("AVAX_RPC", "https://api.avax-test.network/ext/bc/C/rpc")
 CHAIN_ID = int(os.environ.get("AVAX_CHAIN_ID", "43113"))
 USDC = Web3.to_checksum_address(os.environ.get("USDC_ADDRESS", "0x5425890298aed601595a70AB815c96711a31Bc65"))
 EXPLORER = os.environ.get("EXPLORER", "https://testnet.snowtrace.io")
+NETWORK_NAME = "avalanche-mainnet" if CHAIN_ID == 43114 else "avalanche-fuji"
 
 ERC20_ABI = [
     {"name": "balanceOf", "type": "function", "stateMutability": "view", "inputs": [{"name": "a", "type": "address"}], "outputs": [{"type": "uint256"}]},
