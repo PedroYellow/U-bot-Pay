@@ -8,8 +8,9 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><radialGradient id='g' cx='35%' cy='30%'><stop offset='0' stop-color='%23BFE0FF'/><stop offset='.55' stop-color='%234C7DF0'/><stop offset='1' stop-color='%236C5CE7'/></radialGradient></defs><circle cx='32' cy='32' r='30' fill='url(%23g)'/><g fill='white'><rect x='18' y='27' width='4' height='10' rx='2'/><rect x='25' y='22' width='4' height='20' rx='2'/><rect x='32' y='17' width='4' height='30' rx='2'/><rect x='39' y='22' width='4' height='20' rx='2'/><rect x='46' y='27' width='4' height='10' rx='2'/></g></svg>">
 <script>(function(){var t=localStorage.getItem("ubotpay-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.setAttribute("data-theme",t);})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/ubot.css">
+<script src="/i18n.js"></script>
 </head>
 <body>
 <button class="theme" id="theme" type="button" aria-label="Toggle dark mode"><span id="theme-ic">🌙</span><span id="theme-tx">Dark</span></button>
@@ -24,79 +25,89 @@
       <div class="orb" id="orb"><div class="bars"><i style="--h:18px;--d:0s"></i><i style="--h:32px;--d:.15s"></i><i style="--h:48px;--d:.3s"></i><i style="--h:32px;--d:.45s"></i><i style="--h:18px;--d:.6s"></i></div></div>
     </div>
     <div class="tag">
-      <h1>Say it. Confirm it. Settled.</h1>
-      <p>Speak in any language. Confirm with your voice. USDC settles on Avalanche in under two seconds — for a fraction of what banks charge.</p>
-      <div class="chips"><span class="chip">🎙 Voice</span><span class="chip">⛓ Avalanche</span><span class="chip">💵 USDC</span><span class="chip">🔐 Dual control</span><span class="chip">🤖 x402</span></div>
+      <h1 data-i18n="h1">Say it. Confirm it. Settled.</h1>
+      <p data-i18n="hero_p">Speak in any language. Confirm with your voice. USDC settles on Avalanche in under two seconds — for a fraction of what banks charge.</p>
+      <div class="chips"><span class="chip" data-i18n="chip_voice">🎙 Voice</span><span class="chip">⛓ Avalanche</span><span class="chip">💵 USDC</span><span class="chip" data-i18n="chip_dual">🔐 Dual control</span><span class="chip">🤖 x402</span></div>
     </div>
   </div>
 
   <div class="light">
     <div class="panel">
-      <h2>Talk to ubotpay</h2>
-      <p class="sub">Press the mic or type.</p>
+      <h2 data-i18n="talk_h">Talk to ubotpay</h2>
+      <p class="sub" data-i18n="talk_sub">Press the mic or type.</p>
       <div class="console">
-        <div class="state"><span>Status · <b id="orbstate">ready</b></span><span id="netstat">checking…</span></div>
+        <div class="state"><span><span data-i18n="status">Status · </span><b id="orbstate" data-i18n="ready">ready</b></span><span id="netstat" data-i18n="checking">checking…</span></div>
         <div class="microw" id="microw" style="display:none"><span>🎤</span><div class="meter"><div id="lvl"></div></div><select id="micsel" title="Microphone"></select></div>
-        <div id="log"><div class="msg sys">Try: “Send 100 baht to mom” · “What invoices do I have?”</div></div>
-        <div class="inputrow"><button class="btn mic" id="mic" title="Talk to ubotpay">🎙</button><input id="inp" placeholder="Ask ubotpay…" autocomplete="off"><button class="btn primary" id="send">Send</button></div>
-        <div class="kpis"><div class="kpi"><small>Treasury</small><b id="k_usdc">—</b></div><div class="kpi"><small>Last settlement</small><b id="k_lat">—</b></div><div class="kpi"><small>Revenue</small><b id="k_rev">—</b></div></div>
+        <div id="log"><div class="msg sys" data-i18n="try">Try: “Send 100 baht to mom” · “What invoices do I have?”</div></div>
+        <div class="inputrow"><button class="btn mic" id="mic" data-i18n-title="mic_title" title="Talk to ubotpay">🎙</button><input id="inp" data-i18n-ph="ask_ph" placeholder="Ask ubotpay…" autocomplete="off"><button class="btn primary" id="send" data-i18n="send">Send</button></div>
+        <div class="kpis"><div class="kpi"><small data-i18n="k_treasury">Treasury</small><b id="k_usdc">—</b></div><div class="kpi"><small data-i18n="k_last">Last settlement</small><b id="k_lat">—</b></div><div class="kpi"><small data-i18n="k_rev">Revenue</small><b id="k_rev">—</b></div></div>
       </div>
-      <p class="alt">Prefer Telegram? <a href="https://t.me/Ubotpaybot" target="_blank">Open @Ubotpaybot</a></p>
-      <div class="foot"><a href="#how">How it works</a><a href="https://api.ubotpay.com/docs" target="_blank">API</a><a href="https://agent.ubotpay.com" target="_blank">DataAgent</a><a href="https://github.com/PedroYellow/U-bot-Pay" target="_blank">GitHub</a></div>
+      <p class="alt" data-i18n="alt_tg">Prefer Telegram? <a href="https://t.me/Ubotpaybot" target="_blank">Open @Ubotpaybot</a></p>
+      <div class="foot"><a href="#how" data-i18n="f_how">How it works</a><a href="https://api.ubotpay.com/docs" target="_blank">API</a><a href="https://agent.ubotpay.com" target="_blank">DataAgent</a><a href="#contact" data-i18n="f_contact">Contact</a><a href="https://github.com/PedroYellow/U-bot-Pay" target="_blank">GitHub</a></div>
     </div>
   </div>
 </div>
 
 <div class="wrap">
 <section id="how">
-  <h3 class="t">How it works</h3>
-  <p class="sub2">One conversation. Under two seconds.</p>
+  <h3 class="t" data-i18n="how_t">How it works</h3>
+  <p class="sub2" data-i18n="how_sub">One conversation. Under two seconds.</p>
   <div class="flow">
-    <div class="step"><b>1 · Speak</b><span>“Send 100 baht to mom.” Any language.</span></div>
-    <div class="step"><b>2 · Quote</b><span>100 THB = 2.91 USDC. Fee: 2 cents.</span></div>
-    <div class="step"><b>3 · Confirm</b><span>Nothing moves without your “yes”.</span></div>
-    <div class="step"><b>4 · Settled</b><span>USDC on Avalanche. Receipt on screen.</span></div>
+    <div class="step"><b data-i18n="s1b">1 · Speak</b><span data-i18n="s1">“Send 100 baht to mom.” Any language.</span></div>
+    <div class="step"><b data-i18n="s2b">2 · Quote</b><span data-i18n="s2">100 THB = 2.91 USDC. Fee: 2 cents.</span></div>
+    <div class="step"><b data-i18n="s3b">3 · Confirm</b><span data-i18n="s3">Nothing moves without your “yes”.</span></div>
+    <div class="step"><b data-i18n="s4b">4 · Settled</b><span data-i18n="s4">USDC on Avalanche. Receipt on screen.</span></div>
     
   </div>
 </section>
 
 <section>
-  <h3 class="t">Why it matters</h3>
-  <p class="sub2">Banks have rails. Apps have buttons. Nobody has a conversation — until now.</p>
+  <h3 class="t" data-i18n="why_t">Why it matters</h3>
+  <p class="sub2" data-i18n="why_sub">Banks have rails. Apps have buttons. Nobody has a conversation — until now.</p>
   <div class="grid">
-    <div class="card"><div class="ic">🎙</div><h4>Voice-first</h4><p>90+ languages. Your voice is the confirmation.</p></div>
-    <div class="card"><div class="ic">⛓</div><h4>Live on Avalanche</h4><p>Real USDC, mainnet, under two seconds.</p></div>
-    <div class="card"><div class="ic">🔐</div><h4>Safe by design</h4><p>Daily limits. Big payments need a second approval.</p></div>
-    <div class="card"><div class="ic">🌏</div><h4>Built for Asia</h4><p>Thai, Vietnamese, Khmer, Burmese. Remittances and suppliers.</p></div>
-    <div class="card"><div class="ic">✈️</div><h4>Anywhere</h4><p>Telegram, phone call, or this page.</p></div>
-    <div class="card"><div class="ic">🤖</div><h4>Agents pay agents</h4><p>Pays other AI services per request via x402.</p></div>
+    <div class="card"><div class="ic">🎙</div><h4 data-i18n="w1h">Voice-first</h4><p data-i18n="w1">90+ languages. Your voice is the confirmation.</p></div>
+    <div class="card"><div class="ic">⛓</div><h4 data-i18n="w2h">Live on Avalanche</h4><p data-i18n="w2">Real USDC, mainnet, under two seconds.</p></div>
+    <div class="card"><div class="ic">🔐</div><h4 data-i18n="w3h">Safe by design</h4><p data-i18n="w3">Daily limits. Big payments need a second approval.</p></div>
+    <div class="card"><div class="ic">🌏</div><h4 data-i18n="w4h">Built for Asia</h4><p data-i18n="w4">Thai, Vietnamese, Khmer, Burmese. Remittances and suppliers.</p></div>
+    <div class="card"><div class="ic">✈️</div><h4 data-i18n="w5h">Anywhere</h4><p data-i18n="w5">Telegram, phone call, or this page.</p></div>
+    <div class="card"><div class="ic">🤖</div><h4 data-i18n="w6h">Agents pay agents</h4><p data-i18n="w6">Pays other AI services per request via x402.</p></div>
   </div>
 </section>
 
 <section id="model">
-  <h3 class="t">How we make money</h3>
-  <p class="sub2">Transparent. Shown on every quote. Still 8× cheaper than a bank.</p>
+  <h3 class="t" data-i18n="model_t">How we make money</h3>
+  <p class="sub2" data-i18n="model_sub">Transparent. Shown on every quote. Still 8× cheaper than a bank.</p>
   <div class="grid">
-    <div class="card"><div class="ic">💸</div><h4>0.5% per transfer</h4><p>Minimum 1 cent. Banks and remittance shops charge 5–7%.</p></div>
-    <div class="card"><div class="ic">💱</div><h4>0.3% FX spread</h4><p>On local-currency quotes. Same model as Wise.</p></div>
-    <div class="card"><div class="ic">🤖</div><h4>1% on agent payments</h4><p>Every time an AI agent pays another through us. The rail for the agent economy.</p></div>
-    <div class="card"><div class="ic">🏢</div><h4>Business plan</h4><p>Dual control, invoices, limits, audit trail for SMEs. Monthly subscription.</p></div>
+    <div class="card"><div class="ic">💸</div><h4 data-i18n="m1h">0.5% per transfer</h4><p data-i18n="m1">Minimum 1 cent. Banks and remittance shops charge 5–7%.</p></div>
+    <div class="card"><div class="ic">💱</div><h4 data-i18n="m2h">0.3% FX spread</h4><p data-i18n="m2">On local-currency quotes. Same model as Wise.</p></div>
+    <div class="card"><div class="ic">🤖</div><h4 data-i18n="m3h">1% on agent payments</h4><p data-i18n="m3">Every time an AI agent pays another through us. The rail for the agent economy.</p></div>
+    <div class="card"><div class="ic">🏢</div><h4 data-i18n="m4h">Business plan</h4><p data-i18n="m4">Dual control, invoices, limits, audit trail for SMEs. Monthly subscription.</p></div>
   </div>
-  <div class="links" style="margin-top:16px"><a class="link" href="https://api.ubotpay.com/pricing" target="_blank">Live pricing & revenue ↗</a><a class="link" href="https://snowtrace.io/address/0xbE440bf22FFDDdD8372DDf66a4beffEB8D41B209" target="_blank">Revenue wallet on Snowtrace ↗</a></div>
+  <div class="links" style="margin-top:16px"><a class="link" href="https://api.ubotpay.com/pricing" target="_blank" data-i18n="l_pricing">Live pricing &amp; revenue ↗</a><a class="link" href="https://snowtrace.io/address/0xbE440bf22FFDDdD8372DDf66a4beffEB8D41B209" target="_blank" data-i18n="l_revwallet">Revenue wallet on Snowtrace ↗</a></div>
 </section>
 
 <section>
-  <h3 class="t">Under the hood</h3>
-  <div class="arch"><pre>
+  <h3 class="t" data-i18n="hood_t">Under the hood</h3>
+  <div class="arch"><pre data-i18n="arch">
  Voice (ElevenLabs) · Telegram · API
             ↓
    ubotpay brain  —  Ubot understands · policy checks · FX quote
             ↓
    Avalanche C-Chain  —  USDC settles in &lt; 2 s</pre></div>
-  <div class="links"><a class="link" href="https://api.ubotpay.com/docs" target="_blank">API ↗</a><a class="link" href="https://agent.ubotpay.com" target="_blank">DataAgent ↗</a><a class="link" href="https://snowtrace.io/address/0x673678B1870Ae7ef598A5982D25ffdee68d85669" target="_blank">Treasury ↗</a><a class="link" href="https://github.com/PedroYellow/U-bot-Pay" target="_blank">GitHub ↗</a></div>
+  <div class="links"><a class="link" href="https://api.ubotpay.com/docs" target="_blank">API ↗</a><a class="link" href="https://agent.ubotpay.com" target="_blank">DataAgent ↗</a><a class="link" href="https://snowtrace.io/address/0x673678B1870Ae7ef598A5982D25ffdee68d85669" target="_blank" data-i18n="l_treasury">Treasury ↗</a><a class="link" href="https://github.com/PedroYellow/U-bot-Pay" target="_blank">GitHub ↗</a></div>
 </section>
 
-<footer><span>ubotpay · U-Hackathon 2026, Bangkok</span><span>ElevenLabs · Avalanche · U-topia</span></footer>
+<section id="contact">
+  <h3 class="t" data-i18n="contact_t">Contact</h3>
+  <p class="sub2" data-i18n="contact_sub">Found a bug, need help with a payment, or want to build with us?</p>
+  <div class="grid">
+    <div class="card"><div class="ic">🛟</div><h4 data-i18n="c1h">Support &amp; incidents</h4><p data-i18n="c1">Tell us what happened and the tx link if you have one.</p><a class="link" href="mailto:hello@ubotpay.com?subject=ubotpay%20support">✉ hello@ubotpay.com</a></div>
+    <div class="card"><div class="ic">🤝</div><h4 data-i18n="c2h">Partnerships</h4><p data-i18n="c2">Merchants, wallets, agents, ecosystems. Let's talk.</p><a class="link" href="mailto:hello@ubotpay.com?subject=ubotpay%20partnership">✉ hello@ubotpay.com</a></div>
+    <div class="card"><div class="ic">💬</div><h4 data-i18n="c3h">Telegram</h4><p data-i18n="c3">Talk to the bot or message the team.</p><a class="link" href="https://t.me/Ubotpaybot" target="_blank" rel="noopener">@Ubotpaybot</a></div>
+  </div>
+</section>
+
+<footer><span data-i18n="foot_l">ubotpay · U-Hackathon 2026, Bangkok</span><div class="social"><span data-i18n="follow">Follow us</span><a href="https://x.com/Ubotpay" target="_blank" rel="noopener" title="X · @Ubotpay"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.9 2H22l-7.3 8.3L23.2 22h-6.7l-5.2-6.8L5.3 22H2.2l7.8-8.9L1.5 2h6.9l4.7 6.2L18.9 2zm-1.2 18h1.8L7 3.9H5.1L17.7 20z"/></svg></a><a href="https://t.me/Ubotpaybot" target="_blank" rel="noopener" title="Telegram"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9.6 15.5l-.4 5.3c.6 0 .8-.2 1.1-.5l2.6-2.5 5.4 4c1 .5 1.7.3 2-.9L23.9 3.6c.3-1.4-.5-2-1.5-1.6L1.7 10c-1.4.5-1.4 1.3-.2 1.7l5.3 1.6L19 5.6c.6-.4 1.1-.2.7.2L9.6 15.5z"/></svg></a><a href="https://github.com/PedroYellow/U-bot-Pay" target="_blank" rel="noopener" title="GitHub"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .5C5.6.5.5 5.6.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.3.8-.6v-2.1c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.7 1.3 3.4 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.9 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.2c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.6 18.4.5 12 .5z"/></svg></a></div><span>ElevenLabs · Ubot · Avalanche · U-topia</span></footer>
 </div>
 
 <script type="module">
@@ -121,13 +132,13 @@ function render(res){
 async function send(text){
   if(!text.trim()) return;
   add("u", esc(text)); inp.value = "";
-  const t = add("sys", "ubotpay is thinking…");
+  const t = add("sys", I18N.t("thinking"));
   try { const r = await fetch(API + "/turn", {method:"POST", headers:{"Content-Type":"application/json","x-api-key":API_KEY}, body: JSON.stringify({user_key:"demo", text, channel:"web"})}); const res = await r.json(); t.remove(); render(res); }
   catch(e){ t.innerHTML = "⚠️ " + esc(e.message); }
 }
 document.getElementById("send").onclick = () => send(inp.value);
 inp.addEventListener("keydown", e => { if (e.key === "Enter") send(inp.value); });
-const refreshHealth = () => fetch(API + "/health").then(r=>r.json()).then(h=>{ const n = document.getElementById("netstat"); n.textContent = "● " + (h.chain === "avalanche-mainnet" ? "Avalanche mainnet" : h.chain) + " · live"; n.style.color = "var(--ok)"; document.getElementById("k_usdc").textContent = (h.treasury?.usdc ?? "—") + " USDC"; document.getElementById("k_rev").textContent = (h.revenue?.revenue_usdc ?? 0) + " USDC"; }).catch(()=>{ const n = document.getElementById("netstat"); n.textContent = "API offline"; n.style.color = "var(--bad)"; });
+const refreshHealth = () => fetch(API + "/health").then(r=>r.json()).then(h=>{ const n = document.getElementById("netstat"); n.textContent = "● " + (h.chain === "avalanche-mainnet" ? "Avalanche mainnet" : h.chain) + " · " + I18N.t("live"); n.removeAttribute("data-i18n"); n.style.color = "var(--ok)"; document.getElementById("k_usdc").textContent = (h.treasury?.usdc ?? "—") + " USDC"; document.getElementById("k_rev").textContent = (h.revenue?.revenue_usdc ?? 0) + " USDC"; }).catch(()=>{ const n = document.getElementById("netstat"); n.textContent = I18N.t("offline"); n.removeAttribute("data-i18n"); n.style.color = "var(--bad)"; });
 refreshHealth(); setInterval(refreshHealth, 10000);
 
 // ── ElevenLabs voice ──
@@ -149,25 +160,25 @@ const startTalk = async () => {
     const ac = new (window.AudioContext || window.webkitAudioContext)(); const src = ac.createMediaStreamSource(stream); const an = ac.createAnalyser(); an.fftSize = 512; src.connect(an);
     const buf = new Uint8Array(an.frequencyBinCount); let peak = 0;
     tick = () => { if (!conv) { document.getElementById("lvl").style.width = "0"; return; } an.getByteTimeDomainData(buf); let m = 0; for (const v of buf) m = Math.max(m, Math.abs(v - 128)); peak = Math.max(peak, m); document.getElementById("lvl").style.width = Math.min(100, m * 1.6) + "%"; requestAnimationFrame(tick); };
-    setTimeout(() => { if (conv && peak < 3) add("sys", "⚠️ No microphone signal. Check the mic selector, macOS Privacy → Microphone, or whether another app holds the mic."); }, 6000);
+    setTimeout(() => { if (conv && peak < 3) add("sys", I18N.t("v_nomic")); }, 6000);
     setTalkUI(true);
     conv = await Conversation.startSession({
       agentId: AGENT_ID, connectionType: "webrtc", clientTools: { open_url: p => { add("sys", "↗ Opening " + esc(p.label || p.url)); return window.__ubotOpenUrl(p); } }, ...(pref ? { inputDeviceId: pref } : {}),
-      onConnect: () => { orbstate.textContent = "listening"; orb.className = "orb listening"; add("sys", "🎙 Voice session started — speak now"); requestAnimationFrame(tick); },
-      onDisconnect: () => { orbstate.textContent = "ready"; orb.className = "orb"; setTalkUI(false); conv = null; add("sys", "Voice session ended"); },
-      onModeChange: m => { orb.className = "orb " + (m.mode === "speaking" ? "speaking" : "listening"); orbstate.textContent = m.mode === "speaking" ? "speaking" : "listening"; },
+      onConnect: () => { orbstate.removeAttribute("data-i18n"); orbstate.textContent = I18N.t("listening"); orb.className = "orb listening"; add("sys", I18N.t("v_start")); requestAnimationFrame(tick); },
+      onDisconnect: () => { orbstate.textContent = I18N.t("ready"); orb.className = "orb"; setTalkUI(false); conv = null; add("sys", I18N.t("v_end")); },
+      onModeChange: m => { orb.className = "orb " + (m.mode === "speaking" ? "speaking" : "listening"); orbstate.textContent = I18N.t(m.mode === "speaking" ? "speaking" : "listening"); },
       onMessage: m => { if (m.source === "user") add("u", esc(m.message)); else if (m.source === "ai") add("b", esc(m.message)); },
       onError: e => add("sys", "⚠️ " + esc(e?.message || e)),
     });
-  } catch (e) { add("sys", "⚠️ Microphone or connection error: " + esc(e.message)); setTalkUI(false); conv = null; }
+  } catch (e) { add("sys", I18N.t("v_err") + esc(e.message)); setTalkUI(false); conv = null; }
 };
 let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try { await startTalk(); } finally { setTimeout(() => busy = false, 800); } };
 </script>
-<script>(function(){var b=document.getElementById("theme"),ic=document.getElementById("theme-ic"),tx=document.getElementById("theme-tx");function paint(){var d=document.documentElement.getAttribute("data-theme")==="dark";ic.textContent=d?"☀️":"🌙";tx.textContent=d?"Light":"Dark";}b.onclick=function(){var d=document.documentElement.getAttribute("data-theme")==="dark";document.documentElement.setAttribute("data-theme",d?"light":"dark");localStorage.setItem("ubotpay-theme",d?"light":"dark");paint();};paint();})();</script>
+<script>(function(){var b=document.getElementById("theme"),ic=document.getElementById("theme-ic"),tx=document.getElementById("theme-tx");function paint(){var d=document.documentElement.getAttribute("data-theme")==="dark";ic.textContent=d?"☀️":"🌙";tx.textContent=d?(window.I18N?I18N.t("light"):"Light"):(window.I18N?I18N.t("dark"):"Dark");}b.onclick=function(){var d=document.documentElement.getAttribute("data-theme")==="dark";document.documentElement.setAttribute("data-theme",d?"light":"dark");localStorage.setItem("ubotpay-theme",d?"light":"dark");paint();};paint();})();</script>
 <!-- ubotpay support widget (ElevenLabs Conversational AI) -->
 <script>
 (function(){
-  var ALLOWED = ["https://ubotpay.com/pitch","https://t.me/Ubotpaybot","https://agent.ubotpay.com","https://github.com/PedroYellow/U-bot-Pay","https://api.ubotpay.com/docs"];
+  var ALLOWED = ["https://ubotpay.com/pitch","https://ubotpay.com/deck","https://t.me/Ubotpaybot","https://x.com/Ubotpay","https://agent.ubotpay.com","https://github.com/PedroYellow/U-bot-Pay","https://api.ubotpay.com/docs","mailto:hello@ubotpay.com"];
   function openUrl(p){ var u=(p&&p.url||"").trim().replace(/\/$/,""); if(!ALLOWED.some(function(a){return a.replace(/\/$/,"")===u;})) return "blocked"; var samesite = u.indexOf("ubotpay.com/pitch")>-1; var w = window.open(u, samesite ? "_self" : "_blank"); return w||samesite ? "opened" : "popup-blocked"; }
   function hook(e){ try { e.detail.config.clientTools = Object.assign({}, e.detail.config.clientTools, { open_url: openUrl }); console.log("[ubotpay] open_url tool registered"); } catch(err){ console.warn("[ubotpay] hook failed", err); } }
   window.addEventListener("elevenlabs-convai:call", hook); document.addEventListener("elevenlabs-convai:call", hook);

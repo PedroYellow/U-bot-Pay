@@ -14,7 +14,7 @@ html[data-theme="dark"] .foot a:hover{color:#fff}
 .theme:hover{background:rgba(11,13,42,.8)}
 html[data-theme="dark"] .theme{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.18)}
 @media(max-width:960px){.theme{top:12px;right:12px;padding:7px 10px}}
-body{margin:0;font-family:Poppins,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--paper);line-height:1.6;font-size:17px;transition:background .25s,color .25s}
+body{margin:0;font-family:Poppins,"Noto Sans Thai",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--paper);line-height:1.6;font-size:17px;transition:background .25s,color .25s}
 a{color:var(--blue);text-decoration:none}
 code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;background:var(--codebg);padding:1px 5px;border-radius:5px}
 
@@ -100,3 +100,17 @@ footer{margin-top:80px;border-top:1px solid var(--line);padding:24px 0 40px;colo
 /* support widget */
 elevenlabs-convai{position:fixed;bottom:18px;right:18px;z-index:60}
 @media(max-width:960px){.theme{top:12px;right:12px}}
+
+/* i18n switcher + social */
+.langsw{position:fixed;top:16px;right:120px;z-index:50;display:inline-flex;gap:2px;padding:4px;border-radius:999px;border:1px solid rgba(255,255,255,.18);background:rgba(11,13,42,.55);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.langsw button{border:0;background:transparent;color:rgba(255,255,255,.75);font:inherit;font-size:13px;font-weight:500;padding:5px 10px;border-radius:999px;cursor:pointer;font-family:Poppins,"Noto Sans Thai",sans-serif}
+.langsw button.on{background:#fff;color:#14151C}
+html[data-theme="dark"] .langsw{background:rgba(255,255,255,.1)}
+@media (max-width:640px){.langsw{top:12px;right:58px;padding:3px}.langsw button{padding:5px 7px;font-size:12px}.theme{padding:7px 9px}#theme-tx{display:none}.theme{top:12px;right:12px}.brand{margin-top:34px}}
+/* mobile overflow guards */
+.hero>*{min-width:0}.chips{flex-wrap:wrap}.arch pre{overflow-x:auto;max-width:100%}.wrap{overflow-x:clip}
+.social{display:inline-flex;align-items:center;gap:14px;color:var(--muted);font-size:15px}
+.social a{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:50%;border:1px solid var(--line);color:var(--ink2);transition:.15s}
+.social a svg{width:17px;height:17px}.social a:hover{color:var(--blue);border-color:var(--blue)}
+.social.center{justify-content:center;width:100%;margin-top:14px;margin-bottom:60px}
+.panel .foot+.social.center{margin-top:-50px}

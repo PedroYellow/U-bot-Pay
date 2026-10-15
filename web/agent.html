@@ -3,8 +3,9 @@
 <title>DataAgent — a paid AI service · ubotpay</title>
 <script>(function(){var t=localStorage.getItem("ubotpay-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.setAttribute("data-theme",t);})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://ubotpay.com/ubot.css">
+<script src="https://ubotpay.com/i18n.js"></script>
 <style>
 .steps{counter-reset:s;display:grid;gap:12px}
 .stp{display:flex;gap:12px;align-items:center;font-size:17px;color:rgba(255,255,255,.8);line-height:1.45}.stp>span{display:block}
@@ -14,44 +15,45 @@
 .card h4 .badge{vertical-align:middle;margin-left:6px}
 .stat{font-size:13px;color:var(--muted);margin-top:8px;min-height:20px}
 </style></head>
-<body>
+<body data-page="agent">
 <button class="theme" id="theme" type="button" aria-label="Toggle dark mode"><span id="theme-ic">🌙</span><span id="theme-tx">Dark</span></button>
 <div class="hero">
   <div class="dark">
     <a class="brand" href="https://ubotpay.com"><svg viewBox="0 0 64 64" aria-hidden="true"><defs><radialGradient id="g" cx="35%" cy="30%"><stop offset="0" stop-color="#BFE0FF"/><stop offset=".55" stop-color="#4C7DF0"/><stop offset="1" stop-color="#6C5CE7"/></radialGradient></defs><circle cx="32" cy="32" r="30" fill="url(#g)"/><g fill="#fff"><rect x="18" y="27" width="4" height="10" rx="2"/><rect x="25" y="22" width="4" height="20" rx="2"/><rect x="32" y="17" width="4" height="30" rx="2"/><rect x="39" y="22" width="4" height="20" rx="2"/><rect x="46" y="27" width="4" height="10" rx="2"/></g></svg>ubotpay <small>DATAAGENT</small></a>
     <div class="orbwrap" style="min-height:120px"><div class="orb sm"><div class="bars"><i style="--h:12px;--d:0s"></i><i style="--h:22px;--d:.15s"></i><i style="--h:32px;--d:.3s"></i><i style="--h:22px;--d:.45s"></i><i style="--h:12px;--d:.6s"></i></div></div></div>
     <div class="tag">
-      <h1>No API key. No card.<br>Just pay the request.</h1>
-      <p>DataAgent sells investor briefs for <b>0.50 USDC</b> each. It never asks who you are — only that the request carries a signed payment.</p>
+      <h1 data-i18n="a_h1">No API key. No card.<br>Just pay the request.</h1>
+      <p data-i18n="a_p">DataAgent sells investor briefs for <b>0.50 USDC</b> each. It never asks who you are — only that the request carries a signed payment.</p>
       <div class="steps" style="margin-top:22px">
-        <div class="stp"><span>Ask → service replies <b>402</b>: “pay 0.50 USDC here”.</span></div>
-        <div class="stp"><span>Sign the payment offline. No gas, no transaction yet.</span></div>
-        <div class="stp"><span>Ask again with the signature in the <code>X-PAYMENT</code> header.</span></div>
-        <div class="stp"><span>Service verifies, settles on Avalanche, returns the report.</span></div>
+        <div class="stp"><span data-i18n="a_s1">Ask → service replies <b>402</b>: “pay 0.50 USDC here”.</span></div>
+        <div class="stp"><span data-i18n="a_s2">Sign the payment offline. No gas, no transaction yet.</span></div>
+        <div class="stp"><span data-i18n="a_s3">Ask again with the signature in the <code>X-PAYMENT</code> header.</span></div>
+        <div class="stp"><span data-i18n="a_s4">Service verifies, settles on Avalanche, returns the report.</span></div>
       </div>
     </div>
   </div>
 
   <div class="light">
     <div class="panel wide">
-      <h2>Try it live</h2>
-      <p class="sub">Ask without paying. Then let ubotpay pay.</p>
-      <div class="kpis" style="margin:0 0 14px"><div class="kpi"><small>Price</small><b>0.50 USDC</b></div><div class="kpi"><small>Received</small><b id="k_recv">—</b></div><div class="kpi"><small>Network</small><b id="k_net">—</b></div></div>
+      <h2 data-i18n="a_try">Try it live</h2>
+      <p class="sub" data-i18n="a_try_sub">Ask without paying. Then let ubotpay pay.</p>
+      <div class="kpis" style="margin:0 0 14px"><div class="kpi"><small data-i18n="a_price">Price</small><b>0.50 USDC</b></div><div class="kpi"><small data-i18n="a_recv">Received</small><b id="k_recv">—</b></div><div class="kpi"><small data-i18n="a_net">Network</small><b id="k_net">—</b></div></div>
       <div class="two">
         <div class="card">
-          <h4>① Ask without paying <span class="badge warn">402</span></h4>
+          <h4><span data-i18n="a_c1">① Ask without paying</span> <span class="badge warn">402</span></h4>
           <div class="inputrow" style="margin-top:8px"><input id="co" value="Sequoia Capital"><button class="btn" id="ask">GET /report</button></div>
           <pre class="out" id="out402" style="margin-top:10px">—</pre>
         </div>
         <div class="card">
-          <h4>② Let ubotpay pay it <span class="badge ok">200</span></h4>
+          <h4><span data-i18n="a_c2">② Let ubotpay pay it</span> <span class="badge ok">200</span></h4>
           
-          <button class="btn primary" id="pay">🎙 ubotpay, ask DataAgent</button>
+          <button class="btn primary" id="pay" data-i18n="a_btn">🎙 ubotpay, ask DataAgent</button>
           <div class="stat" id="paystat"></div>
           <pre class="out" id="out200">—</pre>
         </div>
       </div>
-      <div class="foot"><a href="https://ubotpay.com">ubotpay</a><a href="https://github.com/PedroYellow/U-bot-Pay/blob/main/dataagent.py" target="_blank">Source</a><a id="payee" href="#" target="_blank">Payee on Snowtrace</a></div>
+      <div class="foot"><a href="https://ubotpay.com">ubotpay</a><a href="https://github.com/PedroYellow/U-bot-Pay/blob/main/dataagent.py" target="_blank" data-i18n="a_source">Source</a><a id="payee" href="#" target="_blank" data-i18n="a_payee">Payee on Snowtrace</a><a href="https://ubotpay.com/#contact" data-i18n="f_contact">Contact</a></div>
+      <div class="social center"><span data-i18n="follow">Follow us</span><a href="https://x.com/Ubotpay" target="_blank" rel="noopener" title="X · @Ubotpay"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.9 2H22l-7.3 8.3L23.2 22h-6.7l-5.2-6.8L5.3 22H2.2l7.8-8.9L1.5 2h6.9l4.7 6.2L18.9 2zm-1.2 18h1.8L7 3.9H5.1L17.7 20z"/></svg></a><a href="https://t.me/Ubotpaybot" target="_blank" rel="noopener" title="Telegram"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9.6 15.5l-.4 5.3c.6 0 .8-.2 1.1-.5l2.6-2.5 5.4 4c1 .5 1.7.3 2-.9L23.9 3.6c.3-1.4-.5-2-1.5-1.6L1.7 10c-1.4.5-1.4 1.3-.2 1.7l5.3 1.6L19 5.6c.6-.4 1.1-.2.7.2L9.6 15.5z"/></svg></a><a href="https://github.com/PedroYellow/U-bot-Pay" target="_blank" rel="noopener" title="GitHub"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .5C5.6.5.5 5.6.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.3.8-.6v-2.1c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.7 1.3 3.4 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.9 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.2c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.6 18.4.5 12 .5z"/></svg></a></div>
     </div>
   </div>
 </div>
@@ -60,16 +62,16 @@ const $=id=>document.getElementById(id);
 const refresh=()=>fetch("/health").then(r=>r.json()).then(h=>{$("k_recv").textContent=h.payee_usdc+" USDC";$("k_net").textContent=h.network==="avalanche-mainnet"?"Mainnet":h.network;$("payee").href="https://snowtrace.io/address/"+h.payee;});
 refresh();
 $("ask").onclick=async()=>{$("out402").textContent="…";const r=await fetch("/report?company="+encodeURIComponent($("co").value));const j=await r.json();$("out402").textContent="HTTP "+r.status+"\n"+JSON.stringify(j,null,1);};
-$("pay").onclick=async()=>{$("paystat").textContent="ubotpay is paying…";$("out200").textContent="…";
+$("pay").onclick=async()=>{$("paystat").textContent=I18N.t("a_paying");$("out200").textContent="…";
   try{const r=await fetch("https://api.ubotpay.com/agent/query",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":"__UBOT_API_KEY__"},body:JSON.stringify({company:$("co").value})});const j=await r.json();
     const p=(j.body||{}).payment||{};$("paystat").innerHTML=j.paid?`<span class="badge ok">PAID</span>${j.price_usdc} USDC · ${j.latency_s}s · <a href="${p.explorer}" target="_blank">tx ↗</a>`:`<span class="badge bad">FAILED</span>${(j.body||{}).error||j.error||j.status}`;
     $("out200").textContent="HTTP "+j.status+"\n"+JSON.stringify(j.body,null,1);refresh();}
   catch(e){$("paystat").textContent="error: "+e.message}};
-</script><script>(function(){var b=document.getElementById("theme"),ic=document.getElementById("theme-ic"),tx=document.getElementById("theme-tx");function paint(){var d=document.documentElement.getAttribute("data-theme")==="dark";ic.textContent=d?"☀️":"🌙";tx.textContent=d?"Light":"Dark";}b.onclick=function(){var d=document.documentElement.getAttribute("data-theme")==="dark";document.documentElement.setAttribute("data-theme",d?"light":"dark");localStorage.setItem("ubotpay-theme",d?"light":"dark");paint();};paint();})();</script>
+</script><script>(function(){var b=document.getElementById("theme"),ic=document.getElementById("theme-ic"),tx=document.getElementById("theme-tx");function paint(){var d=document.documentElement.getAttribute("data-theme")==="dark";ic.textContent=d?"☀️":"🌙";tx.textContent=d?(window.I18N?I18N.t("light"):"Light"):(window.I18N?I18N.t("dark"):"Dark");}b.onclick=function(){var d=document.documentElement.getAttribute("data-theme")==="dark";document.documentElement.setAttribute("data-theme",d?"light":"dark");localStorage.setItem("ubotpay-theme",d?"light":"dark");paint();};paint();})();</script>
 <!-- ubotpay support widget (ElevenLabs Conversational AI) -->
 <script>
 (function(){
-  var ALLOWED = ["https://ubotpay.com/pitch","https://t.me/Ubotpaybot","https://agent.ubotpay.com","https://github.com/PedroYellow/U-bot-Pay","https://api.ubotpay.com/docs"];
+  var ALLOWED = ["https://ubotpay.com/pitch","https://ubotpay.com/deck","https://t.me/Ubotpaybot","https://x.com/Ubotpay","https://agent.ubotpay.com","https://github.com/PedroYellow/U-bot-Pay","https://api.ubotpay.com/docs","mailto:hello@ubotpay.com"];
   function openUrl(p){ var u=(p&&p.url||"").trim().replace(/\/$/,""); if(!ALLOWED.some(function(a){return a.replace(/\/$/,"")===u;})) return "blocked"; var samesite = u.indexOf("ubotpay.com/pitch")>-1; var w = window.open(u, samesite ? "_self" : "_blank"); return w||samesite ? "opened" : "popup-blocked"; }
   function hook(e){ try { e.detail.config.clientTools = Object.assign({}, e.detail.config.clientTools, { open_url: openUrl }); console.log("[ubotpay] open_url tool registered"); } catch(err){ console.warn("[ubotpay] hook failed", err); } }
   window.addEventListener("elevenlabs-convai:call", hook); document.addEventListener("elevenlabs-convai:call", hook);
