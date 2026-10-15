@@ -1,0 +1,9 @@
+.env
+*.env
+wallet.env
+*.db
+__pycache__/
+*.pyc
+venv/
+.venv/
+test_brain.py

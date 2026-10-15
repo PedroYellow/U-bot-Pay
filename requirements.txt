@@ -1,0 +1,9 @@
+web3>=7
+fastapi
+uvicorn
+httpx
+python-telegram-bot==21.*
+anthropic
+apscheduler
+pyyaml
+python-multipart
