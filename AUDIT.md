@@ -33,6 +33,11 @@ Real mainnet txs: remittance 2.91 USDC in 1.78 s · x402 0.50 USDC in 2.23 s · 
 - Demo treasury private key lives on the VPS (`/opt/ubotpay/.env`). Fine for ≤ 50 USDC; never fund it with more.
 - `.agent_id` and the ElevenLabs quota (Starter, 40k chars, ~3k used) — a full demo run uses ~1.5k chars.
 
+### Business model (added after audit, verified on-chain)
+- 0.5 % transfer fee + 0.3 % FX spread + 1 % agent-rail take → `UBOT_REVENUE_ADDRESS` = Pedro's Core wallet `0xbE44…B209`.
+- Verified: invoice 3.00 USDC → recipient +3.00, fee tx 0.01 USDC to revenue wallet; Core balance 8.73 → 11.74 ✅
+- Known loss: 0.02 USDC + 0.002 AVAX stranded in a temporary revenue wallet whose key was deleted during the switch (≈ 4 cents).
+
 ### Treasury at audit time
 0.2988 AVAX (gas for ~80 txs) · 43.68 USDC · DataAgent payee 0.5 USDC
 

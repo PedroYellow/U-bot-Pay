@@ -54,7 +54,7 @@ async def parse(text: str, context: dict | None = None) -> dict:
 # Spoken replies in the user's language (short, for TTS)
 SAY = {
     "en": {"balance": "You have {usdc} USDC, about {local} {ccy}.",
-           "quote": "That's {usdc} USDC to {name}, FX {rate}, zero fees. Shall I send it?",
+           "quote": "That's {usdc} USDC to {name}, FX {rate}, {fee}. Shall I send it?",
            "sent": "Done. Sent in {lat} seconds.",
            "needs_approval": "That amount needs a second approval. I've asked {approver}. I'll tell you when it's cleared.",
            "approved_sent": "Approved and sent in {lat} seconds.",
@@ -67,7 +67,7 @@ SAY = {
            "agent_fail": "DataAgent didn't answer: {err}",
            "help": "I can check your balance, send money, read your invoices, and pay them. Just tell me."},
     "es": {"balance": "Tienes {usdc} USDC, unos {local} {ccy}.",
-           "quote": "Son {usdc} USDC para {name}, cambio {rate}, sin comisión. ¿Lo envío?",
+           "quote": "Son {usdc} USDC para {name}, cambio {rate}, {fee}. ¿Lo envío?",
            "sent": "Hecho. Enviado en {lat} segundos.",
            "needs_approval": "Ese importe necesita una segunda aprobación. Se lo he pedido a {approver}. Te aviso cuando esté.",
            "approved_sent": "Aprobado y enviado en {lat} segundos.",
@@ -80,7 +80,7 @@ SAY = {
            "agent_fail": "DataAgent no respondió: {err}",
            "help": "Puedo ver tu saldo, enviar dinero, leer tus facturas y pagarlas. Dime."},
     "th": {"balance": "คุณมี {usdc} USDC ประมาณ {local} {ccy}",
-           "quote": "เท่ากับ {usdc} USDC ให้ {name} อัตรา {rate} ไม่มีค่าธรรมเนียม ส่งเลยไหม",
+           "quote": "เท่ากับ {usdc} USDC ให้ {name} อัตรา {rate} {fee} ส่งเลยไหม",
            "sent": "เรียบร้อย ส่งแล้วใน {lat} วินาที",
            "needs_approval": "จำนวนนี้ต้องมีการอนุมัติครั้งที่สอง ฉันขอ {approver} แล้ว จะแจ้งเมื่อผ่าน",
            "approved_sent": "อนุมัติและส่งแล้วใน {lat} วินาที",

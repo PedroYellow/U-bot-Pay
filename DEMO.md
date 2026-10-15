@@ -25,7 +25,7 @@
 🎙 **"Yes"**
 🤖 *"Done. Sent in 0.9 seconds."* → console shows SETTLED + tx link. Click it → Snowtrace.
 
-> "That was a cross-border payment. Not T+2. Not 3%. Under a second, zero fees, confirmed by voice."
+> "That was a cross-border payment. Not T+2. Not 5%. Under two seconds, a two-cent fee shown out loud, confirmed by voice."
 
 ## 1:25 — Invoices, in Spanish (30s)
 🎙 **"¿Qué facturas tengo pendientes?"**

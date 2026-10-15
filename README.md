@@ -110,6 +110,17 @@ Create an agent in [ElevenLabs Agents](https://elevenlabs.io/app/agents) and add
 | `POST` | `/demo/seed` | Demo contacts + invoices |
 | `GET` | `/health` | Chain + treasury status |
 
+## Business model (live, on every quote)
+
+| Stream | Rate | Where it goes |
+|---|---|---|
+| Transfer fee | 0.5 % (min 0.01 USDC) | revenue wallet, 2nd transfer in the same settlement |
+| FX spread | 0.3 % on local-currency quotes | same |
+| Agent rail (x402) | 1 % of every agent-to-agent payment | same |
+| Business plan | monthly SaaS (dual control, invoices, audit) | roadmap |
+
+Recipient always receives the full amount; sender sees "our fee is 2 cents" in the spoken quote and "you save 0.14 USDC vs bank" on screen. `GET /pricing` returns the model, a worked example and live revenue stats. Configure with `UBOT_FEE_PCT`, `UBOT_FX_SPREAD_PCT`, `UBOT_AGENT_TAKE_PCT`, `UBOT_REVENUE_ADDRESS`.
+
 ## Agents paying agents — x402 live demo
 
 `dataagent.py` is an independent paid AI service at **https://agent.ubotpay.com** (0.50 USDC per company report).

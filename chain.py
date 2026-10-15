@@ -59,19 +59,31 @@ def account():
     return Account.from_key(os.environ["UBOT_PRIVATE_KEY"])
 
 
-def send_usdc(to: str, amount, memo_hash: str | None = None) -> dict:
-    """Plain ERC-20 transfer from the U-bot treasury wallet. Returns hash + latency."""
+REVENUE_ADDRESS = os.environ.get("UBOT_REVENUE_ADDRESS")  # where fees go (optional)
+
+
+def _transfer(acct, to, amount, nonce):
+    tx = usdc.functions.transfer(Web3.to_checksum_address(to), to_units(amount)).build_transaction({
+        "from": acct.address, "nonce": nonce, "chainId": CHAIN_ID, "gas": 90_000,
+        "maxFeePerGas": w3.to_wei(30, "gwei"), "maxPriorityFeePerGas": w3.to_wei(1, "gwei")})
+    return w3.eth.send_raw_transaction(acct.sign_transaction(tx).raw_transaction)
+
+
+def send_usdc(to: str, amount, memo_hash: str | None = None, fee: float = 0.0) -> dict:
+    """Recipient gets `amount` in full. If fee > 0 and a revenue wallet is set, a second transfer
+    pays the fee to UBOT_REVENUE_ADDRESS (sent back-to-back, confirmed together)."""
     acct = account()
-    to = Web3.to_checksum_address(to)
     t0 = time.time()
-    tx = usdc.functions.transfer(to, to_units(amount)).build_transaction({
-        "from": acct.address, "nonce": w3.eth.get_transaction_count(acct.address),
-        "chainId": CHAIN_ID, "gas": 90_000, "maxFeePerGas": w3.to_wei(30, "gwei"), "maxPriorityFeePerGas": w3.to_wei(1, "gwei")})
-    signed = acct.sign_transaction(tx)
-    h = w3.eth.send_raw_transaction(signed.raw_transaction)
+    nonce = w3.eth.get_transaction_count(acct.address)
+    h = _transfer(acct, to, amount, nonce)
+    h_fee = None
+    if fee and fee >= 0.01 and REVENUE_ADDRESS:
+        h_fee = _transfer(acct, REVENUE_ADDRESS, fee, nonce + 1)
     rcpt = w3.eth.wait_for_transaction_receipt(h, timeout=60)
+    if h_fee: w3.eth.wait_for_transaction_receipt(h_fee, timeout=60)
     return {"tx": h.hex(), "ok": rcpt.status == 1, "block": rcpt.blockNumber,
-            "latency_s": round(time.time() - t0, 2), "explorer": f"{EXPLORER}/tx/{h.hex()}"}
+            "latency_s": round(time.time() - t0, 2), "explorer": f"{EXPLORER}/tx/{h.hex()}",
+            "fee_tx": h_fee.hex() if h_fee else None, "fee_explorer": f"{EXPLORER}/tx/{h_fee.hex()}" if h_fee else None, "fee_usdc": fee if h_fee else 0.0}
 
 
 # ───────── EIP-3009 / x402-style: payer signs offline, payee (or anyone) submits ─────────

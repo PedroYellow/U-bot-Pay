@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS contacts(
   country TEXT, currency TEXT DEFAULT 'USDC', is_agent INTEGER DEFAULT 0, UNIQUE(user_id, alias));
 CREATE TABLE IF NOT EXISTS payments(
   id TEXT PRIMARY KEY, user_id INTEGER, contact_alias TEXT, to_address TEXT,
-  amount_usdc REAL, amount_local REAL, local_ccy TEXT, fx_rate REAL,
+  amount_usdc REAL, amount_local REAL, local_ccy TEXT, fx_rate REAL, fee_usdc REAL DEFAULT 0,
   memo TEXT, memo_hash TEXT, status TEXT, tx TEXT, latency_s REAL, channel TEXT,
   needs_approval INTEGER DEFAULT 0, approved_by INTEGER, created_at INTEGER, settled_at INTEGER);
 CREATE TABLE IF NOT EXISTS invoices(
@@ -45,13 +45,36 @@ def init():
         c.executescript(SCHEMA)
 
 
+# ───────── pricing (business model) ─────────
+# Recipient always receives `amount_usdc` in full. The sender pays `total_usdc` = amount + fee.
+#   fee_usdc  = FEE_PCT of amount (min FEE_MIN) + FX spread (SPREAD_PCT, only on non-USDC currencies)
+# Fees go to REVENUE_ADDRESS (a second USDC transfer in the same settlement).
+FEE_PCT    = float(os.environ.get("UBOT_FEE_PCT", "0.5")) / 100     # 0.5 % per transfer
+FEE_MIN    = float(os.environ.get("UBOT_FEE_MIN_USDC", "0.01"))     # never below 1 cent
+SPREAD_PCT = float(os.environ.get("UBOT_FX_SPREAD_PCT", "0.3")) / 100  # 0.3 % FX spread
+AGENT_TAKE_PCT = float(os.environ.get("UBOT_AGENT_TAKE_PCT", "1.0")) / 100  # 1 % on x402 agent payments
+BANK_PCT   = 0.055   # what a bank / remittance shop charges (for the "you saved" line)
+
+
 def quote(amount: float, ccy: str) -> dict:
     ccy = ccy.upper()
     if ccy == "USDC":
-        return {"amount_usdc": round(amount, 2), "amount_local": amount, "local_ccy": "USDC", "fx_rate": 1.0, "fee_usdc": 0.0}
-    rate = FX[ccy]
-    usdc_amt = round(amount * rate, 2)
-    return {"amount_usdc": usdc_amt, "amount_local": amount, "local_ccy": ccy, "fx_rate": round(1 / rate, 4), "fee_usdc": 0.0}
+        amt = round(amount, 2); spread = 0.0; rate_shown = 1.0
+    else:
+        mid = FX[ccy]; amt = round(amount * mid, 2)
+        spread = round(amt * SPREAD_PCT, 4); rate_shown = round(1 / mid, 4)
+    fee_base = round(max(amt * FEE_PCT, FEE_MIN), 4)
+    fee = round(fee_base + spread, 2) if (fee_base + spread) >= 0.01 else 0.01
+    return {"amount_usdc": amt, "amount_local": amount, "local_ccy": ccy, "fx_rate": rate_shown,
+            "fee_usdc": fee, "fee_pct": round(100 * fee / amt, 2) if amt else 0, "total_usdc": round(amt + fee, 2),
+            "bank_fee_usdc": round(amt * BANK_PCT, 2), "saved_usdc": round(amt * BANK_PCT - fee, 2),
+            "pricing": {"fee_pct": FEE_PCT * 100, "fee_min": FEE_MIN, "fx_spread_pct": SPREAD_PCT * 100}}
+
+
+def revenue_stats() -> dict:
+    with conn() as c:
+        r = c.execute("SELECT COUNT(*) n, COALESCE(SUM(amount_usdc),0) vol, COALESCE(SUM(fee_usdc),0) fees FROM payments WHERE status='settled'").fetchone()
+        return {"settled_payments": r["n"], "volume_usdc": round(r["vol"], 2), "revenue_usdc": round(r["fees"], 4)}
 
 
 # ───────── users / contacts ─────────
@@ -125,9 +148,9 @@ def create_payment(user_id, contact, q: dict, memo: str, channel: str, needs_app
     pid = "pay_" + secrets.token_hex(6)
     memo_hash = hashlib.sha256(f"{pid}|{memo}".encode()).hexdigest() if memo else None
     with conn() as c:
-        c.execute("""INSERT INTO payments(id,user_id,contact_alias,to_address,amount_usdc,amount_local,local_ccy,fx_rate,memo,memo_hash,status,channel,needs_approval,created_at)
-                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                  (pid, user_id, contact["alias"], contact["address"], q["amount_usdc"], q["amount_local"], q["local_ccy"], q["fx_rate"],
+        c.execute("""INSERT INTO payments(id,user_id,contact_alias,to_address,amount_usdc,amount_local,local_ccy,fx_rate,fee_usdc,memo,memo_hash,status,channel,needs_approval,created_at)
+                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  (pid, user_id, contact["alias"], contact["address"], q["amount_usdc"], q["amount_local"], q["local_ccy"], q["fx_rate"], q.get("fee_usdc", 0),
                    memo, memo_hash, "pending_approval" if needs_approval else "pending", channel, int(needs_approval), int(time.time())))
         return dict(c.execute("SELECT * FROM payments WHERE id=?", (pid,)).fetchone())
 

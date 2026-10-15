@@ -61,7 +61,7 @@ def health():
         b = chain.balance(os.environ["UBOT_WALLET_ADDRESS"])
     except Exception as e:
         b = {"error": str(e)[:80]}
-    return {"ok": True, "chain": chain.NETWORK_NAME, "treasury": b, "ts": int(time.time())}
+    return {"ok": True, "chain": chain.NETWORK_NAME, "revenue": core.revenue_stats(), "treasury": b, "ts": int(time.time())}
 
 
 @app.post("/turn")
@@ -154,6 +154,13 @@ async def turn(t: Turn, x_api_key: str | None = Header(default=None)):
             err = (r.get("body") or {}).get("error") or r.get("error") or f"HTTP {r.get('status')}"
             return {"say": say(lang, "agent_fail", err=str(err)[:120]), "action": "failed", "data": r}
         rep = r["body"].get("report", {}); pay = r["body"].get("payment", {})
+        take = round(r["price_usdc"] * core.AGENT_TAKE_PCT, 4)
+        if take >= 0.01 and chain.REVENUE_ADDRESS:
+            try:
+                tk = await asyncio.to_thread(chain.send_usdc, chain.REVENUE_ADDRESS, take, None, 0.0)
+                pay["ubotpay_take_usdc"] = take; pay["take_tx"] = tk.get("explorer")
+            except Exception as e:
+                log.warning("take-rate transfer failed: %s", e)
         summary = rep.get("summary", "")
         if rep.get("score_0_100") is not None: summary += f" Score {rep['score_0_100']}/100."
         core.add_contact(uid, "dataagent", "DataAgent (AI service)", pay.get("payee", ""), "—", is_agent=1)
@@ -166,13 +173,31 @@ async def turn(t: Turn, x_api_key: str | None = Header(default=None)):
     return {"say": say(lang, "help"), "action": "none", "data": {}}
 
 
+def _fee_words(q, lang):
+    f = q.get("fee_usdc", 0)
+    if f < 0.005: return {"en": "no fee", "es": "sin comisión", "th": "ไม่มีค่าธรรมเนียม"}.get(lang, "no fee")
+    cents = round(f * 100)
+    if f < 1:
+        return {"en": f"our fee is {cents} cent{'s' if cents != 1 else ''}", "es": f"comisión {cents} céntimo{'s' if cents != 1 else ''}", "th": f"ค่าธรรมเนียม {cents} เซนต์"}.get(lang, f"fee {f} USDC")
+    return {"en": f"our fee is {f} USDC", "es": f"comisión {f} USDC", "th": f"ค่าธรรมเนียม {f} USDC"}.get(lang, f"fee {f} USDC")
+
+
+@app.get("/pricing")
+def pricing():
+    """Business model, machine-readable."""
+    ex = core.quote(100, "THB")
+    return {"model": {"transfer_fee_pct": core.FEE_PCT * 100, "transfer_fee_min_usdc": core.FEE_MIN, "fx_spread_pct": core.SPREAD_PCT * 100,
+                      "agent_payment_take_pct": core.AGENT_TAKE_PCT * 100, "bank_benchmark_pct": core.BANK_PCT * 100},
+            "example_100_thb": ex, "revenue_wallet": chain.REVENUE_ADDRESS, "stats": core.revenue_stats()}
+
+
 def _stage_payment(user, lang, contact, q, memo, channel, invoice_id=None):
-    pol = core.check_policy(user, q["amount_usdc"])
+    pol = core.check_policy(user, q.get("total_usdc", q["amount_usdc"]))
     if not pol["allowed"]:
         return {"say": say(lang, "limit", limit=user["daily_limit"]), "action": "blocked", "data": pol}
     _pending[user["id"]] = {"contact": contact, "quote": q, "memo": memo, "channel": channel,
                             "needs_approval": pol["needs_approval"], "invoice_id": invoice_id, "ts": time.time()}
-    return {"say": say(lang, "quote", usdc=q["amount_usdc"], name=contact["name"], rate=q["fx_rate"]),
+    return {"say": say(lang, "quote", usdc=q["amount_usdc"], name=contact["name"], rate=q["fx_rate"], fee=_fee_words(q, lang)),
             "action": "confirm_needed", "data": {"quote": q, "to": contact["name"], "needs_approval": pol["needs_approval"]}}
 
 
@@ -184,7 +209,7 @@ async def _execute(user, lang, p):
             asyncio.create_task(NOTIFY(approver, f"🔐 Approval needed\n{user['name']} wants to send {pay['amount_usdc']} USDC to {p['contact']['name']}.\nReply: /approve {pay['id']}  or  /reject {pay['id']}"))
         return {"say": say(lang, "needs_approval", approver="your co-signer"), "action": "pending_approval", "data": pay}
     try:
-        r = await asyncio.to_thread(chain.send_usdc, p["contact"]["address"], p["quote"]["amount_usdc"], pay["memo_hash"])
+        r = await asyncio.to_thread(chain.send_usdc, p["contact"]["address"], p["quote"]["amount_usdc"], pay["memo_hash"], p["quote"].get("fee_usdc", 0.0))
         core.mark(pay["id"], "settled" if r["ok"] else "failed", r["tx"], r["latency_s"])
         if p.get("invoice_id"): core.pay_invoice(p["invoice_id"], r["tx"])
         return {"say": say(lang, "sent", lat=r["latency_s"]), "action": "settled", "data": {**pay, **r}}
@@ -213,7 +238,7 @@ async def approve(a: Approve, x_api_key: str | None = Header(default=None)):
         core.mark(pay["id"], "rejected", approved_by=int(a.approver_key))
         if NOTIFY: asyncio.create_task(NOTIFY(user["telegram_id"], f"❌ Payment {pay['id']} rejected by co-signer."))
         return {"ok": True, "status": "rejected"}
-    r = await asyncio.to_thread(chain.send_usdc, pay["to_address"], pay["amount_usdc"], pay["memo_hash"])
+    r = await asyncio.to_thread(chain.send_usdc, pay["to_address"], pay["amount_usdc"], pay["memo_hash"], pay.get("fee_usdc") or 0.0)
     core.mark(pay["id"], "settled" if r["ok"] else "failed", r["tx"], r["latency_s"], approved_by=int(a.approver_key))
     if NOTIFY: asyncio.create_task(NOTIFY(user["telegram_id"], f"✅ Approved & sent {pay['amount_usdc']} USDC to {pay['contact_alias']} in {r['latency_s']}s\n{r['explorer']}"))
     return {"ok": True, "status": "settled", **r}
