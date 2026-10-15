@@ -25,7 +25,7 @@
     </div>
     <div class="tag">
       <h1>Say it. Confirm it. Settled.</h1>
-      <p>ubotpay is the assistant that moves your money. Speak in any language — it quotes the FX, asks you to confirm, and settles USDC on Avalanche in under two seconds.</p>
+      <p>Speak in any language. Confirm with your voice. USDC settles on Avalanche in under two seconds.</p>
       <div class="chips"><span class="chip">🎙 Voice</span><span class="chip">⛓ Avalanche</span><span class="chip">💵 USDC</span><span class="chip">🔐 Dual control</span><span class="chip">🤖 x402</span></div>
     </div>
   </div>
@@ -33,11 +33,11 @@
   <div class="light">
     <div class="panel">
       <h2>Talk to ubotpay</h2>
-      <p class="sub">Press the mic, or type. Every payment needs your spoken yes.</p>
+      <p class="sub">Press the mic or type.</p>
       <div class="console">
         <div class="state"><span>Status · <b id="orbstate">ready</b></span><span id="netstat">checking…</span></div>
         <div class="microw" id="microw" style="display:none"><span>🎤</span><div class="meter"><div id="lvl"></div></div><select id="micsel" title="Microphone"></select></div>
-        <div id="log"><div class="msg sys">Try: “How much do I have?” · “Send 100 baht to mom” · “What invoices do I have?” · “Ask DataAgent about Sequoia”</div></div>
+        <div id="log"><div class="msg sys">Try: “Send 100 baht to mom” · “What invoices do I have?”</div></div>
         <div class="inputrow"><button class="btn mic" id="mic" title="Talk to ubotpay">🎙</button><input id="inp" placeholder="Ask ubotpay…" autocomplete="off"><button class="btn primary" id="send">Send</button></div>
         <div class="kpis"><div class="kpi"><small>Treasury</small><b id="k_usdc">—</b></div><div class="kpi"><small>Last settlement</small><b id="k_lat">—</b></div><div class="kpi"><small>Chain</small><b id="k_chain">Avalanche</b></div></div>
       </div>
@@ -50,46 +50,41 @@
 <div class="wrap">
 <section id="how">
   <h3 class="t">How it works</h3>
-  <p class="sub2">One conversation. Four safeguards. Under two seconds.</p>
+  <p class="sub2">One conversation. Under two seconds.</p>
   <div class="flow">
-    <div class="step"><b>1 · Speak</b><span>“Mándale 100 baht a mi madre.” Any of 90+ languages.</span></div>
-    <div class="step"><b>2 · Understand</b><span>Claude extracts intent, amount, currency and recipient.</span></div>
-    <div class="step"><b>3 · Quote</b><span>Local amount → USDC. FX shown. Zero fees.</span></div>
-    <div class="step"><b>4 · Confirm</b><span>Nothing moves without a spoken “yes”. Big amounts ask a co-signer.</span></div>
-    <div class="step"><b>5 · Settle</b><span>USDC on Avalanche. Sub-second finality, tx on screen.</span></div>
+    <div class="step"><b>1 · Speak</b><span>“Send 100 baht to mom.” Any language.</span></div>
+    <div class="step"><b>2 · Quote</b><span>100 THB = 2.91 USDC. Zero fees.</span></div>
+    <div class="step"><b>3 · Confirm</b><span>Nothing moves without your “yes”.</span></div>
+    <div class="step"><b>4 · Settled</b><span>USDC on Avalanche. Receipt on screen.</span></div>
+    
   </div>
 </section>
 
 <section>
-  <h3 class="t">Why it wins</h3>
-  <p class="sub2">Institutional rails like Canton and Stellar move trillions, but nobody <i>talks</i> to them. Consumer apps have buttons, not conversations. ubotpay is the missing layer.</p>
+  <h3 class="t">Why it matters</h3>
+  <p class="sub2">Banks have rails. Apps have buttons. Nobody has a conversation — until now.</p>
   <div class="grid">
-    <div class="card"><div class="ic">🎙</div><h4>ElevenLabs, end to end</h4><p>Conversational agent with webhook tools, 90+ languages, voice as the confirmation factor.</p></div>
-    <div class="card"><div class="ic">⛓</div><h4>Avalanche, for real</h4><p>Live on mainnet. USDC on C-Chain, sub-second finality, EIP-3009 for agent payments.</p></div>
-    <div class="card"><div class="ic">🔐</div><h4>Institutional policy, consumer UX</h4><p>Daily limits, dual control above a threshold, hashed memos on-chain.</p></div>
-    <div class="card"><div class="ic">🌏</div><h4>Built for Bangkok</h4><p>Thai, Burmese, Khmer, Lao, Vietnamese. Remittances and supplier payments in the language people speak.</p></div>
-    <div class="card"><div class="ic">✈️</div><h4>Lives where users are</h4><p>Telegram voice notes, a phone call, or this page. One brain behind every channel.</p></div>
-    <div class="card"><div class="ic">🤖</div><h4>Agents pay agents</h4><p>ubotpay hires another AI service and pays it per request via x402 — no human in the loop.</p></div>
+    <div class="card"><div class="ic">🎙</div><h4>Voice-first</h4><p>90+ languages. Your voice is the confirmation.</p></div>
+    <div class="card"><div class="ic">⛓</div><h4>Live on Avalanche</h4><p>Real USDC, mainnet, under two seconds.</p></div>
+    <div class="card"><div class="ic">🔐</div><h4>Safe by design</h4><p>Daily limits. Big payments need a second approval.</p></div>
+    <div class="card"><div class="ic">🌏</div><h4>Built for Asia</h4><p>Thai, Vietnamese, Khmer, Burmese. Remittances and suppliers.</p></div>
+    <div class="card"><div class="ic">✈️</div><h4>Anywhere</h4><p>Telegram, phone call, or this page.</p></div>
+    <div class="card"><div class="ic">🤖</div><h4>Agents pay agents</h4><p>Pays other AI services per request via x402.</p></div>
   </div>
 </section>
 
 <section>
-  <h3 class="t">Architecture</h3>
+  <h3 class="t">Under the hood</h3>
   <div class="arch"><pre>
- Telegram voice note      ElevenLabs Agent (call / this page)      REST / other agents
-        │ STT                      │ webhook tool                   │
-        └──────────────┬───────────┴────────────────────────────────┘
-                       ▼
-            POST https://api.ubotpay.com/turn        (FastAPI)
-              brain.py  → Claude intent parser (multi-language)
-              core.py   → users · contacts · FX · limits · dual-control · invoices
-              chain.py  → Avalanche C-Chain · USDC · EIP-3009 (x402)
-                       ▼
-            Avalanche C-Chain — USDC — sub-second finality</pre></div>
-  <div class="links"><a class="link" href="https://api.ubotpay.com/docs" target="_blank">API docs ↗</a><a class="link" href="https://agent.ubotpay.com" target="_blank">DataAgent (x402) ↗</a><a class="link" href="https://snowtrace.io/address/0x673678B1870Ae7ef598A5982D25ffdee68d85669" target="_blank">Treasury on Snowtrace ↗</a><a class="link" href="https://github.com/PedroYellow/U-bot-Pay" target="_blank">GitHub ↗</a></div>
+ Voice (ElevenLabs) · Telegram · API
+            ↓
+   ubotpay brain  —  Claude understands · policy checks · FX quote
+            ↓
+   Avalanche C-Chain  —  USDC settles in &lt; 2 s</pre></div>
+  <div class="links"><a class="link" href="https://api.ubotpay.com/docs" target="_blank">API ↗</a><a class="link" href="https://agent.ubotpay.com" target="_blank">DataAgent ↗</a><a class="link" href="https://snowtrace.io/address/0x673678B1870Ae7ef598A5982D25ffdee68d85669" target="_blank">Treasury ↗</a><a class="link" href="https://github.com/PedroYellow/U-bot-Pay" target="_blank">GitHub ↗</a></div>
 </section>
 
-<footer><span>ubotpay · built in 48h at U-Hackathon 2026, FLOW Summit Bangkok</span><span>Partners: ElevenLabs · Avalanche · U-topia</span></footer>
+<footer><span>ubotpay · U-Hackathon 2026, Bangkok</span><span>ElevenLabs · Avalanche · U-topia</span></footer>
 </div>
 
 <script type="module">

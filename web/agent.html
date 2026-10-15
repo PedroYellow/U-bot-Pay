@@ -6,8 +6,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://ubotpay.com/ubot.css">
 <style>
-.steps{counter-reset:s;display:grid;gap:10px}
-.stp{display:flex;gap:12px;align-items:flex-start;font-size:14px;color:rgba(255,255,255,.75);line-height:1.5}.stp>span{display:block}
+.steps{counter-reset:s;display:grid;gap:12px}
+.stp{display:flex;gap:12px;align-items:center;font-size:17px;color:rgba(255,255,255,.8);line-height:1.45}.stp>span{display:block}
 .stp:before{counter-increment:s;content:counter(s);width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);display:grid;place-items:center;font-size:12px;color:#fff;flex:none;font-weight:600}
 .stp code{background:rgba(255,255,255,.1);color:#fff;white-space:nowrap}
 .two{display:grid;gap:12px}
@@ -19,15 +19,15 @@
 <div class="hero">
   <div class="dark">
     <a class="brand" href="https://ubotpay.com"><svg viewBox="0 0 64 64" aria-hidden="true"><defs><radialGradient id="g" cx="35%" cy="30%"><stop offset="0" stop-color="#BFE0FF"/><stop offset=".55" stop-color="#4C7DF0"/><stop offset="1" stop-color="#6C5CE7"/></radialGradient></defs><circle cx="32" cy="32" r="30" fill="url(#g)"/><g fill="#fff"><rect x="18" y="27" width="4" height="10" rx="2"/><rect x="25" y="22" width="4" height="20" rx="2"/><rect x="32" y="17" width="4" height="30" rx="2"/><rect x="39" y="22" width="4" height="20" rx="2"/><rect x="46" y="27" width="4" height="10" rx="2"/></g></svg>ubotpay <small>DATAAGENT</small></a>
-    <div class="orbwrap" style="min-height:160px"><div class="orb sm"><div class="bars"><i style="--h:12px;--d:0s"></i><i style="--h:22px;--d:.15s"></i><i style="--h:32px;--d:.3s"></i><i style="--h:22px;--d:.45s"></i><i style="--h:12px;--d:.6s"></i></div></div></div>
+    <div class="orbwrap" style="min-height:120px"><div class="orb sm"><div class="bars"><i style="--h:12px;--d:0s"></i><i style="--h:22px;--d:.15s"></i><i style="--h:32px;--d:.3s"></i><i style="--h:22px;--d:.45s"></i><i style="--h:12px;--d:.6s"></i></div></div></div>
     <div class="tag">
       <h1>No API key. No card.<br>Just pay the request.</h1>
-      <p>DataAgent is an independent AI service that sells investor briefs for <b>0.50 USDC</b>. It doesn't know who you are — it only checks that your HTTP request carries a valid signed USDC authorization. That's x402, settled on Avalanche.</p>
-      <div class="steps" style="margin-top:28px">
-        <div class="stp"><span>Client asks for the resource. Service replies <b>402</b> with <code>payTo</code>, <code>amount</code>, <code>asset</code>, <code>network</code>.</span></div>
-        <div class="stp"><span>Client signs an EIP-712 <code>TransferWithAuthorization</code> (USDC's EIP-3009). No gas, no tx yet — just a signature.</span></div>
-        <div class="stp"><span>Client retries with <code>X-PAYMENT: &lt;signed authorization&gt;</code>.</span></div>
-        <div class="stp"><span>Service recovers the signer, checks payee / amount / expiry / nonce, settles on-chain and answers with an <code>X-PAYMENT-RESPONSE</code> receipt.</span></div>
+      <p>DataAgent sells investor briefs for <b>0.50 USDC</b> each. It never asks who you are — only that the request carries a signed payment.</p>
+      <div class="steps" style="margin-top:22px">
+        <div class="stp"><span>Ask → service replies <b>402</b>: “pay 0.50 USDC here”.</span></div>
+        <div class="stp"><span>Sign the payment offline. No gas, no transaction yet.</span></div>
+        <div class="stp"><span>Ask again with the signature in the <code>X-PAYMENT</code> header.</span></div>
+        <div class="stp"><span>Service verifies, settles on Avalanche, returns the report.</span></div>
       </div>
     </div>
   </div>
@@ -35,7 +35,7 @@
   <div class="light">
     <div class="panel wide">
       <h2>Try it live</h2>
-      <p class="sub">First ask without paying. Then let ubotpay pay for you.</p>
+      <p class="sub">Ask without paying. Then let ubotpay pay.</p>
       <div class="kpis" style="margin:0 0 14px"><div class="kpi"><small>Price</small><b>0.50 USDC</b></div><div class="kpi"><small>Received</small><b id="k_recv">—</b></div><div class="kpi"><small>Network</small><b id="k_net">—</b></div></div>
       <div class="two">
         <div class="card">
@@ -45,7 +45,7 @@
         </div>
         <div class="card">
           <h4>② Let ubotpay pay it <span class="badge ok">200</span></h4>
-          <p style="margin:4px 0 10px;color:var(--muted);font-size:13.5px">ubotpay signs the authorization offline and retries with <code>X-PAYMENT</code>. DataAgent verifies, settles, answers.</p>
+          
           <button class="btn primary" id="pay">🎙 ubotpay, ask DataAgent</button>
           <div class="stat" id="paystat"></div>
           <pre class="out" id="out200">—</pre>
