@@ -11,29 +11,33 @@ Banks have rails. Apps have buttons. Nobody has a conversation. So I listen.
 Watch. Someone says: "send 100 baht to mom."
 
 4
-00:00:20,400 --> 00:00:29,151
-I quote it: 100 baht is 2.91 USDC. Zero fees. Nothing moves until I hear a yes.
+00:00:20,400 --> 00:00:30,274
+I quote it: 100 baht is 2.91 USDC. Our fee: two cents. Nothing moves until I hear a yes.
 
 5
-00:00:29,851 --> 00:00:37,557
+00:00:30,974 --> 00:00:38,680
 Done. Settled on Avalanche mainnet in under two seconds. Real USDC. Here's the transaction.
 
 6
-00:00:38,257 --> 00:00:44,944
+00:00:39,380 --> 00:00:46,068
 I speak Thai, Vietnamese, Spanish, English. Ninety languages. Same brain.
 
 7
-00:00:45,644 --> 00:00:51,522
+00:00:46,768 --> 00:00:52,645
 Big payments? I ask a second person to approve. Daily limits, built in.
 
 8
-00:00:52,222 --> 00:01:07,216
+00:00:53,345 --> 00:01:08,340
 I pay other AI agents too. DataAgent said "pay me 50 cents", I signed, it delivered. No API key. No card. Money as an HTTP header.
 
 9
-00:01:07,916 --> 00:01:13,872
-ElevenLabs is my voice. Claude is my brain. Avalanche is my rail.
+00:01:09,040 --> 00:01:22,127
+How do I make money? 0.5% per transfer (banks charge 5%), a small FX spread, and 1% on every agent-to-agent payment. All shown out loud, on every quote.
 
 10
-00:01:14,572 --> 00:01:21,416
+00:01:22,827 --> 00:01:28,783
+ElevenLabs is my voice. Claude is my brain. Avalanche is my rail.
+
+11
+00:01:29,483 --> 00:01:36,327
 Say it. Confirm it. Settled. I'm ubotpay. Try me at ubotpay.com
