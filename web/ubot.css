@@ -75,7 +75,7 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;bac
 .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
 .kpi{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:9px 12px}.kpi small{display:block;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.06em}.kpi b{font-size:18px;font-weight:600}
 .alt{margin-top:18px;text-align:center;font-size:16px;color:var(--muted)}
-.foot{margin-top:28px;display:flex;gap:22px;font-size:15px;color:var(--muted);justify-content:center}.foot a{color:inherit}.foot a:hover{color:var(--ink)}
+.foot{margin-top:28px;margin-bottom:70px;display:flex;gap:22px;font-size:15px;color:var(--muted);justify-content:center}.foot a{color:inherit}.foot a:hover{color:var(--ink)}
 pre.out{margin:0;background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:14px;font:13.5px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink2);overflow:auto;max-height:260px;white-space:pre-wrap;word-break:break-all}
 
 /* sections */
@@ -96,3 +96,7 @@ h3.t{font-size:38px;font-weight:600;letter-spacing:-.02em;margin:0 0 8px}
 .link{display:inline-flex;align-items:center;gap:6px;background:var(--white);border:1px solid var(--line);border-radius:999px;padding:9px 15px;font-size:15px;color:var(--ink2)}
 footer{margin-top:80px;border-top:1px solid var(--line);padding:24px 0 40px;color:var(--muted);font-size:15px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
 @media(max-width:960px){.hero{grid-template-columns:1fr}.dark{min-height:60vh;padding:28px}.orb{width:150px;height:150px}.light{padding:28px 20px}#log{height:260px}}
+
+/* support widget */
+elevenlabs-convai{position:fixed;bottom:18px;right:18px;z-index:60}
+@media(max-width:960px){.theme{top:12px;right:12px}}

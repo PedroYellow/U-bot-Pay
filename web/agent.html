@@ -66,4 +66,7 @@ $("pay").onclick=async()=>{$("paystat").textContent="ubotpay is paying…";$("ou
     $("out200").textContent="HTTP "+j.status+"\n"+JSON.stringify(j.body,null,1);refresh();}
   catch(e){$("paystat").textContent="error: "+e.message}};
 </script><script>(function(){var b=document.getElementById("theme"),ic=document.getElementById("theme-ic"),tx=document.getElementById("theme-tx");function paint(){var d=document.documentElement.getAttribute("data-theme")==="dark";ic.textContent=d?"☀️":"🌙";tx.textContent=d?"Light":"Dark";}b.onclick=function(){var d=document.documentElement.getAttribute("data-theme")==="dark";document.documentElement.setAttribute("data-theme",d?"light":"dark");localStorage.setItem("ubotpay-theme",d?"light":"dark");paint();};paint();})();</script>
+<!-- ubotpay support widget (ElevenLabs Conversational AI) -->
+<elevenlabs-convai agent-id="agent_3601m4yz1xhgffmb1mb4j0sab89a"></elevenlabs-convai>
+<script src="https://unpkg.com/@elevenlabs/convai-widget-embed" async type="text/javascript"></script>
 </body></html>
