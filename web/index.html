@@ -6,11 +6,13 @@
 <title>ubotpay — Say it. Confirm it. Settled.</title>
 <meta name="description" content="Voice-first USDC payments on Avalanche. Speak in any language, settle in under two seconds.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><radialGradient id='g' cx='35%' cy='30%'><stop offset='0' stop-color='%23BFE0FF'/><stop offset='.55' stop-color='%234C7DF0'/><stop offset='1' stop-color='%236C5CE7'/></radialGradient></defs><circle cx='32' cy='32' r='30' fill='url(%23g)'/><g fill='white'><rect x='18' y='27' width='4' height='10' rx='2'/><rect x='25' y='22' width='4' height='20' rx='2'/><rect x='32' y='17' width='4' height='30' rx='2'/><rect x='39' y='22' width='4' height='20' rx='2'/><rect x='46' y='27' width='4' height='10' rx='2'/></g></svg>">
+<script>(function(){var t=localStorage.getItem("ubotpay-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.setAttribute("data-theme",t);})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/ubot.css">
 </head>
 <body>
+<button class="theme" id="theme" type="button" aria-label="Toggle dark mode"><span id="theme-ic">🌙</span><span id="theme-tx">Dark</span></button>
 
 <div class="hero">
   <div class="dark">
@@ -154,5 +156,6 @@ const startTalk = async () => {
 };
 let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try { await startTalk(); } finally { setTimeout(() => busy = false, 800); } };
 </script>
+<script>(function(){var b=document.getElementById("theme"),ic=document.getElementById("theme-ic"),tx=document.getElementById("theme-tx");function paint(){var d=document.documentElement.getAttribute("data-theme")==="dark";ic.textContent=d?"☀️":"🌙";tx.textContent=d?"Light":"Dark";}b.onclick=function(){var d=document.documentElement.getAttribute("data-theme")==="dark";document.documentElement.setAttribute("data-theme",d?"light":"dark");localStorage.setItem("ubotpay-theme",d?"light":"dark");paint();};paint();})();</script>
 </body>
 </html>

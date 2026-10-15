@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>DataAgent — a paid AI service · ubotpay</title>
+<script>(function(){var t=localStorage.getItem("ubotpay-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.setAttribute("data-theme",t);})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://ubotpay.com/ubot.css">
@@ -14,6 +15,7 @@
 .stat{font-size:13px;color:var(--muted);margin-top:8px;min-height:20px}
 </style></head>
 <body>
+<button class="theme" id="theme" type="button" aria-label="Toggle dark mode"><span id="theme-ic">🌙</span><span id="theme-tx">Dark</span></button>
 <div class="hero">
   <div class="dark">
     <a class="brand" href="https://ubotpay.com"><svg viewBox="0 0 64 64" aria-hidden="true"><defs><radialGradient id="g" cx="35%" cy="30%"><stop offset="0" stop-color="#BFE0FF"/><stop offset=".55" stop-color="#4C7DF0"/><stop offset="1" stop-color="#6C5CE7"/></radialGradient></defs><circle cx="32" cy="32" r="30" fill="url(#g)"/><g fill="#fff"><rect x="18" y="27" width="4" height="10" rx="2"/><rect x="25" y="22" width="4" height="20" rx="2"/><rect x="32" y="17" width="4" height="30" rx="2"/><rect x="39" y="22" width="4" height="20" rx="2"/><rect x="46" y="27" width="4" height="10" rx="2"/></g></svg>ubotpay <small>DATAAGENT</small></a>
@@ -63,4 +65,5 @@ $("pay").onclick=async()=>{$("paystat").textContent="ubotpay is paying…";$("ou
     const p=(j.body||{}).payment||{};$("paystat").innerHTML=j.paid?`<span class="badge ok">PAID</span>${j.price_usdc} USDC · ${j.latency_s}s · <a href="${p.explorer}" target="_blank">tx ↗</a>`:`<span class="badge bad">FAILED</span>${(j.body||{}).error||j.error||j.status}`;
     $("out200").textContent="HTTP "+j.status+"\n"+JSON.stringify(j.body,null,1);refresh();}
   catch(e){$("paystat").textContent="error: "+e.message}};
-</script></body></html>
+</script><script>(function(){var b=document.getElementById("theme"),ic=document.getElementById("theme-ic"),tx=document.getElementById("theme-tx");function paint(){var d=document.documentElement.getAttribute("data-theme")==="dark";ic.textContent=d?"☀️":"🌙";tx.textContent=d?"Light":"Dark";}b.onclick=function(){var d=document.documentElement.getAttribute("data-theme")==="dark";document.documentElement.setAttribute("data-theme",d?"light":"dark");localStorage.setItem("ubotpay-theme",d?"light":"dark");paint();};paint();})();</script>
+</body></html>
