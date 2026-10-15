@@ -67,6 +67,14 @@ $("pay").onclick=async()=>{$("paystat").textContent="ubotpay is paying…";$("ou
   catch(e){$("paystat").textContent="error: "+e.message}};
 </script><script>(function(){var b=document.getElementById("theme"),ic=document.getElementById("theme-ic"),tx=document.getElementById("theme-tx");function paint(){var d=document.documentElement.getAttribute("data-theme")==="dark";ic.textContent=d?"☀️":"🌙";tx.textContent=d?"Light":"Dark";}b.onclick=function(){var d=document.documentElement.getAttribute("data-theme")==="dark";document.documentElement.setAttribute("data-theme",d?"light":"dark");localStorage.setItem("ubotpay-theme",d?"light":"dark");paint();};paint();})();</script>
 <!-- ubotpay support widget (ElevenLabs Conversational AI) -->
+<script>
+(function(){
+  var ALLOWED = ["https://ubotpay.com/pitch","https://t.me/Ubotpaybot","https://agent.ubotpay.com","https://github.com/PedroYellow/U-bot-Pay","https://api.ubotpay.com/docs"];
+  function openUrl(p){ var u=(p&&p.url||"").trim().replace(/\/$/,""); if(!ALLOWED.some(function(a){return a.replace(/\/$/,"")===u;})) return "blocked"; var samesite = u.indexOf("ubotpay.com/pitch")>-1; var w = window.open(u, samesite ? "_self" : "_blank"); return w||samesite ? "opened" : "popup-blocked"; }
+  window.addEventListener("elevenlabs-convai:call", function(e){ e.detail.config.clientTools = Object.assign({}, e.detail.config.clientTools, { open_url: openUrl }); });
+  window.__ubotOpenUrl = openUrl;
+})();
+</script>
 <elevenlabs-convai agent-id="agent_3601m4yz1xhgffmb1mb4j0sab89a"></elevenlabs-convai>
 <script src="https://unpkg.com/@elevenlabs/convai-widget-embed" async type="text/javascript"></script>
 </body></html>

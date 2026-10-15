@@ -140,7 +140,7 @@ const startTalk = async () => {
     setTimeout(() => { if (conv && peak < 3) add("sys", "⚠️ No microphone signal. Check the mic selector, macOS Privacy → Microphone, or whether another app holds the mic."); }, 6000);
     setTalkUI(true);
     conv = await Conversation.startSession({
-      agentId: AGENT_ID, connectionType: "webrtc", ...(pref ? { inputDeviceId: pref } : {}),
+      agentId: AGENT_ID, connectionType: "webrtc", clientTools: { open_url: p => { add("sys", "↗ Opening " + esc(p.label || p.url)); return window.__ubotOpenUrl(p); } }, ...(pref ? { inputDeviceId: pref } : {}),
       onConnect: () => { orbstate.textContent = "listening"; orb.className = "orb listening"; add("sys", "🎙 Voice session started — speak now"); requestAnimationFrame(tick); },
       onDisconnect: () => { orbstate.textContent = "ready"; orb.className = "orb"; setTalkUI(false); conv = null; add("sys", "Voice session ended"); },
       onModeChange: m => { orb.className = "orb " + (m.mode === "speaking" ? "speaking" : "listening"); orbstate.textContent = m.mode === "speaking" ? "speaking" : "listening"; },
@@ -153,6 +153,14 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
 </script>
 <script>(function(){var b=document.getElementById("theme"),ic=document.getElementById("theme-ic"),tx=document.getElementById("theme-tx");function paint(){var d=document.documentElement.getAttribute("data-theme")==="dark";ic.textContent=d?"☀️":"🌙";tx.textContent=d?"Light":"Dark";}b.onclick=function(){var d=document.documentElement.getAttribute("data-theme")==="dark";document.documentElement.setAttribute("data-theme",d?"light":"dark");localStorage.setItem("ubotpay-theme",d?"light":"dark");paint();};paint();})();</script>
 <!-- ubotpay support widget (ElevenLabs Conversational AI) -->
+<script>
+(function(){
+  var ALLOWED = ["https://ubotpay.com/pitch","https://t.me/Ubotpaybot","https://agent.ubotpay.com","https://github.com/PedroYellow/U-bot-Pay","https://api.ubotpay.com/docs"];
+  function openUrl(p){ var u=(p&&p.url||"").trim().replace(/\/$/,""); if(!ALLOWED.some(function(a){return a.replace(/\/$/,"")===u;})) return "blocked"; var samesite = u.indexOf("ubotpay.com/pitch")>-1; var w = window.open(u, samesite ? "_self" : "_blank"); return w||samesite ? "opened" : "popup-blocked"; }
+  window.addEventListener("elevenlabs-convai:call", function(e){ e.detail.config.clientTools = Object.assign({}, e.detail.config.clientTools, { open_url: openUrl }); });
+  window.__ubotOpenUrl = openUrl;
+})();
+</script>
 <elevenlabs-convai agent-id="agent_3601m4yz1xhgffmb1mb4j0sab89a"></elevenlabs-convai>
 <script src="https://unpkg.com/@elevenlabs/convai-widget-embed" async type="text/javascript"></script>
 </body>
