@@ -3,143 +3,91 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>U-bot Pay — Talk to U-bot. Money moves.</title>
-<meta name="description" content="Voice-first USDC payments on Avalanche. Speak in any language, settle in under a second.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙</text></svg>">
-<style>
-:root{--bg:#07070d;--card:#0f1020;--line:#1e2040;--text:#f3f4ff;--muted:#8b8fb3;--p:#6c5ce7;--c:#00d2ff;--ok:#19d27c;--warn:#ffb020;--bad:#ff5c7a;--r:18px}
-*{box-sizing:border-box}html,body{height:100%}
-body{margin:0;font:16px/1.5 -apple-system,BlinkMacSystemFont,Inter,"Segoe UI",Roboto,sans-serif;color:var(--text);background:radial-gradient(1200px 600px at 50% -10%,#1b1740 0%,var(--bg) 60%)}
-a{color:var(--c);text-decoration:none}
-.wrap{max-width:1180px;margin:0 auto;padding:22px 20px 80px}
-header{display:flex;align-items:center;justify-content:space-between;gap:14px}
-.brand{display:flex;align-items:center;gap:12px;font-weight:700;letter-spacing:-.01em}
-.brand .u{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,var(--p),var(--c));display:grid;place-items:center;font-weight:800;color:#fff;box-shadow:0 8px 30px rgba(108,92,231,.45)}
-.brand small{display:block;font-weight:500;color:var(--muted);font-size:12px}
-nav a{margin-left:16px;color:var(--muted);font-size:14px}nav a:hover{color:var(--text)}
-.pill{display:inline-flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:13px;color:var(--muted)}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 12px var(--ok)}
-.hero{display:grid;grid-template-columns:1.05fr .95fr;gap:36px;align-items:center;margin-top:46px}
-h1{font-size:clamp(36px,5.2vw,62px);line-height:1.02;letter-spacing:-.03em;margin:0 0 16px}
-h1 em{font-style:normal;background:linear-gradient(90deg,var(--p),var(--c));-webkit-background-clip:text;background-clip:text;color:transparent}
-.lead{font-size:18px;color:var(--muted);max-width:560px}
-.cta{display:flex;gap:12px;flex-wrap:wrap;margin-top:26px}
-.btn{display:inline-flex;align-items:center;gap:10px;padding:13px 20px;border-radius:12px;font-weight:600;border:1px solid var(--line);background:var(--card);color:var(--text);cursor:pointer;font-size:15px}
-.btn.primary{background:linear-gradient(135deg,var(--p),#4f46e5);border-color:transparent;box-shadow:0 10px 30px rgba(108,92,231,.35)}
-.btn.primary:hover{filter:brightness(1.08)}
-.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:22px}.chip{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:5px 10px}
-/* console */
-.console{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px;box-shadow:0 30px 80px rgba(0,0,0,.45);position:relative;overflow:hidden}
-.console:before{content:"";position:absolute;inset:-40% auto auto -20%;width:60%;height:60%;background:radial-gradient(closest-side,rgba(0,210,255,.18),transparent);pointer-events:none}
-.console-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
-.console-h b{font-size:14px}.console-h span{font-size:12px;color:var(--muted)}
-#log{height:300px;overflow:auto;display:flex;flex-direction:column;gap:10px;padding-right:4px}
-.msg{max-width:88%;padding:10px 14px;border-radius:14px;font-size:14.5px;line-height:1.4;animation:in .25s ease}
-.msg.u{align-self:flex-end;background:#232552;border-bottom-right-radius:4px}
-.msg.b{align-self:flex-start;background:#13142a;border:1px solid var(--line);border-bottom-left-radius:4px}
-.msg.sys{align-self:center;font-size:12px;color:var(--muted);background:transparent}
-.tx{margin-top:6px;font-size:12.5px;color:var(--muted)}.tx a{word-break:break-all}
-.badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;margin-right:6px}
-.badge.ok{background:rgba(25,210,124,.15);color:var(--ok)}.badge.warn{background:rgba(255,176,32,.15);color:var(--warn)}.badge.bad{background:rgba(255,92,122,.15);color:var(--bad)}.badge.info{background:rgba(0,210,255,.15);color:var(--c)}
-@keyframes in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
-.inputrow{display:flex;gap:8px;margin-top:12px}.inputrow input{flex:1;background:#0a0b18;border:1px solid var(--line);border-radius:12px;padding:12px 14px;color:var(--text);font-size:15px;outline:none}
-.inputrow input:focus{border-color:var(--p)}
-.btn.mic{padding:12px 16px;font-size:18px;background:linear-gradient(135deg,var(--p),#4f46e5);border-color:transparent}.btn.mic.on{background:var(--bad);animation:pulse 1.2s infinite}
-.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
-.kpi{background:#0a0b18;border:1px solid var(--line);border-radius:12px;padding:10px 12px}.kpi small{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}.kpi b{font-size:18px}
-/* orb */
-.orb{position:relative;width:118px;height:118px;margin:0 auto 10px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#8f85ff,#6c5ce7 45%,#00d2ff 100%);box-shadow:0 0 60px rgba(108,92,231,.55),inset 0 0 30px rgba(255,255,255,.15);transition:transform .2s}
-.orb.listening{animation:pulse 1.2s ease-in-out infinite}.orb.speaking{animation:talk .35s ease-in-out infinite alternate}
-@keyframes pulse{0%,100%{transform:scale(1);box-shadow:0 0 60px rgba(108,92,231,.55)}50%{transform:scale(1.08);box-shadow:0 0 90px rgba(0,210,255,.75)}}
-@keyframes talk{from{transform:scale(1)}to{transform:scale(1.05)}}
-.orbstate{text-align:center;color:var(--muted);font-size:13px;min-height:20px}
-.microw{display:flex;align-items:center;gap:8px;justify-content:center;margin:4px 0 8px;font-size:12px;color:var(--muted)}.meter{width:140px;height:8px;background:#0a0b18;border:1px solid var(--line);border-radius:6px;overflow:hidden}#lvl{height:100%;width:0;background:linear-gradient(90deg,var(--ok),var(--c));transition:width .08s}.microw select{background:#0a0b18;color:var(--muted);border:1px solid var(--line);border-radius:8px;font-size:11px;max-width:200px}
-/* sections */
-section{margin-top:90px}h2{font-size:30px;letter-spacing:-.02em;margin:0 0 10px}.sub{color:var(--muted);max-width:720px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin-top:26px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:20px}.card h3{margin:8px 0 6px;font-size:17px}.card p{margin:0;color:var(--muted);font-size:14.5px}.card .ic{font-size:26px}
-.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:26px}
-.step{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;position:relative}.step b{display:block;font-size:13px;color:var(--c);margin-bottom:4px}.step span{font-size:14px}
-.arch{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:22px;margin-top:26px;overflow:auto}
-pre{margin:0;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#c9cbe8}
-footer{margin-top:90px;border-top:1px solid var(--line);padding-top:24px;color:var(--muted);font-size:13px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
-@media(max-width:900px){.hero{grid-template-columns:1fr}nav{display:none}#log{height:240px}}
-</style>
+<title>u.bot Pay — Say it. Confirm it. Settled.</title>
+<meta name="description" content="Voice-first USDC payments on Avalanche. Speak in any language, settle in under two seconds.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><radialGradient id='g' cx='35%' cy='30%'><stop offset='0' stop-color='%23BFE0FF'/><stop offset='.55' stop-color='%234C7DF0'/><stop offset='1' stop-color='%236C5CE7'/></radialGradient></defs><circle cx='32' cy='32' r='30' fill='url(%23g)'/><g fill='white'><rect x='18' y='27' width='4' height='10' rx='2'/><rect x='25' y='22' width='4' height='20' rx='2'/><rect x='32' y='17' width='4' height='30' rx='2'/><rect x='39' y='22' width='4' height='20' rx='2'/><rect x='46' y='27' width='4' height='10' rx='2'/></g></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/ubot.css">
 </head>
 <body>
-<div class="wrap">
-<header>
-  <div class="brand"><div class="u">U</div><div>U-bot Pay<small>for the U-topia ecosystem</small></div></div>
-  <nav><a href="#how">How it works</a><a href="#why">Why</a><a href="#arch">Architecture</a><a href="https://github.com/PedroYellow/U-bot-Pay" target="_blank">GitHub ↗</a><a href="https://t.me/Ubotpaybot" target="_blank">Telegram ↗</a></nav>
-  <span class="pill"><span class="dot" id="dot"></span><span id="netstat">Avalanche Fuji · checking…</span></span>
-</header>
 
 <div class="hero">
-  <div>
-    <h1>Talk to U-bot.<br><em>Money moves.</em></h1>
-    <p class="lead">A voice you can trust with your money. Say it in Thai, Spanish, English or 90 other languages — U-bot quotes the FX, asks you to confirm, and settles USDC on Avalanche in under a second.</p>
-    <div class="cta">
-      <button class="btn primary" id="talk">🎙 Talk to U-bot</button>
-      <a class="btn" href="https://t.me/Ubotpaybot" target="_blank">✈️ Try on Telegram</a>
+  <div class="dark">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><defs><radialGradient id="g" cx="35%" cy="30%"><stop offset="0" stop-color="#BFE0FF"/><stop offset=".55" stop-color="#4C7DF0"/><stop offset="1" stop-color="#6C5CE7"/></radialGradient></defs><circle cx="32" cy="32" r="30" fill="url(#g)"/><g fill="#fff"><rect x="18" y="27" width="4" height="10" rx="2"/><rect x="25" y="22" width="4" height="20" rx="2"/><rect x="32" y="17" width="4" height="30" rx="2"/><rect x="39" y="22" width="4" height="20" rx="2"/><rect x="46" y="27" width="4" height="10" rx="2"/></g></svg>
+      u.bot <small>PAY</small>
+    </a>
+    <div class="orbwrap">
+      <div class="orb" id="orb"><div class="bars"><i style="--h:18px;--d:0s"></i><i style="--h:32px;--d:.15s"></i><i style="--h:48px;--d:.3s"></i><i style="--h:32px;--d:.45s"></i><i style="--h:18px;--d:.6s"></i></div></div>
     </div>
-    <div class="chips">
-      <span class="chip">🎙 ElevenLabs voice agent</span><span class="chip">⛓ Avalanche · USDC</span><span class="chip">🧠 Claude intents</span><span class="chip">🔐 Voice-confirmed · dual control</span><span class="chip">🤖 x402 agent payments</span>
+    <div class="tag">
+      <h1>Say it. Confirm it. Settled.</h1>
+      <p>u.bot is the assistant that moves your money. Speak in any language — it quotes the FX, asks you to confirm, and settles USDC on Avalanche in under two seconds.</p>
+      <div class="chips"><span class="chip">🎙 Voice</span><span class="chip">⛓ Avalanche</span><span class="chip">💵 USDC</span><span class="chip">🔐 Dual control</span><span class="chip">🤖 x402</span></div>
     </div>
   </div>
 
-  <div class="console">
-    <div class="console-h"><b>Live console</b><span id="mode">text mode · press 🎙 for voice</span></div>
-    <div class="orb" id="orb"></div><div class="orbstate" id="orbstate">U-bot is ready</div>
-    <div class="microw" id="microw" style="display:none"><span>🎤</span><div class="meter"><div id="lvl"></div></div><select id="micsel" title="Microphone"></select></div>
-    <div id="log"><div class="msg sys">Try: “How much do I have?” · “Send 100 baht to mom” · “What invoices do I have?” · “Pay the Vietnam one” · “Ask DataAgent about Sequoia”</div></div>
-    <div class="inputrow"><button class="btn mic" id="mic" title="Talk to U-bot">🎙</button><input id="inp" placeholder="Type to U-bot… or press 🎙 and speak" autocomplete="off"><button class="btn" id="send">Send</button></div>
-    <div class="kpis"><div class="kpi"><small>Treasury USDC</small><b id="k_usdc">—</b></div><div class="kpi"><small>Last settlement</small><b id="k_lat">—</b></div><div class="kpi"><small>Chain</small><b id="k_chain">Avalanche</b></div></div>
+  <div class="light">
+    <div class="panel">
+      <h2>Talk to u.bot</h2>
+      <p class="sub">Press the mic, or type. Every payment needs your spoken yes.</p>
+      <div class="console">
+        <div class="state"><span>Status · <b id="orbstate">ready</b></span><span id="netstat">checking…</span></div>
+        <div class="microw" id="microw" style="display:none"><span>🎤</span><div class="meter"><div id="lvl"></div></div><select id="micsel" title="Microphone"></select></div>
+        <div id="log"><div class="msg sys">Try: “How much do I have?” · “Send 100 baht to mom” · “What invoices do I have?” · “Ask DataAgent about Sequoia”</div></div>
+        <div class="inputrow"><button class="btn mic" id="mic" title="Talk to u.bot">🎙</button><input id="inp" placeholder="Ask u.bot…" autocomplete="off"><button class="btn primary" id="send">Send</button></div>
+        <div class="kpis"><div class="kpi"><small>Treasury</small><b id="k_usdc">—</b></div><div class="kpi"><small>Last settlement</small><b id="k_lat">—</b></div><div class="kpi"><small>Chain</small><b id="k_chain">Avalanche</b></div></div>
+      </div>
+      <p class="alt">Prefer Telegram? <a href="https://t.me/Ubotpaybot" target="_blank">Open @Ubotpaybot</a></p>
+      <div class="foot"><a href="#how">How it works</a><a href="https://api.ubotpay.com/docs" target="_blank">API</a><a href="https://agent.ubotpay.com" target="_blank">DataAgent</a><a href="https://github.com/PedroYellow/U-bot-Pay" target="_blank">GitHub</a></div>
+    </div>
   </div>
 </div>
 
+<div class="wrap">
 <section id="how">
-  <h2>How it works</h2>
-  <p class="sub">One conversation, four safeguards, one second.</p>
+  <h3 class="t">How it works</h3>
+  <p class="sub2">One conversation. Four safeguards. Under two seconds.</p>
   <div class="flow">
-    <div class="step"><b>1 · Speak</b><span>“Mándale 500 baht a mi madre.” Any language.</span></div>
-    <div class="step"><b>2 · Understand</b><span>Claude extracts intent, amount, currency, recipient.</span></div>
-    <div class="step"><b>3 · Quote</b><span>Local amount → USDC, FX shown, zero fees.</span></div>
+    <div class="step"><b>1 · Speak</b><span>“Mándale 100 baht a mi madre.” Any of 90+ languages.</span></div>
+    <div class="step"><b>2 · Understand</b><span>Claude extracts intent, amount, currency and recipient.</span></div>
+    <div class="step"><b>3 · Quote</b><span>Local amount → USDC. FX shown. Zero fees.</span></div>
     <div class="step"><b>4 · Confirm</b><span>Nothing moves without a spoken “yes”. Big amounts ask a co-signer.</span></div>
-    <div class="step"><b>5 · Settle</b><span>USDC transfer on Avalanche. Sub-second finality, tx on screen.</span></div>
+    <div class="step"><b>5 · Settle</b><span>USDC on Avalanche. Sub-second finality, tx on screen.</span></div>
   </div>
 </section>
 
-<section id="why">
-  <h2>Why this wins</h2>
-  <p class="sub">Institutional rails (Canton, Stellar) move trillions, but nobody <i>talks</i> to them. Consumer apps have buttons, not conversations. U-bot Pay is the missing layer — built on the primitives the partners care about.</p>
+<section>
+  <h3 class="t">Why it wins</h3>
+  <p class="sub2">Institutional rails like Canton and Stellar move trillions, but nobody <i>talks</i> to them. Consumer apps have buttons, not conversations. u.bot Pay is the missing layer.</p>
   <div class="grid">
-    <div class="card"><div class="ic">🎙</div><h3>ElevenLabs, end to end</h3><p>Conversational agent with webhook tools, 90+ languages, voice as the confirmation factor. Not TTS glued on.</p></div>
-    <div class="card"><div class="ic">⛓</div><h3>Avalanche, for real</h3><p>USDC on C-Chain with sub-second finality. EIP-3009 <code>transferWithAuthorization</code> for x402-style agent-to-agent payments.</p></div>
-    <div class="card"><div class="ic">🔐</div><h3>Institutional policy, consumer UX</h3><p>Daily limits, dual control above a threshold, hashed memos on-chain. Canton's discipline, U-topia's simplicity.</p></div>
-    <div class="card"><div class="ic">🌏</div><h3>Built for Bangkok</h3><p>Thai, Burmese, Khmer, Lao, Vietnamese. Remittances and supplier payments in the language people actually speak.</p></div>
-    <div class="card"><div class="ic">✈️</div><h3>Lives where users are</h3><p>Telegram voice notes, a phone call, or this page. One brain behind every channel.</p></div>
-    <div class="card"><div class="ic">🤖</div><h3>Agents pay agents</h3><p>U-bot can hire another AI service and pay it per request via x402 — no human in the loop.</p></div>
+    <div class="card"><div class="ic">🎙</div><h4>ElevenLabs, end to end</h4><p>Conversational agent with webhook tools, 90+ languages, voice as the confirmation factor.</p></div>
+    <div class="card"><div class="ic">⛓</div><h4>Avalanche, for real</h4><p>Live on mainnet. USDC on C-Chain, sub-second finality, EIP-3009 for agent payments.</p></div>
+    <div class="card"><div class="ic">🔐</div><h4>Institutional policy, consumer UX</h4><p>Daily limits, dual control above a threshold, hashed memos on-chain.</p></div>
+    <div class="card"><div class="ic">🌏</div><h4>Built for Bangkok</h4><p>Thai, Burmese, Khmer, Lao, Vietnamese. Remittances and supplier payments in the language people speak.</p></div>
+    <div class="card"><div class="ic">✈️</div><h4>Lives where users are</h4><p>Telegram voice notes, a phone call, or this page. One brain behind every channel.</p></div>
+    <div class="card"><div class="ic">🤖</div><h4>Agents pay agents</h4><p>u.bot hires another AI service and pays it per request via x402 — no human in the loop.</p></div>
   </div>
 </section>
 
-<section id="arch">
-  <h2>Architecture</h2>
+<section>
+  <h3 class="t">Architecture</h3>
   <div class="arch"><pre>
- Telegram voice note      ElevenLabs Agent (call / this page)      REST
+ Telegram voice note      ElevenLabs Agent (call / this page)      REST / other agents
         │ STT                      │ webhook tool                   │
         └──────────────┬───────────┴────────────────────────────────┘
                        ▼
             POST https://api.ubotpay.com/turn        (FastAPI)
               brain.py  → Claude intent parser (multi-language)
               core.py   → users · contacts · FX · limits · dual-control · invoices
-              chain.py  → Avalanche Fuji · USDC · EIP-3009 (x402)
+              chain.py  → Avalanche C-Chain · USDC · EIP-3009 (x402)
                        ▼
-            Avalanche C-Chain — USDC — sub-second finality
-  </pre></div>
-  <div class="chips" style="margin-top:14px"><a class="chip" href="https://api.ubotpay.com/docs" target="_blank">API docs ↗</a><a class="chip" href="https://api.ubotpay.com/health" target="_blank">/health ↗</a><a class="chip" href="https://snowtrace.io/address/0x673678B1870Ae7ef598A5982D25ffdee68d85669" target="_blank">Treasury on Snowtrace ↗</a></div>
+            Avalanche C-Chain — USDC — sub-second finality</pre></div>
+  <div class="links"><a class="link" href="https://api.ubotpay.com/docs" target="_blank">API docs ↗</a><a class="link" href="https://agent.ubotpay.com" target="_blank">DataAgent (x402) ↗</a><a class="link" href="https://snowtrace.io/address/0x673678B1870Ae7ef598A5982D25ffdee68d85669" target="_blank">Treasury on Snowtrace ↗</a><a class="link" href="https://github.com/PedroYellow/U-bot-Pay" target="_blank">GitHub ↗</a></div>
 </section>
 
-<footer><span>U-bot Pay · built in 48h at U-Hackathon 2026, FLOW Summit Bangkok</span><span>Partners: ElevenLabs · Avalanche · U-topia</span></footer>
+<footer><span>u.bot Pay · built in 48h at U-Hackathon 2026, FLOW Summit Bangkok</span><span>Partners: ElevenLabs · Avalanche · U-topia</span></footer>
 </div>
 
 <script type="module">
@@ -151,71 +99,60 @@ const add = (cls, html) => { const d = document.createElement("div"); d.classNam
 const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 
 function render(res){
-  const d = res.data || {};
-  let extra = "";
-  if (res.action === "settled") extra = `<div class="tx"><span class="badge ok">SETTLED</span>${d.amount_usdc} USDC · ⚡ ${d.latency_s}s on Avalanche<br><a href="${d.explorer}" target="_blank">${d.tx}</a></div>`;
+  const d = res.data || {}; let extra = "";
+  if (res.action === "settled") { extra = `<div class="tx"><span class="badge ok">SETTLED</span>${d.amount_usdc} USDC · ⚡ ${d.latency_s}s on Avalanche<br><a href="${d.explorer}" target="_blank">${d.tx}</a></div>`; document.getElementById("k_lat").textContent = d.latency_s + "s"; }
   else if (res.action === "confirm_needed") { const q = d.quote||{}; extra = `<div class="tx"><span class="badge info">QUOTE</span>${q.amount_local} ${q.local_ccy} = <b>${q.amount_usdc} USDC</b> · FX ${q.fx_rate} · fee 0${d.needs_approval ? ' · <span class="badge warn">CO-SIGNER REQUIRED</span>' : ''}</div>`; }
   else if (res.action === "pending_approval") extra = `<div class="tx"><span class="badge warn">PENDING APPROVAL</span>${d.amount_usdc} USDC → ${esc(d.contact_alias||"")} · waiting for co-signer</div>`;
-  else if (res.action === "balance") { extra = `<div class="tx">${d.usdc} USDC · ${d.avax} AVAX</div>`; document.getElementById("k_usdc").textContent = d.usdc; }
+  else if (res.action === "balance") { extra = `<div class="tx">${d.usdc} USDC · ${d.avax} AVAX</div>`; document.getElementById("k_usdc").textContent = d.usdc + " USDC"; }
   else if (res.action === "agent_paid") { const p = d.payment||{}, rep = d.report||{}; extra = `<div class="tx"><span class="badge ok">x402 PAID</span>${d.x402?.price_usdc} USDC → DataAgent · ⚡ ${p.latency_s}s<br>${rep.thesis_fit ? esc(rep.thesis_fit)+"<br>" : ""}${(rep.red_flags||[]).length ? "⚠️ " + rep.red_flags.map(esc).join(" · ") + "<br>" : ""}<a href="${p.explorer}" target="_blank">${p.tx||""}</a></div>`; document.getElementById("k_lat").textContent = (p.latency_s||"—") + "s"; }
   else if (res.action === "failed" || res.action === "blocked") extra = `<div class="tx"><span class="badge bad">${res.action.toUpperCase()}</span>${esc(d.error||d.reason||"")}</div>`;
   else if (res.action === "invoices" && Array.isArray(d)) extra = `<div class="tx">${d.map(i=>`• ${esc(i.from_name)} — <b>${i.amount_usdc} USDC</b> — ${esc(i.description)}`).join("<br>")}</div>`;
-  if (res.action === "settled") document.getElementById("k_lat").textContent = d.latency_s + "s";
   add("b", esc(res.say) + extra);
 }
-
 async function send(text){
   if(!text.trim()) return;
   add("u", esc(text)); inp.value = "";
-  const t = add("sys", "U-bot is thinking…");
-  try {
-    const r = await fetch(API + "/turn", {method:"POST", headers:{"Content-Type":"application/json","x-api-key":API_KEY}, body: JSON.stringify({user_key:"demo", text, channel:"web"})});
-    const res = await r.json(); t.remove(); render(res);
-  } catch(e){ t.innerHTML = "⚠️ " + esc(e.message); }
+  const t = add("sys", "u.bot is thinking…");
+  try { const r = await fetch(API + "/turn", {method:"POST", headers:{"Content-Type":"application/json","x-api-key":API_KEY}, body: JSON.stringify({user_key:"demo", text, channel:"web"})}); const res = await r.json(); t.remove(); render(res); }
+  catch(e){ t.innerHTML = "⚠️ " + esc(e.message); }
 }
 document.getElementById("send").onclick = () => send(inp.value);
 inp.addEventListener("keydown", e => { if (e.key === "Enter") send(inp.value); });
-
-// health
-const refreshHealth = () => fetch(API + "/health").then(r=>r.json()).then(h=>{ document.getElementById("netstat").textContent = (h.chain||"avalanche") + " · live"; document.getElementById("k_chain").textContent = h.chain === "avalanche-mainnet" ? "Mainnet · 43114" : h.chain; document.getElementById("k_usdc").textContent = h.treasury?.usdc ?? "—"; }).catch(()=>{ document.getElementById("netstat").textContent = "API offline"; document.getElementById("dot").style.background="var(--bad)"; });
+const refreshHealth = () => fetch(API + "/health").then(r=>r.json()).then(h=>{ const n = document.getElementById("netstat"); n.textContent = "● " + (h.chain === "avalanche-mainnet" ? "Avalanche mainnet" : h.chain) + " · live"; n.style.color = "var(--ok)"; document.getElementById("k_usdc").textContent = (h.treasury?.usdc ?? "—") + " USDC"; document.getElementById("k_chain").textContent = h.chain === "avalanche-mainnet" ? "Mainnet" : h.chain; }).catch(()=>{ const n = document.getElementById("netstat"); n.textContent = "API offline"; n.style.color = "var(--bad)"; });
 refreshHealth(); setInterval(refreshHealth, 10000);
 
-// ── ElevenLabs voice (WebRTC via SDK) ──
-let conv = null;
-const talk = document.getElementById("talk"), mic = document.getElementById("mic");
-const setTalkUI = on => { talk.textContent = on ? "⏹ Stop" : "🎙 Talk to U-bot"; mic.classList.toggle("on", on); mic.textContent = on ? "⏹" : "🎙"; };
+// ── ElevenLabs voice ──
+let conv = null; const mic = document.getElementById("mic");
+const setTalkUI = on => { mic.classList.toggle("on", on); mic.textContent = on ? "⏹" : "🎙"; };
+let tick = () => {};
 const startTalk = async () => {
-  if (conv) { await conv.endSession(); return; }
+  if (conv) { const c = conv; conv = null; await c.endSession(); return; }
   try {
     const { Conversation } = await import("https://cdn.jsdelivr.net/npm/@elevenlabs/client@latest/+esm");
     const microw = document.getElementById("microw"), micsel = document.getElementById("micsel");
     const pref = micsel.value || undefined;
     const stream = await navigator.mediaDevices.getUserMedia({ audio: pref ? { deviceId: { exact: pref } } : true });
     microw.style.display = "flex";
-    // list devices (labels only available after permission)
     const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "audioinput");
-    micsel.innerHTML = devs.map(d => `<option value="${d.deviceId}" ${stream.getAudioTracks()[0].getSettings().deviceId === d.deviceId ? "selected" : ""}>${d.label || "Microphone"}</option>`).join("");
-    micsel.onchange = async () => { if (micsel.value === stream.getAudioTracks()[0].getSettings().deviceId) return; const c = conv; conv = null; if (c) { try { await c.endSession(); } catch(e){} } setTimeout(startTalk, 400); };
-    // level meter
+    const curId = stream.getAudioTracks()[0].getSettings().deviceId;
+    micsel.innerHTML = devs.map(d => `<option value="${d.deviceId}" ${curId === d.deviceId ? "selected" : ""}>${d.label || "Microphone"}</option>`).join("");
+    micsel.onchange = async () => { if (micsel.value === curId) return; const c = conv; conv = null; if (c) { try { await c.endSession(); } catch(e){} } setTimeout(startTalk, 400); };
     const ac = new (window.AudioContext || window.webkitAudioContext)(); const src = ac.createMediaStreamSource(stream); const an = ac.createAnalyser(); an.fftSize = 512; src.connect(an);
     const buf = new Uint8Array(an.frequencyBinCount); let peak = 0;
-    const tick = () => { if (!conv) { document.getElementById("lvl").style.width = "0"; return; } an.getByteTimeDomainData(buf); let m = 0; for (const v of buf) m = Math.max(m, Math.abs(v - 128)); peak = Math.max(peak, m); document.getElementById("lvl").style.width = Math.min(100, m * 1.6) + "%"; requestAnimationFrame(tick); };
-    setTimeout(() => { if (conv && peak < 3) add("sys", "⚠️ No microphone signal detected. Check the mic selector above, macOS System Settings → Privacy → Microphone, and that no other app holds the mic."); }, 6000);
-    add("sys", "🎤 Mic: " + (stream.getAudioTracks()[0].label || "default"));
-    setTalkUI(true); document.getElementById("mode").textContent = "voice mode · speak naturally";
+    tick = () => { if (!conv) { document.getElementById("lvl").style.width = "0"; return; } an.getByteTimeDomainData(buf); let m = 0; for (const v of buf) m = Math.max(m, Math.abs(v - 128)); peak = Math.max(peak, m); document.getElementById("lvl").style.width = Math.min(100, m * 1.6) + "%"; requestAnimationFrame(tick); };
+    setTimeout(() => { if (conv && peak < 3) add("sys", "⚠️ No microphone signal. Check the mic selector, macOS Privacy → Microphone, or whether another app holds the mic."); }, 6000);
+    setTalkUI(true);
     conv = await Conversation.startSession({
-      agentId: AGENT_ID,
-      connectionType: "webrtc",
-      ...(pref ? { inputDeviceId: pref } : {}),
-      onConnect: () => { orbstate.textContent = "Listening…"; orb.classList.add("listening"); add("sys", "🎙 Voice session started — speak now"); requestAnimationFrame(tick); },
-      onDisconnect: () => { orbstate.textContent = "U-bot is ready"; orb.className = "orb"; setTalkUI(false); document.getElementById("mode").textContent = "text mode · press 🎙 for voice"; conv = null; add("sys", "Voice session ended"); },
-      onModeChange: m => { orb.className = "orb " + (m.mode === "speaking" ? "speaking" : "listening"); orbstate.textContent = m.mode === "speaking" ? "U-bot is speaking" : "Listening…"; },
+      agentId: AGENT_ID, connectionType: "webrtc", ...(pref ? { inputDeviceId: pref } : {}),
+      onConnect: () => { orbstate.textContent = "listening"; orb.className = "orb listening"; add("sys", "🎙 Voice session started — speak now"); requestAnimationFrame(tick); },
+      onDisconnect: () => { orbstate.textContent = "ready"; orb.className = "orb"; setTalkUI(false); conv = null; add("sys", "Voice session ended"); },
+      onModeChange: m => { orb.className = "orb " + (m.mode === "speaking" ? "speaking" : "listening"); orbstate.textContent = m.mode === "speaking" ? "speaking" : "listening"; },
       onMessage: m => { if (m.source === "user") add("u", esc(m.message)); else if (m.source === "ai") add("b", esc(m.message)); },
       onError: e => add("sys", "⚠️ " + esc(e?.message || e)),
     });
   } catch (e) { add("sys", "⚠️ Microphone or connection error: " + esc(e.message)); setTalkUI(false); conv = null; }
 };
-let busy=false; const guard = async () => { if (busy) return; busy = true; try { await startTalk(); } finally { setTimeout(()=>busy=false, 800); } }; talk.onclick = guard; mic.onclick = guard;
+let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try { await startTalk(); } finally { setTimeout(() => busy = false, 800); } };
 </script>
 </body>
 </html>
