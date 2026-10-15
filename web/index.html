@@ -91,7 +91,7 @@ footer{margin-top:90px;border-top:1px solid var(--line);padding-top:24px;color:v
     <div class="console-h"><b>Live console</b><span id="mode">text mode · press 🎙 for voice</span></div>
     <div class="orb" id="orb"></div><div class="orbstate" id="orbstate">U-bot is ready</div>
     <div class="microw" id="microw" style="display:none"><span>🎤</span><div class="meter"><div id="lvl"></div></div><select id="micsel" title="Microphone"></select></div>
-    <div id="log"><div class="msg sys">Try: “How much do I have?” · “Send 2000 baht to mom” · “What invoices do I have?” · “Pay the Vietnam one”</div></div>
+    <div id="log"><div class="msg sys">Try: “How much do I have?” · “Send 2000 baht to mom” · “What invoices do I have?” · “Pay the Vietnam one” · “Ask DataAgent about Sequoia”</div></div>
     <div class="inputrow"><button class="btn mic" id="mic" title="Talk to U-bot">🎙</button><input id="inp" placeholder="Type to U-bot… or press 🎙 and speak" autocomplete="off"><button class="btn" id="send">Send</button></div>
     <div class="kpis"><div class="kpi"><small>Treasury USDC</small><b id="k_usdc">—</b></div><div class="kpi"><small>Last settlement</small><b id="k_lat">—</b></div><div class="kpi"><small>Chain</small><b>Fuji · 43113</b></div></div>
   </div>
@@ -157,6 +157,7 @@ function render(res){
   else if (res.action === "confirm_needed") { const q = d.quote||{}; extra = `<div class="tx"><span class="badge info">QUOTE</span>${q.amount_local} ${q.local_ccy} = <b>${q.amount_usdc} USDC</b> · FX ${q.fx_rate} · fee 0${d.needs_approval ? ' · <span class="badge warn">CO-SIGNER REQUIRED</span>' : ''}</div>`; }
   else if (res.action === "pending_approval") extra = `<div class="tx"><span class="badge warn">PENDING APPROVAL</span>${d.amount_usdc} USDC → ${esc(d.contact_alias||"")} · waiting for co-signer</div>`;
   else if (res.action === "balance") { extra = `<div class="tx">${d.usdc} USDC · ${d.avax} AVAX</div>`; document.getElementById("k_usdc").textContent = d.usdc; }
+  else if (res.action === "agent_paid") { const p = d.payment||{}, rep = d.report||{}; extra = `<div class="tx"><span class="badge ok">x402 PAID</span>${d.x402?.price_usdc} USDC → DataAgent · ⚡ ${p.latency_s}s<br>${rep.thesis_fit ? esc(rep.thesis_fit)+"<br>" : ""}${(rep.red_flags||[]).length ? "⚠️ " + rep.red_flags.map(esc).join(" · ") + "<br>" : ""}<a href="${p.explorer}" target="_blank">${p.tx||""}</a></div>`; document.getElementById("k_lat").textContent = (p.latency_s||"—") + "s"; }
   else if (res.action === "failed" || res.action === "blocked") extra = `<div class="tx"><span class="badge bad">${res.action.toUpperCase()}</span>${esc(d.error||d.reason||"")}</div>`;
   else if (res.action === "invoices" && Array.isArray(d)) extra = `<div class="tx">${d.map(i=>`• ${esc(i.from_name)} — <b>${i.amount_usdc} USDC</b> — ${esc(i.description)}`).join("<br>")}</div>`;
   if (res.action === "settled") document.getElementById("k_lat").textContent = d.latency_s + "s";

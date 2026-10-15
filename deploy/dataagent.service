@@ -1,0 +1,12 @@
+[Unit]
+Description=DataAgent (x402 paid AI service)
+After=network-online.target
+[Service]
+WorkingDirectory=/opt/ubotpay
+EnvironmentFile=/opt/ubotpay/.env
+EnvironmentFile=/opt/ubotpay/dataagent.env
+ExecStart=/opt/ubotpay/venv/bin/uvicorn dataagent:app --host 127.0.0.1 --port 8091
+Restart=always
+RestartSec=5
+[Install]
+WantedBy=multi-user.target

@@ -9,12 +9,13 @@ POST /demo/seed       create demo user + contacts + invoices
 GET  /health
 """
 import os, time, json, asyncio, logging
+import httpx
 from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-import core, chain, brain
+import core, chain, brain, x402_client
 from brain import say
 
 log = logging.getLogger("ubotpay")
@@ -139,6 +140,26 @@ async def turn(t: Turn, x_api_key: str | None = Header(default=None)):
         _pending.pop(uid, None)
         return {"say": say(lang, "cancelled"), "action": "cancelled", "data": {}}
 
+    # ── agent-to-agent: U-bot hires DataAgent and pays via x402 ──
+    if intent == "agent_query":
+        q = (it.get("query") or it.get("recipient") or "").strip()
+        if not q:
+            return {"say": it.get("reply") or "Which company should I research?", "action": "ask", "data": {}}
+        url = f"{os.environ.get('DATAAGENT_URL', 'http://127.0.0.1:8091')}/report?company={httpx.utils.quote(q)}"
+        try:
+            r = await x402_client.pay_and_fetch(url, os.environ["UBOT_PRIVATE_KEY"], max_usdc=float(user.get("daily_limit") or 5))
+        except Exception as e:
+            return {"say": say(lang, "agent_fail", err=str(e)[:80]), "action": "failed", "data": {"error": str(e)[:200]}}
+        if not r.get("ok"):
+            err = (r.get("body") or {}).get("error") or r.get("error") or f"HTTP {r.get('status')}"
+            return {"say": say(lang, "agent_fail", err=str(err)[:120]), "action": "failed", "data": r}
+        rep = r["body"].get("report", {}); pay = r["body"].get("payment", {})
+        summary = rep.get("summary", "")
+        if rep.get("score_0_100") is not None: summary += f" Score {rep['score_0_100']}/100."
+        core.add_contact(uid, "dataagent", "DataAgent (AI service)", pay.get("payee", ""), "—", is_agent=1)
+        return {"say": say(lang, "agent_paid", price=r["price_usdc"], lat=pay.get("latency_s", r["latency_s"]), summary=summary),
+                "action": "agent_paid", "data": {"query": q, "report": rep, "payment": pay, "x402": {"price_usdc": r["price_usdc"], "payee": r["payee"], "service": r["service"]}}}
+
     if intent in ("help", "smalltalk", "unknown"):
         return {"say": it.get("reply") or say(lang, "help"), "action": "none", "data": {}}
 
@@ -232,6 +253,18 @@ class X402Settle(BaseModel):
 async def x402_settle(s: X402Settle):
     r = await asyncio.to_thread(chain.settle_authorization, s.authorization)
     return r
+
+
+class AgentQuery(BaseModel):
+    company: str
+    user_key: str = "demo"
+
+@app.post("/agent/query")
+async def agent_query(q: AgentQuery, x_api_key: str | None = Header(default=None)):
+    """U-bot hires DataAgent: GET → 402 → sign EIP-3009 → retry with X-PAYMENT → report + on-chain receipt."""
+    auth(x_api_key)
+    url = f"{os.environ.get('DATAAGENT_URL', 'http://127.0.0.1:8091')}/report?company={httpx.utils.quote(q.company)}"
+    return await x402_client.pay_and_fetch(url, os.environ["UBOT_PRIVATE_KEY"])
 
 
 @app.post("/demo/seed")

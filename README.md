@@ -98,9 +98,24 @@ Create an agent in [ElevenLabs Agents](https://elevenlabs.io/app/agents) and add
 | `POST` | `/turn` | One conversation turn → `{say, action, data}` |
 | `POST` | `/approve` | Co-signer approves/rejects a pending payment |
 | `GET` | `/balance/{user}` · `/history/{user}` · `/invoices/{user}` | Read models |
-| `POST` | `/x402/quote` → `402` · `/x402/settle` | Agent-to-agent payments (EIP-3009) |
+| `POST` | `/agent/query` | U-bot hires **DataAgent** and pays it via x402 (see below) |
+| `POST` | `/x402/quote` → `402` · `/x402/settle` | Low-level x402 primitives (EIP-3009) |
 | `POST` | `/demo/seed` | Demo contacts + invoices |
 | `GET` | `/health` | Chain + treasury status |
+
+## Agents paying agents — x402 live demo
+
+`dataagent.py` is an independent paid AI service at **https://agent.ubotpay.com** (0.50 USDC per company report).
+
+```
+U-bot  → GET https://agent.ubotpay.com/report?company=Sequoia
+       ← 402 Payment Required  {network: avalanche-fuji, asset: USDC, payTo: 0xebF8…, amount: 0.5, scheme: eip3009}
+U-bot  → signs TransferWithAuthorization offline (EIP-712, no gas, no tx)
+       → GET … again with  X-PAYMENT: <base64 signed authorization>
+Agent  → recovers signer, checks payee/amount/expiry/nonce, settles on Avalanche, returns report + tx receipt
+```
+
+Say it: *"Ask DataAgent about Sequoia"* → U-bot pays, reads the brief back, shows the tx. No API key, no card, no human — money as an HTTP header.
 
 ## Telegram
 

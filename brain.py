@@ -12,13 +12,14 @@ Return ONLY a JSON object. No prose. Detect the user's language (ISO 639-1).
 
 Schema:
 {
- "intent": "balance" | "pay" | "invoices" | "pay_invoice" | "history" | "contacts" | "confirm" | "cancel" | "help" | "smalltalk" | "unknown",
+ "intent": "balance" | "pay" | "invoices" | "pay_invoice" | "history" | "contacts" | "confirm" | "cancel" | "agent_query" | "help" | "smalltalk" | "unknown",
  "lang": "en|es|th|my|vi|km|lo|id|fr|...",
  "amount": number|null,
  "currency": "THB|USD|EUR|VND|MMK|PHP|KHR|LAK|IDR|INR|USDC"|null,
  "recipient": string|null,          // name/alias as said by the user, e.g. "mi madre", "VietSupply", "the Vietnam supplier"
  "memo": string|null,               // short purpose if stated
  "invoice_ref": string|null,        // which invoice ("the Vietnam one", "the first", "inv_1a2b")
+ "query": string|null,              // for agent_query: the company/topic to research, e.g. "Sequoia", "Binance Labs"
  "reply": string                    // ONE short natural sentence in the user's language to say back while acting (max 20 words). Never mention JSON.
 }
 
@@ -27,6 +28,7 @@ Rules:
 - "confirm" = yes/sí/ใช่/ok/confirmo/go ahead. "cancel" = no/cancel/stop/para.
 - Money words: "2k" = 2000, "mil" = 1000, "two hundred" = 200.
 - Never invent recipients. If unclear, intent "pay" with recipient null and ask in reply.
+- "agent_query" = user asks U-bot to research / run due diligence / ask DataAgent about a company or investor ("research Sequoia", "ask DataAgent about X", "what do you know about Binance Labs", "haz due diligence de X").
 """
 
 
@@ -61,7 +63,9 @@ SAY = {
            "invoices_none": "You have no open invoices.",
            "invoices": "You have {n} open invoices: {list}",
            "cancelled": "Cancelled.", "nothing": "There's nothing to confirm.",
-           "history": "Your last payments: {list}", "help": "I can check your balance, send money, read your invoices, and pay them. Just tell me."},
+           "history": "Your last payments: {list}", "agent_paid": "I asked DataAgent and paid it {price} USDC via x402 — settled in {lat} seconds. {summary}",
+           "agent_fail": "DataAgent didn't answer: {err}",
+           "help": "I can check your balance, send money, read your invoices, and pay them. Just tell me."},
     "es": {"balance": "Tienes {usdc} USDC, unos {local} {ccy}.",
            "quote": "Son {usdc} USDC para {name}, cambio {rate}, sin comisión. ¿Lo envío?",
            "sent": "Hecho. Enviado en {lat} segundos.",
@@ -72,7 +76,9 @@ SAY = {
            "invoices_none": "No tienes facturas pendientes.",
            "invoices": "Tienes {n} facturas pendientes: {list}",
            "cancelled": "Cancelado.", "nothing": "No hay nada que confirmar.",
-           "history": "Tus últimos pagos: {list}", "help": "Puedo ver tu saldo, enviar dinero, leer tus facturas y pagarlas. Dime."},
+           "history": "Tus últimos pagos: {list}", "agent_paid": "Le pregunté a DataAgent y le pagué {price} USDC por x402, liquidado en {lat} segundos. {summary}",
+           "agent_fail": "DataAgent no respondió: {err}",
+           "help": "Puedo ver tu saldo, enviar dinero, leer tus facturas y pagarlas. Dime."},
     "th": {"balance": "คุณมี {usdc} USDC ประมาณ {local} {ccy}",
            "quote": "เท่ากับ {usdc} USDC ให้ {name} อัตรา {rate} ไม่มีค่าธรรมเนียม ส่งเลยไหม",
            "sent": "เรียบร้อย ส่งแล้วใน {lat} วินาที",
@@ -83,7 +89,9 @@ SAY = {
            "invoices_none": "ไม่มีใบแจ้งหนี้ค้าง",
            "invoices": "คุณมี {n} ใบแจ้งหนี้ค้าง: {list}",
            "cancelled": "ยกเลิกแล้ว", "nothing": "ไม่มีอะไรให้ยืนยัน",
-           "history": "รายการล่าสุด: {list}", "help": "ฉันดูยอดเงิน ส่งเงิน อ่านใบแจ้งหนี้ และจ่ายให้ได้ บอกมาได้เลย"},
+           "history": "รายการล่าสุด: {list}", "agent_paid": "ฉันถาม DataAgent และจ่าย {price} USDC ผ่าน x402 เสร็จใน {lat} วินาที {summary}",
+           "agent_fail": "DataAgent ไม่ตอบ: {err}",
+           "help": "ฉันดูยอดเงิน ส่งเงิน อ่านใบแจ้งหนี้ และจ่ายให้ได้ บอกมาได้เลย"},
 }
 
 
