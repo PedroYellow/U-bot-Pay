@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DataAgent — a paid AI service (x402 on Avalanche)</title>
+<style>
+:root{--bg:#07070d;--card:#0f1020;--line:#1e2040;--text:#f3f4ff;--muted:#8b8fb3;--p:#6c5ce7;--c:#00d2ff;--ok:#19d27c;--warn:#ffb020}
+*{box-sizing:border-box}body{margin:0;font:16px/1.5 -apple-system,BlinkMacSystemFont,Inter,"Segoe UI",Roboto,sans-serif;color:var(--text);background:radial-gradient(1000px 500px at 50% -10%,#1b1740,var(--bg) 60%)}
+a{color:var(--c);text-decoration:none}.wrap{max-width:980px;margin:0 auto;padding:28px 20px 70px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px}.brand{display:flex;gap:12px;align-items:center;font-weight:700}
+.brand .ic{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,#ffb020,#ff5c7a);display:grid;place-items:center;font-size:20px}
+.brand small{display:block;font-weight:500;color:var(--muted);font-size:12px}
+.pill{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:13px;color:var(--muted)}
+h1{font-size:clamp(30px,4.5vw,46px);letter-spacing:-.03em;line-height:1.05;margin:40px 0 10px}h1 em{font-style:normal;background:linear-gradient(90deg,#ffb020,#ff5c7a);-webkit-background-clip:text;background-clip:text;color:transparent}
+.lead{color:var(--muted);font-size:17px;max-width:680px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:28px}@media(max-width:800px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:20px}.card h3{margin:0 0 8px;font-size:16px}.card p{margin:0 0 10px;color:var(--muted);font-size:14px}
+pre{margin:0;background:#0a0b18;border:1px solid var(--line);border-radius:12px;padding:12px;font:12.5px/1.5 ui-monospace,Menlo,monospace;color:#c9cbe8;overflow:auto;max-height:320px;white-space:pre-wrap;word-break:break-all}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:11px 16px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--text);font-weight:600;cursor:pointer;font-size:14px}
+.btn.hot{background:linear-gradient(135deg,#ffb020,#ff5c7a);border-color:transparent;color:#140a00}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.row input{flex:1;min-width:180px;background:#0a0b18;border:1px solid var(--line);border-radius:12px;padding:11px 14px;color:var(--text);font-size:14px;outline:none}
+.badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;margin-right:6px}.b402{background:rgba(255,176,32,.15);color:var(--warn)}.b200{background:rgba(25,210,124,.15);color:var(--ok)}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:18px}.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}.kpi small{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}.kpi b{font-size:20px}
+.steps{counter-reset:s;display:grid;gap:8px;margin-top:14px}.step{display:flex;gap:12px;align-items:flex-start;font-size:14px;color:var(--muted)}.step:before{counter-increment:s;content:counter(s);width:24px;height:24px;border-radius:50%;background:var(--card);border:1px solid var(--line);display:grid;place-items:center;font-size:12px;color:var(--text);flex:none}
+.rx{font-size:13px;color:var(--muted);margin-top:8px}.rx div{padding:6px 0;border-top:1px solid var(--line)}
+footer{margin-top:60px;color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:18px}
+</style></head><body><div class="wrap">
+<header><div class="brand"><div class="ic">🤖</div><div>DataAgent<small>an independent AI service that charges per request</small></div></div><span class="pill" id="st">checking…</span></header>
+
+<h1>No API key. No card. <em>Just pay the request.</em></h1>
+<p class="lead">DataAgent sells investor briefs for <b>0.50 USDC</b> each. It doesn't know who you are — it only checks that your HTTP request carries a valid signed USDC authorization. That's <a href="https://www.x402.org" target="_blank">x402</a>, settled on Avalanche.</p>
+
+<div class="kpis"><div class="kpi"><small>Price per request</small><b>0.50 USDC</b></div><div class="kpi"><small>Received so far</small><b id="k_recv">—</b></div><div class="kpi"><small>Settlement</small><b>EIP-3009 · Avalanche</b></div></div>
+
+<div class="grid">
+  <div class="card">
+    <h3>① Ask without paying → <span class="badge b402">402</span></h3>
+    <p>Try it live. The service answers <i>Payment Required</i> with exactly what it wants.</p>
+    <div class="row"><input id="co" value="Sequoia Capital"><button class="btn" id="ask">GET /report</button></div>
+    <pre id="out402">—</pre>
+  </div>
+  <div class="card">
+    <h3>② Let U-bot pay it → <span class="badge b200">200</span></h3>
+    <p>U-bot signs the authorization offline and retries with an <code>X-PAYMENT</code> header. DataAgent verifies the signature, settles on-chain, returns the report.</p>
+    <button class="btn hot" id="pay">🎙 U-bot, ask DataAgent</button> <span class="rx" id="paystat"></span>
+    <pre id="out200" style="margin-top:10px">—</pre>
+  </div>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <h3>How the money moves</h3>
+  <div class="steps">
+    <div class="step">Client requests the resource. Service replies <b>402</b> with <code>payTo</code>, <code>amount</code>, <code>asset</code>, <code>network</code>.</div>
+    <div class="step">Client signs an EIP-712 <code>TransferWithAuthorization</code> (USDC's EIP-3009). No gas, no transaction yet — just a signature.</div>
+    <div class="step">Client retries with <code>X-PAYMENT: &lt;signed authorization&gt;</code>.</div>
+    <div class="step">Service recovers the signer, checks payee / amount / expiry / nonce, submits the authorization on-chain, and serves the response with an <code>X-PAYMENT-RESPONSE</code> receipt.</div>
+  </div>
+  <div class="rx" id="recent"></div>
+</div>
+
+<footer>Part of <a href="https://ubotpay.com">U-bot Pay</a> · U-Hackathon 2026 · <a href="https://github.com/PedroYellow/U-bot-Pay/blob/main/dataagent.py" target="_blank">source</a> · payee <a id="payee" href="#" target="_blank">…</a></footer>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+fetch("/health").then(r=>r.json()).then(h=>{$("st").textContent="● live · "+(h.network||"avalanche");$("st").style.color="var(--ok)";$("k_recv").textContent=h.payee_usdc+" USDC";$("payee").textContent=h.payee.slice(0,8)+"…"+h.payee.slice(-4);$("payee").href="https://snowtrace.io/address/"+h.payee;}).catch(()=>{$("st").textContent="offline"});
+$("ask").onclick=async()=>{$("out402").textContent="…";const r=await fetch("/report?company="+encodeURIComponent($("co").value));const j=await r.json();$("out402").textContent="HTTP "+r.status+"\n"+JSON.stringify(j,null,1);};
+$("pay").onclick=async()=>{$("paystat").textContent="U-bot is paying…";$("out200").textContent="…";
+  try{const r=await fetch("https://api.ubotpay.com/agent/query",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":"__UBOT_API_KEY__"},body:JSON.stringify({company:$("co").value})});const j=await r.json();
+    const p=(j.body||{}).payment||{};$("paystat").innerHTML=j.paid?`<span class="badge b200">PAID</span>${j.price_usdc} USDC · ${j.latency_s}s · <a href="${p.explorer}" target="_blank">tx ↗</a>`:`failed: ${(j.body||{}).error||j.error||j.status}`;
+    $("out200").textContent="HTTP "+j.status+"\n"+JSON.stringify(j.body,null,1);fetch("/health").then(r=>r.json()).then(h=>$("k_recv").textContent=h.payee_usdc+" USDC");}
+  catch(e){$("paystat").textContent="error: "+e.message}};
+</script></body></html>

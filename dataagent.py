@@ -9,7 +9,7 @@ Flow:
 """
 import os, json, base64, time, hashlib, logging, asyncio
 from fastapi import FastAPI, Request, Header
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from web3 import Web3
 from eth_account import Account
@@ -78,7 +78,9 @@ async def make_report(company: str) -> dict:
 
 
 @app.get("/")
-def root():
+def root(request: Request):
+    if "text/html" in request.headers.get("accept", "") and os.path.exists("/var/www/ubotpay/agent.html"):
+        return FileResponse("/var/www/ubotpay/agent.html")
     return {"service": "DataAgent", "price_usdc": PRICE_USDC, "payTo": PAYEE, "protocol": f"x402 / EIP-3009 on {chain.NETWORK_NAME}",
             "erc8004": AGENT_ID_8004, "try": "GET /report?company=Sequoia"}
 
@@ -111,4 +113,4 @@ async def report(request: Request, company: str = "Unknown", x_payment: str | No
 
 @app.get("/health")
 def health():
-    return {"ok": True, "payee": PAYEE, "payee_usdc": chain.balance(PAYEE)["usdc"], "price_usdc": PRICE_USDC}
+    return {"ok": True, "network": chain.NETWORK_NAME, "payee": PAYEE, "payee_usdc": chain.balance(PAYEE)["usdc"], "price_usdc": PRICE_USDC}
