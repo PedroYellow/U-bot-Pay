@@ -53,6 +53,7 @@ h1 em{font-style:normal;background:linear-gradient(90deg,var(--p),var(--c));-web
 @keyframes pulse{0%,100%{transform:scale(1);box-shadow:0 0 60px rgba(108,92,231,.55)}50%{transform:scale(1.08);box-shadow:0 0 90px rgba(0,210,255,.75)}}
 @keyframes talk{from{transform:scale(1)}to{transform:scale(1.05)}}
 .orbstate{text-align:center;color:var(--muted);font-size:13px;min-height:20px}
+.microw{display:flex;align-items:center;gap:8px;justify-content:center;margin:4px 0 8px;font-size:12px;color:var(--muted)}.meter{width:140px;height:8px;background:#0a0b18;border:1px solid var(--line);border-radius:6px;overflow:hidden}#lvl{height:100%;width:0;background:linear-gradient(90deg,var(--ok),var(--c));transition:width .08s}.microw select{background:#0a0b18;color:var(--muted);border:1px solid var(--line);border-radius:8px;font-size:11px;max-width:200px}
 /* sections */
 section{margin-top:90px}h2{font-size:30px;letter-spacing:-.02em;margin:0 0 10px}.sub{color:var(--muted);max-width:720px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin-top:26px}
@@ -89,6 +90,7 @@ footer{margin-top:90px;border-top:1px solid var(--line);padding-top:24px;color:v
   <div class="console">
     <div class="console-h"><b>Live console</b><span id="mode">text mode · press 🎙 for voice</span></div>
     <div class="orb" id="orb"></div><div class="orbstate" id="orbstate">U-bot is ready</div>
+    <div class="microw" id="microw" style="display:none"><span>🎤</span><div class="meter"><div id="lvl"></div></div><select id="micsel" title="Microphone"></select></div>
     <div id="log"><div class="msg sys">Try: “How much do I have?” · “Send 2000 baht to mom” · “What invoices do I have?” · “Pay the Vietnam one”</div></div>
     <div class="inputrow"><button class="btn mic" id="mic" title="Talk to U-bot">🎙</button><input id="inp" placeholder="Type to U-bot… or press 🎙 and speak" autocomplete="off"><button class="btn" id="send">Send</button></div>
     <div class="kpis"><div class="kpi"><small>Treasury USDC</small><b id="k_usdc">—</b></div><div class="kpi"><small>Last settlement</small><b id="k_lat">—</b></div><div class="kpi"><small>Chain</small><b>Fuji · 43113</b></div></div>
@@ -185,11 +187,26 @@ const startTalk = async () => {
   if (conv) { await conv.endSession(); return; }
   try {
     const { Conversation } = await import("https://cdn.jsdelivr.net/npm/@elevenlabs/client@latest/+esm");
-    await navigator.mediaDevices.getUserMedia({ audio: true });
+    const microw = document.getElementById("microw"), micsel = document.getElementById("micsel");
+    const pref = micsel.value || undefined;
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: pref ? { deviceId: { exact: pref } } : true });
+    microw.style.display = "flex";
+    // list devices (labels only available after permission)
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "audioinput");
+    micsel.innerHTML = devs.map(d => `<option value="${d.deviceId}" ${stream.getAudioTracks()[0].getSettings().deviceId === d.deviceId ? "selected" : ""}>${d.label || "Microphone"}</option>`).join("");
+    micsel.onchange = async () => { if (conv) { await conv.endSession(); } setTimeout(startTalk, 400); };
+    // level meter
+    const ac = new (window.AudioContext || window.webkitAudioContext)(); const src = ac.createMediaStreamSource(stream); const an = ac.createAnalyser(); an.fftSize = 512; src.connect(an);
+    const buf = new Uint8Array(an.frequencyBinCount); let peak = 0;
+    const tick = () => { if (!conv) { document.getElementById("lvl").style.width = "0"; return; } an.getByteTimeDomainData(buf); let m = 0; for (const v of buf) m = Math.max(m, Math.abs(v - 128)); peak = Math.max(peak, m); document.getElementById("lvl").style.width = Math.min(100, m * 1.6) + "%"; requestAnimationFrame(tick); };
+    setTimeout(() => { if (conv && peak < 3) add("sys", "⚠️ No microphone signal detected. Check the mic selector above, macOS System Settings → Privacy → Microphone, and that no other app holds the mic."); }, 6000);
+    add("sys", "🎤 Mic: " + (stream.getAudioTracks()[0].label || "default"));
     setTalkUI(true); document.getElementById("mode").textContent = "voice mode · speak naturally";
     conv = await Conversation.startSession({
       agentId: AGENT_ID,
-      onConnect: () => { orbstate.textContent = "Listening…"; orb.classList.add("listening"); add("sys", "🎙 Voice session started"); },
+      connectionType: "webrtc",
+      inputDeviceId: pref,
+      onConnect: () => { orbstate.textContent = "Listening…"; orb.classList.add("listening"); add("sys", "🎙 Voice session started — speak now"); requestAnimationFrame(tick); },
       onDisconnect: () => { orbstate.textContent = "U-bot is ready"; orb.className = "orb"; setTalkUI(false); document.getElementById("mode").textContent = "text mode · press 🎙 for voice"; conv = null; add("sys", "Voice session ended"); },
       onModeChange: m => { orb.className = "orb " + (m.mode === "speaking" ? "speaking" : "listening"); orbstate.textContent = m.mode === "speaking" ? "U-bot is speaking" : "Listening…"; },
       onMessage: m => { if (m.source === "user") add("u", esc(m.message)); else if (m.source === "ai") add("b", esc(m.message)); },
