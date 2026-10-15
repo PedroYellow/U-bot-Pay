@@ -12,7 +12,7 @@ import core, api
 
 log = logging.getLogger("ubot.tg")
 ELEVEN = os.environ.get("ELEVENLABS_API_KEY")
-VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "XrExE9yKIg1WjnnlVkGX")  # Matilda (professional) default; swap for official U-bot voice
+VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "XrExE9yKIg1WjnnlVkGX")  # Matilda (professional) default; swap for official ubotpay voice
 STT_MODEL = os.environ.get("ELEVENLABS_STT_MODEL", "scribe_v1")
 API_URL = os.environ.get("UBOT_API_URL", "http://127.0.0.1:8090")
 API_KEY = os.environ.get("UBOT_API_KEY", "")

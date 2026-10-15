@@ -140,7 +140,7 @@ async def turn(t: Turn, x_api_key: str | None = Header(default=None)):
         _pending.pop(uid, None)
         return {"say": say(lang, "cancelled"), "action": "cancelled", "data": {}}
 
-    # ── agent-to-agent: U-bot hires DataAgent and pays via x402 ──
+    # ── agent-to-agent: ubotpay hires DataAgent and pays via x402 ──
     if intent == "agent_query":
         q = (it.get("query") or it.get("recipient") or "").strip()
         if not q:
@@ -261,7 +261,7 @@ class AgentQuery(BaseModel):
 
 @app.post("/agent/query")
 async def agent_query(q: AgentQuery, x_api_key: str | None = Header(default=None)):
-    """U-bot hires DataAgent: GET → 402 → sign EIP-3009 → retry with X-PAYMENT → report + on-chain receipt."""
+    """ubotpay hires DataAgent: GET → 402 → sign EIP-3009 → retry with X-PAYMENT → report + on-chain receipt."""
     auth(x_api_key)
     url = f"{os.environ.get('DATAAGENT_URL', 'http://127.0.0.1:8091')}/report?company={urllib.parse.quote(q.company)}"
     return await x402_client.pay_and_fetch(url, os.environ["UBOT_PRIVATE_KEY"])
