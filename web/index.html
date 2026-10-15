@@ -44,6 +44,7 @@ h1 em{font-style:normal;background:linear-gradient(90deg,var(--p),var(--c));-web
 @keyframes in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 .inputrow{display:flex;gap:8px;margin-top:12px}.inputrow input{flex:1;background:#0a0b18;border:1px solid var(--line);border-radius:12px;padding:12px 14px;color:var(--text);font-size:15px;outline:none}
 .inputrow input:focus{border-color:var(--p)}
+.btn.mic{padding:12px 16px;font-size:18px;background:linear-gradient(135deg,var(--p),#4f46e5);border-color:transparent}.btn.mic.on{background:var(--bad);animation:pulse 1.2s infinite}
 .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
 .kpi{background:#0a0b18;border:1px solid var(--line);border-radius:12px;padding:10px 12px}.kpi small{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}.kpi b{font-size:18px}
 /* orb */
@@ -89,7 +90,7 @@ footer{margin-top:90px;border-top:1px solid var(--line);padding-top:24px;color:v
     <div class="console-h"><b>Live console</b><span id="mode">text mode · press 🎙 for voice</span></div>
     <div class="orb" id="orb"></div><div class="orbstate" id="orbstate">U-bot is ready</div>
     <div id="log"><div class="msg sys">Try: “How much do I have?” · “Send 2000 baht to mom” · “What invoices do I have?” · “Pay the Vietnam one”</div></div>
-    <div class="inputrow"><input id="inp" placeholder="Type to U-bot… (or press 🎙 and speak)" autocomplete="off"><button class="btn" id="send">Send</button></div>
+    <div class="inputrow"><button class="btn mic" id="mic" title="Talk to U-bot">🎙</button><input id="inp" placeholder="Type to U-bot… or press 🎙 and speak" autocomplete="off"><button class="btn" id="send">Send</button></div>
     <div class="kpis"><div class="kpi"><small>Treasury USDC</small><b id="k_usdc">—</b></div><div class="kpi"><small>Last settlement</small><b id="k_lat">—</b></div><div class="kpi"><small>Chain</small><b>Fuji · 43113</b></div></div>
   </div>
 </div>
@@ -173,27 +174,30 @@ document.getElementById("send").onclick = () => send(inp.value);
 inp.addEventListener("keydown", e => { if (e.key === "Enter") send(inp.value); });
 
 // health
-fetch(API + "/health").then(r=>r.json()).then(h=>{ document.getElementById("netstat").textContent = "Avalanche Fuji · live"; document.getElementById("k_usdc").textContent = h.treasury?.usdc ?? "—"; }).catch(()=>{ document.getElementById("netstat").textContent = "API offline"; document.getElementById("dot").style.background="var(--bad)"; });
+const refreshHealth = () => fetch(API + "/health").then(r=>r.json()).then(h=>{ document.getElementById("netstat").textContent = "Avalanche Fuji · live"; document.getElementById("k_usdc").textContent = h.treasury?.usdc ?? "—"; }).catch(()=>{ document.getElementById("netstat").textContent = "API offline"; document.getElementById("dot").style.background="var(--bad)"; });
+refreshHealth(); setInterval(refreshHealth, 10000);
 
 // ── ElevenLabs voice (WebRTC via SDK) ──
 let conv = null;
-const talk = document.getElementById("talk");
-talk.onclick = async () => {
+const talk = document.getElementById("talk"), mic = document.getElementById("mic");
+const setTalkUI = on => { talk.textContent = on ? "⏹ Stop" : "🎙 Talk to U-bot"; mic.classList.toggle("on", on); mic.textContent = on ? "⏹" : "🎙"; };
+const startTalk = async () => {
   if (conv) { await conv.endSession(); return; }
   try {
     const { Conversation } = await import("https://cdn.jsdelivr.net/npm/@elevenlabs/client@latest/+esm");
     await navigator.mediaDevices.getUserMedia({ audio: true });
-    talk.textContent = "⏹ Stop"; document.getElementById("mode").textContent = "voice mode · speak naturally";
+    setTalkUI(true); document.getElementById("mode").textContent = "voice mode · speak naturally";
     conv = await Conversation.startSession({
       agentId: AGENT_ID,
       onConnect: () => { orbstate.textContent = "Listening…"; orb.classList.add("listening"); add("sys", "🎙 Voice session started"); },
-      onDisconnect: () => { orbstate.textContent = "U-bot is ready"; orb.className = "orb"; talk.textContent = "🎙 Talk to U-bot"; document.getElementById("mode").textContent = "text mode · press 🎙 for voice"; conv = null; add("sys", "Voice session ended"); },
+      onDisconnect: () => { orbstate.textContent = "U-bot is ready"; orb.className = "orb"; setTalkUI(false); document.getElementById("mode").textContent = "text mode · press 🎙 for voice"; conv = null; add("sys", "Voice session ended"); },
       onModeChange: m => { orb.className = "orb " + (m.mode === "speaking" ? "speaking" : "listening"); orbstate.textContent = m.mode === "speaking" ? "U-bot is speaking" : "Listening…"; },
       onMessage: m => { if (m.source === "user") add("u", esc(m.message)); else if (m.source === "ai") add("b", esc(m.message)); },
       onError: e => add("sys", "⚠️ " + esc(e?.message || e)),
     });
-  } catch (e) { add("sys", "⚠️ Microphone or connection error: " + esc(e.message)); talk.textContent = "🎙 Talk to U-bot"; conv = null; }
+  } catch (e) { add("sys", "⚠️ Microphone or connection error: " + esc(e.message)); setTalkUI(false); conv = null; }
 };
+talk.onclick = startTalk; mic.onclick = startTalk;
 </script>
 </body>
 </html>
