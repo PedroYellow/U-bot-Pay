@@ -71,7 +71,10 @@ $("pay").onclick=async()=>{$("paystat").textContent="ubotpay is paying…";$("ou
 (function(){
   var ALLOWED = ["https://ubotpay.com/pitch","https://t.me/Ubotpaybot","https://agent.ubotpay.com","https://github.com/PedroYellow/U-bot-Pay","https://api.ubotpay.com/docs"];
   function openUrl(p){ var u=(p&&p.url||"").trim().replace(/\/$/,""); if(!ALLOWED.some(function(a){return a.replace(/\/$/,"")===u;})) return "blocked"; var samesite = u.indexOf("ubotpay.com/pitch")>-1; var w = window.open(u, samesite ? "_self" : "_blank"); return w||samesite ? "opened" : "popup-blocked"; }
-  window.addEventListener("elevenlabs-convai:call", function(e){ e.detail.config.clientTools = Object.assign({}, e.detail.config.clientTools, { open_url: openUrl }); });
+  function hook(e){ try { e.detail.config.clientTools = Object.assign({}, e.detail.config.clientTools, { open_url: openUrl }); console.log("[ubotpay] open_url tool registered"); } catch(err){ console.warn("[ubotpay] hook failed", err); } }
+  window.addEventListener("elevenlabs-convai:call", hook); document.addEventListener("elevenlabs-convai:call", hook);
+  function attach(){ var el=document.querySelector("elevenlabs-convai"); if(el && !el.__ubotHooked){ el.__ubotHooked=true; el.addEventListener("elevenlabs-convai:call", hook); } }
+  attach(); new MutationObserver(attach).observe(document.documentElement,{childList:true,subtree:true});
   window.__ubotOpenUrl = openUrl;
 })();
 </script>
