@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>u.bot Pay — Say it. Confirm it. Settled.</title>
+<title>ubotpay — Say it. Confirm it. Settled.</title>
 <meta name="description" content="Voice-first USDC payments on Avalanche. Speak in any language, settle in under two seconds.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><radialGradient id='g' cx='35%' cy='30%'><stop offset='0' stop-color='%23BFE0FF'/><stop offset='.55' stop-color='%234C7DF0'/><stop offset='1' stop-color='%236C5CE7'/></radialGradient></defs><circle cx='32' cy='32' r='30' fill='url(%23g)'/><g fill='white'><rect x='18' y='27' width='4' height='10' rx='2'/><rect x='25' y='22' width='4' height='20' rx='2'/><rect x='32' y='17' width='4' height='30' rx='2'/><rect x='39' y='22' width='4' height='20' rx='2'/><rect x='46' y='27' width='4' height='10' rx='2'/></g></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,27 +16,27 @@
   <div class="dark">
     <a class="brand" href="/">
       <svg viewBox="0 0 64 64" aria-hidden="true"><defs><radialGradient id="g" cx="35%" cy="30%"><stop offset="0" stop-color="#BFE0FF"/><stop offset=".55" stop-color="#4C7DF0"/><stop offset="1" stop-color="#6C5CE7"/></radialGradient></defs><circle cx="32" cy="32" r="30" fill="url(#g)"/><g fill="#fff"><rect x="18" y="27" width="4" height="10" rx="2"/><rect x="25" y="22" width="4" height="20" rx="2"/><rect x="32" y="17" width="4" height="30" rx="2"/><rect x="39" y="22" width="4" height="20" rx="2"/><rect x="46" y="27" width="4" height="10" rx="2"/></g></svg>
-      u.bot <small>PAY</small>
+      ubotpay
     </a>
     <div class="orbwrap">
       <div class="orb" id="orb"><div class="bars"><i style="--h:18px;--d:0s"></i><i style="--h:32px;--d:.15s"></i><i style="--h:48px;--d:.3s"></i><i style="--h:32px;--d:.45s"></i><i style="--h:18px;--d:.6s"></i></div></div>
     </div>
     <div class="tag">
       <h1>Say it. Confirm it. Settled.</h1>
-      <p>u.bot is the assistant that moves your money. Speak in any language — it quotes the FX, asks you to confirm, and settles USDC on Avalanche in under two seconds.</p>
+      <p>ubotpay is the assistant that moves your money. Speak in any language — it quotes the FX, asks you to confirm, and settles USDC on Avalanche in under two seconds.</p>
       <div class="chips"><span class="chip">🎙 Voice</span><span class="chip">⛓ Avalanche</span><span class="chip">💵 USDC</span><span class="chip">🔐 Dual control</span><span class="chip">🤖 x402</span></div>
     </div>
   </div>
 
   <div class="light">
     <div class="panel">
-      <h2>Talk to u.bot</h2>
+      <h2>Talk to ubotpay</h2>
       <p class="sub">Press the mic, or type. Every payment needs your spoken yes.</p>
       <div class="console">
         <div class="state"><span>Status · <b id="orbstate">ready</b></span><span id="netstat">checking…</span></div>
         <div class="microw" id="microw" style="display:none"><span>🎤</span><div class="meter"><div id="lvl"></div></div><select id="micsel" title="Microphone"></select></div>
         <div id="log"><div class="msg sys">Try: “How much do I have?” · “Send 100 baht to mom” · “What invoices do I have?” · “Ask DataAgent about Sequoia”</div></div>
-        <div class="inputrow"><button class="btn mic" id="mic" title="Talk to u.bot">🎙</button><input id="inp" placeholder="Ask u.bot…" autocomplete="off"><button class="btn primary" id="send">Send</button></div>
+        <div class="inputrow"><button class="btn mic" id="mic" title="Talk to ubotpay">🎙</button><input id="inp" placeholder="Ask ubotpay…" autocomplete="off"><button class="btn primary" id="send">Send</button></div>
         <div class="kpis"><div class="kpi"><small>Treasury</small><b id="k_usdc">—</b></div><div class="kpi"><small>Last settlement</small><b id="k_lat">—</b></div><div class="kpi"><small>Chain</small><b id="k_chain">Avalanche</b></div></div>
       </div>
       <p class="alt">Prefer Telegram? <a href="https://t.me/Ubotpaybot" target="_blank">Open @Ubotpaybot</a></p>
@@ -60,14 +60,14 @@
 
 <section>
   <h3 class="t">Why it wins</h3>
-  <p class="sub2">Institutional rails like Canton and Stellar move trillions, but nobody <i>talks</i> to them. Consumer apps have buttons, not conversations. u.bot Pay is the missing layer.</p>
+  <p class="sub2">Institutional rails like Canton and Stellar move trillions, but nobody <i>talks</i> to them. Consumer apps have buttons, not conversations. ubotpay is the missing layer.</p>
   <div class="grid">
     <div class="card"><div class="ic">🎙</div><h4>ElevenLabs, end to end</h4><p>Conversational agent with webhook tools, 90+ languages, voice as the confirmation factor.</p></div>
     <div class="card"><div class="ic">⛓</div><h4>Avalanche, for real</h4><p>Live on mainnet. USDC on C-Chain, sub-second finality, EIP-3009 for agent payments.</p></div>
     <div class="card"><div class="ic">🔐</div><h4>Institutional policy, consumer UX</h4><p>Daily limits, dual control above a threshold, hashed memos on-chain.</p></div>
     <div class="card"><div class="ic">🌏</div><h4>Built for Bangkok</h4><p>Thai, Burmese, Khmer, Lao, Vietnamese. Remittances and supplier payments in the language people speak.</p></div>
     <div class="card"><div class="ic">✈️</div><h4>Lives where users are</h4><p>Telegram voice notes, a phone call, or this page. One brain behind every channel.</p></div>
-    <div class="card"><div class="ic">🤖</div><h4>Agents pay agents</h4><p>u.bot hires another AI service and pays it per request via x402 — no human in the loop.</p></div>
+    <div class="card"><div class="ic">🤖</div><h4>Agents pay agents</h4><p>ubotpay hires another AI service and pays it per request via x402 — no human in the loop.</p></div>
   </div>
 </section>
 
@@ -87,7 +87,7 @@
   <div class="links"><a class="link" href="https://api.ubotpay.com/docs" target="_blank">API docs ↗</a><a class="link" href="https://agent.ubotpay.com" target="_blank">DataAgent (x402) ↗</a><a class="link" href="https://snowtrace.io/address/0x673678B1870Ae7ef598A5982D25ffdee68d85669" target="_blank">Treasury on Snowtrace ↗</a><a class="link" href="https://github.com/PedroYellow/U-bot-Pay" target="_blank">GitHub ↗</a></div>
 </section>
 
-<footer><span>u.bot Pay · built in 48h at U-Hackathon 2026, FLOW Summit Bangkok</span><span>Partners: ElevenLabs · Avalanche · U-topia</span></footer>
+<footer><span>ubotpay · built in 48h at U-Hackathon 2026, FLOW Summit Bangkok</span><span>Partners: ElevenLabs · Avalanche · U-topia</span></footer>
 </div>
 
 <script type="module">
@@ -112,7 +112,7 @@ function render(res){
 async function send(text){
   if(!text.trim()) return;
   add("u", esc(text)); inp.value = "";
-  const t = add("sys", "u.bot is thinking…");
+  const t = add("sys", "ubotpay is thinking…");
   try { const r = await fetch(API + "/turn", {method:"POST", headers:{"Content-Type":"application/json","x-api-key":API_KEY}, body: JSON.stringify({user_key:"demo", text, channel:"web"})}); const res = await r.json(); t.remove(); render(res); }
   catch(e){ t.innerHTML = "⚠️ " + esc(e.message); }
 }

@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DataAgent — a paid AI service · u.bot Pay</title>
+<title>DataAgent — a paid AI service · ubotpay</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://ubotpay.com/ubot.css">
@@ -16,7 +16,7 @@
 <body>
 <div class="hero">
   <div class="dark">
-    <a class="brand" href="https://ubotpay.com"><svg viewBox="0 0 64 64" aria-hidden="true"><defs><radialGradient id="g" cx="35%" cy="30%"><stop offset="0" stop-color="#BFE0FF"/><stop offset=".55" stop-color="#4C7DF0"/><stop offset="1" stop-color="#6C5CE7"/></radialGradient></defs><circle cx="32" cy="32" r="30" fill="url(#g)"/><g fill="#fff"><rect x="18" y="27" width="4" height="10" rx="2"/><rect x="25" y="22" width="4" height="20" rx="2"/><rect x="32" y="17" width="4" height="30" rx="2"/><rect x="39" y="22" width="4" height="20" rx="2"/><rect x="46" y="27" width="4" height="10" rx="2"/></g></svg>u.bot <small>PAY · DATAAGENT</small></a>
+    <a class="brand" href="https://ubotpay.com"><svg viewBox="0 0 64 64" aria-hidden="true"><defs><radialGradient id="g" cx="35%" cy="30%"><stop offset="0" stop-color="#BFE0FF"/><stop offset=".55" stop-color="#4C7DF0"/><stop offset="1" stop-color="#6C5CE7"/></radialGradient></defs><circle cx="32" cy="32" r="30" fill="url(#g)"/><g fill="#fff"><rect x="18" y="27" width="4" height="10" rx="2"/><rect x="25" y="22" width="4" height="20" rx="2"/><rect x="32" y="17" width="4" height="30" rx="2"/><rect x="39" y="22" width="4" height="20" rx="2"/><rect x="46" y="27" width="4" height="10" rx="2"/></g></svg>ubotpay <small>DATAAGENT</small></a>
     <div class="orbwrap" style="min-height:160px"><div class="orb sm"><div class="bars"><i style="--h:12px;--d:0s"></i><i style="--h:22px;--d:.15s"></i><i style="--h:32px;--d:.3s"></i><i style="--h:22px;--d:.45s"></i><i style="--h:12px;--d:.6s"></i></div></div></div>
     <div class="tag">
       <h1>No API key. No card.<br>Just pay the request.</h1>
@@ -33,7 +33,7 @@
   <div class="light">
     <div class="panel wide">
       <h2>Try it live</h2>
-      <p class="sub">First ask without paying. Then let u.bot pay for you.</p>
+      <p class="sub">First ask without paying. Then let ubotpay pay for you.</p>
       <div class="kpis" style="margin:0 0 14px"><div class="kpi"><small>Price</small><b>0.50 USDC</b></div><div class="kpi"><small>Received</small><b id="k_recv">—</b></div><div class="kpi"><small>Network</small><b id="k_net">—</b></div></div>
       <div class="two">
         <div class="card">
@@ -42,14 +42,14 @@
           <pre class="out" id="out402" style="margin-top:10px">—</pre>
         </div>
         <div class="card">
-          <h4>② Let u.bot pay it <span class="badge ok">200</span></h4>
-          <p style="margin:4px 0 10px;color:var(--muted);font-size:13.5px">u.bot signs the authorization offline and retries with <code>X-PAYMENT</code>. DataAgent verifies, settles, answers.</p>
-          <button class="btn primary" id="pay">🎙 u.bot, ask DataAgent</button>
+          <h4>② Let ubotpay pay it <span class="badge ok">200</span></h4>
+          <p style="margin:4px 0 10px;color:var(--muted);font-size:13.5px">ubotpay signs the authorization offline and retries with <code>X-PAYMENT</code>. DataAgent verifies, settles, answers.</p>
+          <button class="btn primary" id="pay">🎙 ubotpay, ask DataAgent</button>
           <div class="stat" id="paystat"></div>
           <pre class="out" id="out200">—</pre>
         </div>
       </div>
-      <div class="foot"><a href="https://ubotpay.com">u.bot Pay</a><a href="https://github.com/PedroYellow/U-bot-Pay/blob/main/dataagent.py" target="_blank">Source</a><a id="payee" href="#" target="_blank">Payee on Snowtrace</a></div>
+      <div class="foot"><a href="https://ubotpay.com">ubotpay</a><a href="https://github.com/PedroYellow/U-bot-Pay/blob/main/dataagent.py" target="_blank">Source</a><a id="payee" href="#" target="_blank">Payee on Snowtrace</a></div>
     </div>
   </div>
 </div>
@@ -58,7 +58,7 @@ const $=id=>document.getElementById(id);
 const refresh=()=>fetch("/health").then(r=>r.json()).then(h=>{$("k_recv").textContent=h.payee_usdc+" USDC";$("k_net").textContent=h.network==="avalanche-mainnet"?"Mainnet":h.network;$("payee").href="https://snowtrace.io/address/"+h.payee;});
 refresh();
 $("ask").onclick=async()=>{$("out402").textContent="…";const r=await fetch("/report?company="+encodeURIComponent($("co").value));const j=await r.json();$("out402").textContent="HTTP "+r.status+"\n"+JSON.stringify(j,null,1);};
-$("pay").onclick=async()=>{$("paystat").textContent="u.bot is paying…";$("out200").textContent="…";
+$("pay").onclick=async()=>{$("paystat").textContent="ubotpay is paying…";$("out200").textContent="…";
   try{const r=await fetch("https://api.ubotpay.com/agent/query",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":"__UBOT_API_KEY__"},body:JSON.stringify({company:$("co").value})});const j=await r.json();
     const p=(j.body||{}).payment||{};$("paystat").innerHTML=j.paid?`<span class="badge ok">PAID</span>${j.price_usdc} USDC · ${j.latency_s}s · <a href="${p.explorer}" target="_blank">tx ↗</a>`:`<span class="badge bad">FAILED</span>${(j.body||{}).error||j.error||j.status}`;
     $("out200").textContent="HTTP "+j.status+"\n"+JSON.stringify(j.body,null,1);refresh();}
