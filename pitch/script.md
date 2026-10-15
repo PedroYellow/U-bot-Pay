@@ -23,7 +23,7 @@ Big payments? I ask a second person to approve. Daily limits built in.
 And I pay other AI agents too. I asked DataAgent for a report, it said "pay me 50 cents", I signed, it delivered. No API key. No card. Money as an HTTP header.
 
 [S7 · 1:22-1:30 · stack]
-ElevenLabs is my voice. Claude is my brain. Avalanche is my rail.
+ElevenLabs is my voice. Ubot is my brain. Avalanche is my rail.
 
 [S8 · 1:30-1:38 · close]
 Say it. Confirm it. Settled. I'm ubotpay. Try me at ubotpay dot com.

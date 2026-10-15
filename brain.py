@@ -1,11 +1,17 @@
 """
-U-bot Pay — intent parsing with Claude. Turns "mándale 2000 baht a mi madre" into a structured action.
+U-bot Pay — intent parsing with Ubot (U-topia's LLM). Turns "mándale 2000 baht a mi madre" into a structured action.
+Ubot is the brain. Until the Ubot endpoint is live, a generic LLM fallback keeps the demo running.
 Works for text transcripts from any channel (ElevenLabs, Telegram voice→STT, web).
 """
 import os, json
-from anthropic import AsyncAnthropic
+import httpx
 
-MODEL = os.environ.get("UBOT_MODEL", "claude-sonnet-4-6")
+# Ubot — U-topia's own model. OpenAI-compatible chat endpoint.
+UBOT_LLM_URL = os.environ.get("UBOT_LLM_URL", "")          # e.g. https://llm.u-topia.com/v1/chat/completions
+UBOT_LLM_KEY = os.environ.get("UBOT_LLM_KEY", "")
+UBOT_MODEL = os.environ.get("UBOT_MODEL", "ubot-1")
+# Fallback while Ubot is being wired up (any provider; kept out of the product surface)
+FALLBACK_MODEL = os.environ.get("FALLBACK_MODEL", "claude-sonnet-4-6")
 
 SYSTEM = """You are the intent parser for ubotpay, the voice payments assistant built for the U-topia ecosystem.
 Return ONLY a JSON object. No prose. Detect the user's language (ISO 639-1).
@@ -32,16 +38,40 @@ Rules:
 """
 
 
-async def parse(text: str, context: dict | None = None) -> dict:
+async def _ubot(system: str, user: str) -> str:
+    """One call to Ubot. Raises on any failure so the caller can fall back."""
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.post(UBOT_LLM_URL,
+                         headers={"Authorization": f"Bearer {UBOT_LLM_KEY}", "Content-Type": "application/json"},
+                         json={"model": UBOT_MODEL, "temperature": 0, "max_tokens": 300,
+                               "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]})
+        r.raise_for_status()
+        return r.json()["choices"][0]["message"]["content"]
+
+
+async def _fallback(system: str, user: str) -> str:
+    from anthropic import AsyncAnthropic
     client = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    r = await client.messages.create(model=FALLBACK_MODEL, max_tokens=300, system=system,
+                                     messages=[{"role": "user", "content": user}])
+    return r.content[0].text
+
+
+async def parse(text: str, context: dict | None = None) -> dict:
     ctx = ""
     if context:
         ctx = "\nContext (contacts known: " + ", ".join(context.get("contacts", [])) + \
               "; open invoices: " + "; ".join(context.get("invoices", [])) + \
               "; awaiting_confirmation: " + str(context.get("awaiting", False)) + ")"
-    r = await client.messages.create(model=MODEL, max_tokens=300, system=SYSTEM,
-                                     messages=[{"role": "user", "content": text + ctx}])
-    raw = r.content[0].text.strip()
+    raw = None
+    if UBOT_LLM_URL:
+        try:
+            raw = await _ubot(SYSTEM, text + ctx)
+        except Exception:
+            raw = None
+    if raw is None:
+        raw = await _fallback(SYSTEM, text + ctx)
+    raw = raw.strip()
     if raw.startswith("```"):
         raw = raw.strip("`").split("\n", 1)[1] if "\n" in raw else raw.strip("`")
         raw = raw.replace("json\n", "", 1)

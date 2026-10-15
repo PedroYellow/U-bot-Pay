@@ -36,7 +36,7 @@ How do I make money? 0.5% per transfer (banks charge 5%), a small FX spread, and
 
 10
 00:01:22,827 --> 00:01:28,783
-ElevenLabs is my voice. Claude is my brain. Avalanche is my rail.
+ElevenLabs is my voice. Ubot is my brain. Avalanche is my rail.
 
 11
 00:01:29,483 --> 00:01:36,327

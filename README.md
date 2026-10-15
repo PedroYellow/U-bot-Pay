@@ -30,7 +30,7 @@ U-bot Pay is the missing layer: **a voice you can trust with your money.**
 | Feature | How |
 |---|---|
 | **Voice in, voice out** | ElevenLabs STT + TTS, 90+ languages (Thai, Burmese, Vietnamese, Spanish, English…) |
-| **Natural-language intents** | Claude parses *"pay the Vietnam one"*, *"mándale 500 baht a mi madre"*, *"ส่งเงิน 300 บาทให้แม่"* |
+| **Natural-language intents** | **Ubot** (U-topia's LLM) parses *"pay the Vietnam one"*, *"mándale 500 baht a mi madre"*, *"ส่งเงิน 300 บาทให้แม่"* |
 | **Instant settlement** | USDC on Avalanche C-Chain (Fuji) — sub-second finality, tx link on every payment |
 | **Transparent FX** | Local-currency quote → USDC, rate shown, zero fees |
 | **Voice-confirmed payments** | Nothing moves without a spoken *yes* |
@@ -52,7 +52,7 @@ U-bot Pay is the missing layer: **a voice you can trust with your money.**
         ▼                   ▼                  ▼
  ┌──────────────────────────────────────────────────┐
  │                 POST /turn   (FastAPI)           │
- │   brain.py  →  Claude intent parser              │
+ │   brain.py  →  Ubot intent parser                │
  │   core.py   →  users · contacts · FX · policy    │
  │   chain.py  →  Avalanche C-Chain (mainnet; Fuji for tests) · USDC · EIP-3009  │
  └──────────────────────┬───────────────────────────┘

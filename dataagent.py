@@ -64,7 +64,7 @@ def verify(auth: dict) -> tuple[bool, str]:
 
 
 async def make_report(company: str) -> dict:
-    """The actual paid service: a short investor-style brief. Claude if key present, else canned."""
+    """The actual paid service: a short investor-style brief. LLM if key present, else canned."""
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         return {"company": company, "summary": f"{company}: demo report (set ANTHROPIC_API_KEY for a live one).", "risk": "n/a"}
