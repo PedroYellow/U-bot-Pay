@@ -1,0 +1,11 @@
+[Unit]
+Description=U-bot Pay (API + Telegram)
+After=network-online.target
+[Service]
+WorkingDirectory=/opt/ubotpay
+EnvironmentFile=/opt/ubotpay/.env
+ExecStart=/opt/ubotpay/venv/bin/python /opt/ubotpay/main.py
+Restart=always
+RestartSec=5
+[Install]
+WantedBy=multi-user.target

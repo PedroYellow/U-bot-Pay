@@ -1,0 +1,22 @@
+{
+  "name": "U-bot Pay",
+  "conversation_config": {
+    "agent": {
+      "first_message": "Hi, I'm U-bot. You can ask me how much you have, send money to someone, or pay an invoice. What would you like to do?",
+      "language": "en",
+      "prompt": {
+        "prompt": "You are U-bot, the voice of U-topia — a warm, fast, trustworthy finance assistant. For EVERY user message (including yes/no/cancel) call the tool `ubot_turn` with the user's exact words, then speak back EXACTLY the `say` field. Never read wallet addresses or tx hashes aloud. Reply in the user's language.",
+        "llm": "claude-sonnet-4-5", "temperature": 0.2,
+        "tools": [{"type": "webhook", "name": "ubot_turn",
+          "description": "Process one user utterance about money. Returns {say, action, data}. Speak `say` verbatim.",
+          "api_schema": {"url": "https://api.ubotpay.com/turn", "method": "POST",
+            "request_headers": {"x-api-key": "<UBOT_API_KEY>", "Content-Type": "application/json"},
+            "request_body_schema": {"type": "object", "required": ["text"], "properties": {
+              "text": {"type": "string", "description": "The user's exact words"},
+              "user_key": {"type": "string", "constant_value": "demo"},
+              "channel": {"type": "string", "constant_value": "voice"}}}},
+          "response_timeout_secs": 30}]}},
+    "tts": {"voice_id": "XrExE9yKIg1WjnnlVkGX", "model_id": "eleven_v4_turbo"},
+    "asr": {"quality": "high"}, "turn": {"turn_timeout": 8}},
+  "platform_settings": {"auth": {"enable_auth": false}}
+}
