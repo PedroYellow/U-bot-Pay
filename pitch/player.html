@@ -1,0 +1,22 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ubotpay — pitch</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;height:100%;background:#0B0D2A;font-family:Poppins,sans-serif;color:#fff}
+.wrap{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:20px;box-sizing:border-box}
+video{width:min(100%,1600px);aspect-ratio:16/9;border-radius:18px;box-shadow:0 30px 100px rgba(0,0,0,.6);background:#000;outline:none}
+.bar{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+.btn{background:#1F5AF0;color:#fff;border:0;border-radius:12px;padding:14px 22px;font:inherit;font-weight:600;font-size:17px;cursor:pointer;text-decoration:none}
+.btn.ghost{background:rgba(255,255,255,.1)}
+.hint{color:rgba(255,255,255,.5);font-size:14px}
+.full video{position:fixed;inset:0;width:100vw;height:100vh;border-radius:0;object-fit:contain;z-index:9}
+</style></head><body><div class="wrap">
+<video id="v" src="/pitch/ubotpay_pitch.mp4" controls playsinline preload="auto" poster="/pitch/poster.jpg"></video>
+<div class="bar"><button class="btn" id="play">▶ Play (fullscreen)</button><a class="btn ghost" href="/pitch/ubotpay_pitch.mp4" download>⬇ Download MP4</a><a class="btn ghost" href="/">← ubotpay.com</a></div>
+<div class="hint">Space = play/pause · F = fullscreen · 83 s · ubotpay presents itself (ElevenLabs voice)</div>
+</div>
+<script>
+const v=document.getElementById("v");
+document.getElementById("play").onclick=async()=>{try{await (v.requestFullscreen?v.requestFullscreen():v.webkitEnterFullscreen());}catch(e){} v.currentTime=0; v.play();};
+addEventListener("keydown",e=>{if(e.code==="Space"){e.preventDefault();v.paused?v.play():v.pause();} if(e.key==="f"||e.key==="F"){v.requestFullscreen&&v.requestFullscreen();}});
+</script></body></html>

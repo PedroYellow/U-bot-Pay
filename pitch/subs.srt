@@ -1,0 +1,39 @@
+1
+00:00:00,000 --> 00:00:05,799
+Hi. I'm ubotpay. Pedro built me in two days. Let me show you what I do.
+
+2
+00:00:06,499 --> 00:00:13,500
+Banks have rails. Apps have buttons. Nobody has a conversation. So I listen.
+
+3
+00:00:14,200 --> 00:00:18,641
+Watch. Someone says: "send 100 baht to mom."
+
+4
+00:00:20,400 --> 00:00:29,151
+I quote it: 100 baht is 2.91 USDC. Zero fees. Nothing moves until I hear a yes.
+
+5
+00:00:29,851 --> 00:00:37,557
+Done. Settled on Avalanche mainnet in under two seconds. Real USDC. Here's the transaction.
+
+6
+00:00:38,257 --> 00:00:44,944
+I speak Thai, Vietnamese, Spanish, English. Ninety languages. Same brain.
+
+7
+00:00:45,644 --> 00:00:51,522
+Big payments? I ask a second person to approve. Daily limits, built in.
+
+8
+00:00:52,222 --> 00:01:07,216
+I pay other AI agents too. DataAgent said "pay me 50 cents", I signed, it delivered. No API key. No card. Money as an HTTP header.
+
+9
+00:01:07,916 --> 00:01:13,872
+ElevenLabs is my voice. Claude is my brain. Avalanche is my rail.
+
+10
+00:01:14,572 --> 00:01:21,416
+Say it. Confirm it. Settled. I'm ubotpay. Try me at ubotpay.com

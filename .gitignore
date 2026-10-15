@@ -8,3 +8,11 @@ venv/
 .venv/
 test_brain.py
 .agent_id
+pitch/rec/
+pitch/recz/
+pitch/audio/
+pitch/*.m4a
+pitch/video_raw.mp4
+pitch/video_nosub.mp4
+pitch/check_*.png
+pitch/concat.txt

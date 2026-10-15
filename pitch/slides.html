@@ -1,0 +1,47 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0}
+body{width:1920px;height:1080px;overflow:hidden;font-family:Poppins,sans-serif;color:#fff;background:radial-gradient(1400px 900px at 50% 45%,#2C2C9B 0%,#1A1A5E 40%,#0B0D2A 100%)}
+.s{width:1920px;height:1080px;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:80px}
+.brand{position:absolute;top:56px;left:72px;display:flex;align-items:center;gap:14px;font-weight:600;font-size:40px}
+.brand svg{width:50px;height:50px}
+.orb{width:380px;height:380px;border-radius:50%;background:radial-gradient(circle at 38% 30%,#BFE0FF 0%,#6FAEFF 28%,#4C7DF0 55%,#6C5CE7 85%,#3C2FA8 100%);box-shadow:0 0 160px rgba(92,140,255,.6),0 0 300px rgba(108,92,231,.4),inset 0 0 70px rgba(255,255,255,.18);display:grid;place-items:center}
+.orb.sm{width:220px;height:220px}
+.bars{display:flex;gap:14px;align-items:center}.bars i{width:14px;border-radius:8px;background:#fff;display:block}
+.orb.sm .bars{gap:9px}.orb.sm .bars i{width:9px}
+h1{font-size:112px;font-weight:600;letter-spacing:-.03em;line-height:1.05}
+h2{font-size:84px;font-weight:600;letter-spacing:-.025em;line-height:1.1}
+p{font-size:44px;color:rgba(255,255,255,.75);margin-top:28px;max-width:1400px;line-height:1.35}
+.big{font-size:64px;color:#fff;font-weight:500}
+.chips{display:flex;gap:18px;margin-top:48px;flex-wrap:wrap;justify-content:center}
+.chip{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);border-radius:999px;padding:18px 34px;font-size:36px;font-weight:500}
+.cards{display:flex;gap:28px;margin-top:56px}
+.card{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:28px;padding:44px 48px;width:520px;text-align:left}
+.card .ic{font-size:60px;margin-bottom:18px}.card h3{font-size:40px;font-weight:600;margin-bottom:10px}.card p{font-size:30px;margin:0;color:rgba(255,255,255,.7)}
+.flow{display:flex;align-items:center;gap:36px;margin-top:60px}
+.node{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:28px;padding:40px 56px;text-align:center}
+.node small{display:block;font-size:26px;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px}.node b{font-size:52px;font-weight:600}
+.arrow{font-size:64px;color:rgba(255,255,255,.4)}
+.code{font-family:ui-monospace,Menlo,monospace;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14);border-radius:24px;padding:40px 56px;font-size:38px;text-align:left;margin-top:52px;line-height:1.5;color:#D9DCF5}
+.code .y{color:#FFB020}.code .g{color:#19D27C}.code .b{color:#5BC8FF}
+.foot{position:absolute;bottom:56px;left:0;right:0;text-align:center;font-size:30px;color:rgba(255,255,255,.5)}
+.lang{display:flex;gap:40px;margin-top:60px;flex-wrap:wrap;justify-content:center;max-width:1600px}
+.lang span{font-size:52px;font-weight:500}
+.url{font-size:72px;font-weight:600;margin-top:40px;color:#9DC4FF}
+</style></head><body>
+<div class="s" id="slide"></div>
+<script>
+const brand='<div class="brand"><svg viewBox="0 0 64 64"><defs><radialGradient id="g" cx="35%" cy="30%"><stop offset="0" stop-color="#BFE0FF"/><stop offset=".55" stop-color="#4C7DF0"/><stop offset="1" stop-color="#6C5CE7"/></radialGradient></defs><circle cx="32" cy="32" r="30" fill="url(#g)"/><g fill="#fff"><rect x="18" y="27" width="4" height="10" rx="2"/><rect x="25" y="22" width="4" height="20" rx="2"/><rect x="32" y="17" width="4" height="30" rx="2"/><rect x="39" y="22" width="4" height="20" rx="2"/><rect x="46" y="27" width="4" height="10" rx="2"/></g></svg>ubotpay</div>';
+const orb=(sm,h)=>`<div class="orb ${sm?'sm':''}"><div class="bars">${(h||[36,64,96,64,36]).map(x=>`<i style="height:${sm?x*0.6:x}px"></i>`).join('')}</div></div>`;
+const S={
+ s1: brand+orb(false)+`<h1 style="margin-top:56px">Hi. I'm ubotpay.</h1><p>Built in two days. Here's what I do.</p>`,
+ s2: brand+`<h2>Banks have rails.<br>Apps have buttons.</h2><p class="big" style="margin-top:48px">Nobody has a conversation.</p><p style="margin-top:40px;color:#9DC4FF;font-weight:500">So I listen.</p>`,
+ s4: brand+orb(true)+`<h2 style="margin-top:48px">Any language.<br>Same brain.</h2><div class="lang"><span>🇹🇭 ส่งเงินให้แม่</span><span>🇻🇳 Gửi tiền cho mẹ</span><span>🇪🇸 Mándale a mamá</span><span>🇬🇧 Send money to mom</span></div>`,
+ s5: brand+`<h2>Safe by design.</h2><div class="cards"><div class="card"><div class="ic">🗣</div><h3>Spoken yes</h3><p>Nothing moves without it.</p></div><div class="card"><div class="ic">👥</div><h3>Dual control</h3><p>Big payments need a second person.</p></div><div class="card"><div class="ic">📊</div><h3>Daily limits</h3><p>Built in. Per user.</p></div></div>`,
+ s6: brand+`<h2>I pay other agents too.</h2><div class="code"><span class="b">GET</span> agent.ubotpay.com/report?company=Sequoia<br>→ <span class="y">402 Payment Required</span> · 0.50 USDC<br><span class="b">GET</span> … <span class="g">X-PAYMENT:</span> &lt;signed USDC authorization&gt;<br>→ <span class="g">200 OK</span> · report + tx on Avalanche</div><p style="margin-top:44px">No API key. No card. <b style="color:#fff">Money as an HTTP header.</b></p>`,
+ s7: brand+`<h2>Under the hood</h2><div class="flow"><div class="node"><small>Voice</small><b>ElevenLabs</b></div><div class="arrow">→</div><div class="node"><small>Brain</small><b>Claude</b></div><div class="arrow">→</div><div class="node"><small>Rail</small><b>Avalanche</b></div></div><p style="margin-top:56px">Live on mainnet · Real USDC · Under two seconds</p>`,
+ s8: brand+orb(false)+`<h1 style="margin-top:56px">Say it. Confirm it. Settled.</h1><div class="url">ubotpay.com</div><div class="foot">github.com/PedroYellow/U-bot-Pay · U-Hackathon 2026 · ElevenLabs × Avalanche × U-topia</div>`,
+};
+const k=new URLSearchParams(location.search).get("s")||"s1"; document.getElementById("slide").innerHTML=S[k];
+</script></body></html>
