@@ -194,7 +194,7 @@ const startTalk = async () => {
     // list devices (labels only available after permission)
     const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "audioinput");
     micsel.innerHTML = devs.map(d => `<option value="${d.deviceId}" ${stream.getAudioTracks()[0].getSettings().deviceId === d.deviceId ? "selected" : ""}>${d.label || "Microphone"}</option>`).join("");
-    micsel.onchange = async () => { if (conv) { await conv.endSession(); } setTimeout(startTalk, 400); };
+    micsel.onchange = async () => { if (micsel.value === stream.getAudioTracks()[0].getSettings().deviceId) return; const c = conv; conv = null; if (c) { try { await c.endSession(); } catch(e){} } setTimeout(startTalk, 400); };
     // level meter
     const ac = new (window.AudioContext || window.webkitAudioContext)(); const src = ac.createMediaStreamSource(stream); const an = ac.createAnalyser(); an.fftSize = 512; src.connect(an);
     const buf = new Uint8Array(an.frequencyBinCount); let peak = 0;
@@ -205,7 +205,7 @@ const startTalk = async () => {
     conv = await Conversation.startSession({
       agentId: AGENT_ID,
       connectionType: "webrtc",
-      inputDeviceId: pref,
+      ...(pref ? { inputDeviceId: pref } : {}),
       onConnect: () => { orbstate.textContent = "Listening…"; orb.classList.add("listening"); add("sys", "🎙 Voice session started — speak now"); requestAnimationFrame(tick); },
       onDisconnect: () => { orbstate.textContent = "U-bot is ready"; orb.className = "orb"; setTalkUI(false); document.getElementById("mode").textContent = "text mode · press 🎙 for voice"; conv = null; add("sys", "Voice session ended"); },
       onModeChange: m => { orb.className = "orb " + (m.mode === "speaking" ? "speaking" : "listening"); orbstate.textContent = m.mode === "speaking" ? "U-bot is speaking" : "Listening…"; },
@@ -214,7 +214,7 @@ const startTalk = async () => {
     });
   } catch (e) { add("sys", "⚠️ Microphone or connection error: " + esc(e.message)); setTalkUI(false); conv = null; }
 };
-talk.onclick = startTalk; mic.onclick = startTalk;
+let busy=false; const guard = async () => { if (busy) return; busy = true; try { await startTalk(); } finally { setTimeout(()=>busy=false, 800); } }; talk.onclick = guard; mic.onclick = guard;
 </script>
 </body>
 </html>
