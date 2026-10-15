@@ -78,7 +78,7 @@ async def on_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = core.upsert_user(u.id, u.full_name, (u.language_code or "en")[:2], os.environ.get("UBOT_WALLET_ADDRESS"))
     api._seed_for(user["id"])
     await update.message.reply_text(
-        "👋 I'm U-bot. Talk to me — send a voice note or type.\n\n"
+        "👋 I'm ubotpay. Talk to me — send a voice note or type.\n\n"
         "Try:\n• \"How much do I have?\"\n• \"Send 2000 baht to mom\"\n• \"What invoices do I have?\"\n• \"Pay the VietSupply one\"\n\n"
         "Payments settle on Avalanche in under a second. Big amounts ask your co-signer first.")
 

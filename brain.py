@@ -7,7 +7,7 @@ from anthropic import AsyncAnthropic
 
 MODEL = os.environ.get("UBOT_MODEL", "claude-sonnet-4-6")
 
-SYSTEM = """You are the intent parser for U-bot, the voice finance assistant of U-topia.
+SYSTEM = """You are the intent parser for ubotpay, the voice payments assistant built for the U-topia ecosystem.
 Return ONLY a JSON object. No prose. Detect the user's language (ISO 639-1).
 
 Schema:
@@ -28,7 +28,7 @@ Rules:
 - "confirm" = yes/sí/ใช่/ok/confirmo/go ahead. "cancel" = no/cancel/stop/para.
 - Money words: "2k" = 2000, "mil" = 1000, "two hundred" = 200.
 - Never invent recipients. If unclear, intent "pay" with recipient null and ask in reply.
-- "agent_query" = user asks U-bot to research / run due diligence / ask DataAgent about a company or investor ("research Sequoia", "ask DataAgent about X", "what do you know about Binance Labs", "haz due diligence de X").
+- "agent_query" = user asks ubotpay to research / run due diligence / ask DataAgent about a company or investor ("research Sequoia", "ask DataAgent about X", "what do you know about Binance Labs", "haz due diligence de X").
 """
 
 
