@@ -12,7 +12,7 @@ import core, api
 
 log = logging.getLogger("ubot.tg")
 ELEVEN = os.environ.get("ELEVENLABS_API_KEY")
-VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "EXAVITQu4vr4xnSDxMaL")  # "Sarah" default; replace with U-bot voice
+VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "XrExE9yKIg1WjnnlVkGX")  # Matilda (professional) default; swap for official U-bot voice
 STT_MODEL = os.environ.get("ELEVENLABS_STT_MODEL", "scribe_v1")
 API_URL = os.environ.get("UBOT_API_URL", "http://127.0.0.1:8090")
 API_KEY = os.environ.get("UBOT_API_KEY", "")
@@ -35,7 +35,7 @@ async def tts(text: str, lang: str = "en") -> bytes | None:
     async with httpx.AsyncClient(timeout=60) as c:
         r = await c.post(f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}?output_format=opus_48000_64",
                          headers={"xi-api-key": ELEVEN, "Content-Type": "application/json"},
-                         json={"text": text, "model_id": "eleven_v3" if lang in ("th", "my", "km", "lo") else "eleven_turbo_v2_5",
+                         json={"text": text, "model_id": os.environ.get("ELEVENLABS_TTS_MODEL", "eleven_v4_turbo"),
                                "voice_settings": {"stability": 0.5, "similarity_boost": 0.8}})
         if r.status_code != 200:
             log.warning("tts %s %s", r.status_code, r.text[:200]); return None
