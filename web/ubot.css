@@ -154,3 +154,25 @@ pre.out{max-width:100%;overflow-x:auto;word-break:break-word;white-space:pre-wra
   .chips{margin-top:18px;gap:8px}.chip{padding:7px 12px;font-size:13px}
 }
 @media(max-width:640px){.brand{margin-top:0}.langsw{top:12px;right:58px}}
+/* === desktop hero: dark panel always exactly one screen, content centered & scaled by viewport height === */
+@media(min-width:961px){
+  .hero{min-height:100vh}
+  .dark{position:sticky;top:0;height:100vh;box-sizing:border-box;justify-content:center;padding:40px 48px 96px;overflow:hidden}
+  .brand{position:absolute;top:36px;left:48px;margin:0}
+  .orbwrap{flex:0 0 auto;min-height:0;margin:0 0 clamp(18px,3.2vh,40px)}
+  .orb{width:clamp(120px,22vh,210px);height:clamp(120px,22vh,210px)}
+  .tag h1{font-size:clamp(28px,4.4vh,48px);line-height:1.12}
+  .tag p{font-size:clamp(15px,2.3vh,20px);max-width:560px}
+  .chips{margin-top:clamp(14px,2.4vh,30px)}.chip{padding:clamp(6px,1vh,10px) clamp(11px,1.4vw,16px);font-size:clamp(12px,1.7vh,15px)}
+  .light{min-height:100vh;padding:72px 40px 60px;justify-content:center}
+}
+/* tiny widget needs much less clearance */
+.light{padding-bottom:60px}
+@media(max-width:960px){.dark{padding-bottom:90px}.light{padding-bottom:70px}}
+@media(min-width:961px){
+  .dark{padding:40px 48px 72px;align-items:center;text-align:center}
+  .tag{display:flex;flex-direction:column;align-items:center}.tag p{max-width:600px}
+  .chips{justify-content:center}.chip{white-space:nowrap}
+  .tag p{margin-top:4px}
+}
+@media(min-width:961px){.chips{gap:8px;max-width:620px}.chip{padding:clamp(5px,.9vh,9px) clamp(9px,1vw,13px);font-size:clamp(12px,1.6vh,14px);gap:5px}}
