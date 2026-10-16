@@ -129,3 +129,17 @@ pre.out{max-width:100%;overflow-x:auto;word-break:break-word;white-space:pre-wra
 /* keep the floating ElevenLabs widget off the panel links */
 .light{padding-bottom:110px}
 @media(max-width:640px){.light{padding-bottom:120px}}
+/* short laptop viewports (13" / 1280x720-ish): never clip the hero */
+.dark{overflow:visible;min-height:0}.dark:after{display:none}
+.hero{min-height:min(100vh,100%)}
+.orbwrap{min-height:160px}
+@media(min-width:961px) and (max-height:800px){
+  .dark{padding:28px 40px}.orbwrap{min-height:140px;flex:0 0 auto;margin:18px 0}
+  .orb{width:150px;height:150px;box-shadow:0 0 60px rgba(92,140,255,.5),0 0 110px rgba(108,92,231,.3),inset 0 0 30px rgba(255,255,255,.18)}
+  .tag h1{font-size:clamp(30px,2.9vw,40px)}.tag p{font-size:17px}.chips{margin-top:20px}.chip{padding:7px 12px;font-size:13px}
+  .light{padding:72px 40px 110px;justify-content:flex-start}
+  .panel h2{font-size:26px;margin-bottom:4px}.panel .sub{margin-bottom:12px}
+  #log{height:180px}.foot{margin-top:18px;margin-bottom:20px}
+}
+/* widget never over the Telegram line: push it to the right side only on wide screens */
+@media(min-width:961px){.alt{text-align:left;padding-right:0}.panel{padding-right:0}}
