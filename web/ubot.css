@@ -114,3 +114,18 @@ html[data-theme="dark"] .langsw{background:rgba(255,255,255,.1)}
 .social a svg{width:17px;height:17px}.social a:hover{color:var(--blue);border-color:var(--blue)}
 .social.center{justify-content:center;width:100%;margin-top:14px;margin-bottom:60px}
 .panel .foot+.social.center{margin-top:-50px}
+/* responsive hardening (mobile / tablet / desktop) */
+.two>*,.grid>*,.flow>*,.cards>*{min-width:0}
+.card,.step,.panel,.console{box-sizing:border-box;max-width:100%}
+pre.out{max-width:100%;overflow-x:auto;word-break:break-word;white-space:pre-wrap}
+.card pre,.card .inputrow{min-width:0}
+.card .inputrow button{white-space:nowrap}
+/* tablet: 2 columns for cards, keep hero stacked */
+@media(min-width:641px) and (max-width:960px){.grid{grid-template-columns:repeat(2,1fr)}.flow{grid-template-columns:repeat(2,1fr)}.panel,.panel.wide{max-width:680px;margin:0 auto}.tag p{max-width:640px}}
+/* desktop: agent page cards side by side when wide enough */
+@media(min-width:1280px){.two{grid-template-columns:1fr 1fr}.panel.wide{max-width:760px}}
+/* small phones */
+@media(max-width:480px){.tag h1{font-size:32px}.tag p{font-size:17px}.card .inputrow{flex-wrap:wrap}.card .inputrow input{flex:1 1 100%}.card .inputrow button,.card>.btn.primary{width:100%}.kpis{gap:6px}.kpi b{font-size:15px}.foot{flex-wrap:wrap;gap:12px 18px;row-gap:10px}footer{flex-direction:column;align-items:center;text-align:center;gap:14px}}
+/* keep the floating ElevenLabs widget off the panel links */
+.light{padding-bottom:110px}
+@media(max-width:640px){.light{padding-bottom:120px}}
