@@ -143,3 +143,14 @@ pre.out{max-width:100%;overflow-x:auto;word-break:break-word;white-space:pre-wra
 }
 /* widget never over the Telegram line: push it to the right side only on wide screens */
 @media(min-width:961px){.alt{text-align:left;padding-right:0}.panel{padding-right:0}}
+/* mobile hero: everything above the floating widget */
+@media(max-width:960px){
+  .dark{min-height:0;padding:20px 22px 132px}
+  .brand{font-size:24px}.brand svg{width:34px;height:34px}
+  .orbwrap{min-height:0;flex:0 0 auto;margin:22px 0 18px}
+  .orb{width:124px;height:124px;box-shadow:0 0 50px rgba(92,140,255,.5),0 0 100px rgba(108,92,231,.3),inset 0 0 26px rgba(255,255,255,.18)}
+  .orb .bars{transform:scale(.72)}
+  .tag h1{font-size:30px;margin-bottom:8px}.tag p{font-size:16px;line-height:1.5}
+  .chips{margin-top:18px;gap:8px}.chip{padding:7px 12px;font-size:13px}
+}
+@media(max-width:640px){.brand{margin-top:0}.langsw{top:12px;right:58px}}
