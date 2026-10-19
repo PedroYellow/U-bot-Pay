@@ -112,8 +112,7 @@
 
 <script type="module">
 const API = "https://api.ubotpay.com";
-const API_KEY = "__UBOT_API_KEY__";
-const AGENT_ID = "__AGENT_ID__";
+// API key removed from browser for security — see api.py to enable session-based auth
 const log = document.getElementById("log"), inp = document.getElementById("inp"), orb = document.getElementById("orb"), orbstate = document.getElementById("orbstate");
 const add = (cls, html) => { const d = document.createElement("div"); d.className = "msg " + cls; d.innerHTML = html; log.appendChild(d); log.scrollTop = log.scrollHeight; return d; };
 const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
@@ -133,7 +132,7 @@ async function send(text){
   if(!text.trim()) return;
   add("u", esc(text)); inp.value = "";
   const t = add("sys", I18N.t("thinking"));
-  try { const r = await fetch(API + "/turn", {method:"POST", headers:{"Content-Type":"application/json","x-api-key":API_KEY}, body: JSON.stringify({user_key:"demo", text, channel:"web"})}); const res = await r.json(); t.remove(); render(res); }
+  try { const r = await fetch(API + "/turn", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({user_key:"demo", text, channel:"web"})}); const res = await r.json(); t.remove(); render(res); }
   catch(e){ t.innerHTML = "⚠️ " + esc(e.message); }
 }
 document.getElementById("send").onclick = () => send(inp.value);

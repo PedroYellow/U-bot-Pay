@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
-# Deploy web/ to /var/www/ubotpay injecting secrets from /opt/ubotpay/.env. Run ON the VPS: bash deploy_web.sh <src_dir>
+# Deploy web/ to /var/www/ubotpay. NO secrets are injected into the browser bundle.
+# Run ON the VPS: bash deploy_web.sh <src_dir>
 set -euo pipefail
 SRC="${1:-/opt/ubotpay/web}"; DST=/var/www/ubotpay
-KEY=$(grep -E '^UBOT_API_KEY=' /opt/ubotpay/.env | cut -d= -f2-)
-AGENT=${ELEVEN_AGENT_ID:-agent_3601m4yz1xhgffmb1mb4j0sab89a}
+
+# Copy HTML/JS/CSS as-is. The browser bundle never contains API keys or session tokens.
 for f in index.html agent.html; do
-  sed -e "s/__UBOT_API_KEY__/$KEY/g" -e "s/__AGENT_ID__/$AGENT/g" "$SRC/$f" > "$DST/$f"
+  install -m 0644 "$SRC/$f" "$DST/$f"
 done
-cp "$SRC/ubot.css" "$DST/ubot.css"; cp "$SRC/i18n.js" "$DST/i18n.js"
-[ -d "$SRC/i18n" ] && mkdir -p "$DST/i18n" && cp "$SRC"/i18n/* "$DST/i18n/"
-grep -q "__UBOT_API_KEY__\|__AGENT_ID__" "$DST/index.html" "$DST/agent.html" && { echo "placeholder left!"; exit 1; }
+install -m 0644 "$SRC/ubot.css" "$DST/ubot.css"
+install -m 0644 "$SRC/i18n.js" "$DST/i18n.js"
+[ -d "$SRC/i18n" ] && mkdir -p "$DST/i18n" && install -m 0644 "$SRC"/i18n/* "$DST/i18n/"
+
+# Sanity: no API keys, no long random tokens, no x-api-key references in browser assets.
+if grep -qE "sk-(ant|nous|or)[a-z0-9_-]{8,}|x-api-key" "$DST/index.html" "$DST/agent.html"; then
+  echo "SECURITY: browser bundle contains a secret-like token. Aborting." >&2
+  exit 1
+fi
 echo "deployed $(date -u +%FT%TZ)"

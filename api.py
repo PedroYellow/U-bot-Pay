@@ -25,7 +25,9 @@ core.init()
 app = FastAPI(title="U-bot Pay", version="0.1")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-API_KEY = os.environ.get("UBOT_API_KEY", "")
+API_KEY = os.environ.get("UBOT_API_KEY")
+if not API_KEY:
+    raise RuntimeError("UBOT_API_KEY must be configured (security: fail-closed)")
 NOTIFY = None   # set by telegram bot at import time: async fn(telegram_id, text)
 
 # in-memory conversation state per user: pending quote awaiting "confirm"
@@ -33,8 +35,10 @@ _pending: dict[int, dict] = {}
 
 
 def auth(x_api_key: str | None):
-    if API_KEY and x_api_key != API_KEY:
-        raise HTTPException(401, "bad api key")
+    """Bearer API key auth. The browser never holds this key; it's reserved for server-to-server calls."""
+    import hmac
+    if not hmac.compare_digest(x_api_key or "", API_KEY):
+        raise HTTPException(401, "Unauthorized")
 
 
 def resolve_user(user_key: str) -> dict:
@@ -57,16 +61,30 @@ class Turn(BaseModel):
 
 @app.get("/health")
 def health():
+    """Public health check — only return status, never operational or treasury details (audit #5)."""
+    return {"ok": True, "ts": int(time.time())}
+
+def _health_full():
     try:
         b = chain.balance(os.environ["UBOT_WALLET_ADDRESS"])
     except Exception as e:
         b = {"error": str(e)[:80]}
     return {"ok": True, "chain": chain.NETWORK_NAME, "revenue": core.revenue_stats(), "treasury": b, "ts": int(time.time())}
 
+@app.get("/health/full")
+def health_full(x_api_key: str | None = Header(default=None)):
+    """Detailed health: requires internal API key (audit #5)."""
+    auth(x_api_key)
+    return _health_full()
+
 
 @app.post("/turn")
-async def turn(t: Turn, x_api_key: str | None = Header(default=None)):
-    auth(x_api_key)
+async def turn(t: Turn):
+    """Public endpoint for voice/text conversational quotes. /turn does NOT sign or send
+    any on-chain transaction — it returns a quote/balance/history/contacts response only.
+    The actual on-chain send happens out-of-band via the Telegram bot signer or a future
+    user-authenticated path. Rate-limited per user_key in production (audit #1)."""
+    # Public — no auth required. See audit finding #1: /turn must not hold a server API key.
     user = resolve_user(t.user_key)
     uid = user["id"]
     contacts = core.list_contacts(uid)
@@ -244,19 +262,31 @@ async def approve(a: Approve, x_api_key: str | None = Header(default=None)):
     return {"ok": True, "status": "settled", **r}
 
 
-@app.get("/balance/{key}")
-def balance(key: str):
-    u = resolve_user(key); return chain.balance(u["address"] or os.environ["UBOT_WALLET_ADDRESS"])
+def _resolve_demo_user():
+    """Resolve the demo user. Until per-user sessions are added, the only account
+    served is the in-process 'demo' user. Path-supplied keys are ignored (audit #3)."""
+    return resolve_user("demo")
+
+@app.get("/balance")
+def balance(x_api_key: str | None = Header(default=None)):
+    """Balance for the demo user. Replaced by session-bound user once auth is in place (audit #3)."""
+    auth(x_api_key)
+    u = _resolve_demo_user()
+    return chain.balance(u["address"] or os.environ["UBOT_WALLET_ADDRESS"])
 
 
-@app.get("/history/{key}")
-def hist(key: str):
-    return core.history(resolve_user(key)["id"], 20)
+@app.get("/history")
+def history(x_api_key: str | None = Header(default=None)):
+    """History for the demo user (audit #3)."""
+    auth(x_api_key)
+    return core.history(_resolve_demo_user()["id"], 20)
 
 
-@app.get("/invoices/{key}")
-def inv(key: str):
-    return core.open_invoices(resolve_user(key)["id"])
+@app.get("/invoices")
+def invoices(x_api_key: str | None = Header(default=None)):
+    """Invoices for the demo user (audit #3)."""
+    auth(x_api_key)
+    return core.open_invoices(_resolve_demo_user()["id"])
 
 
 # ───────── x402-style agent payments (EIP-3009) ─────────
@@ -265,8 +295,9 @@ class X402Quote(BaseModel):
     price_usdc: float
 
 @app.post("/x402/quote")
-def x402_quote(q: X402Quote):
-    """A service agent announces its price. Returns a 402-like payload the payer agent signs."""
+def x402_quote(q: X402Quote, x_api_key: str | None = Header(default=None)):
+    """A service agent announces its price. Returns a 402-like payload the payer agent signs. Server-side only."""
+    auth(x_api_key)
     return JSONResponse(status_code=402, content={"x402": 1, "chain": chain.NETWORK_NAME, "asset": chain.USDC,
                                                   "payTo": os.environ["UBOT_WALLET_ADDRESS"], "amount_usdc": q.price_usdc,
                                                   "scheme": "eip3009-transferWithAuthorization", "service": q.service})
@@ -275,7 +306,9 @@ class X402Settle(BaseModel):
     authorization: dict
 
 @app.post("/x402/settle")
-async def x402_settle(s: X402Settle):
+async def x402_settle(s: X402Settle, x_api_key: str | None = Header(default=None)):
+    """Settles a signed EIP-3009 authorization. Server-side only."""
+    auth(x_api_key)
     r = await asyncio.to_thread(chain.settle_authorization, s.authorization)
     return r
 
@@ -286,14 +319,14 @@ class AgentQuery(BaseModel):
 
 @app.post("/agent/query")
 async def agent_query(q: AgentQuery, x_api_key: str | None = Header(default=None)):
-    """ubotpay hires DataAgent: GET → 402 → sign EIP-3009 → retry with X-PAYMENT → report + on-chain receipt."""
-    auth(x_api_key)
-    url = f"{os.environ.get('DATAAGENT_URL', 'http://127.0.0.1:8091')}/report?company={urllib.parse.quote(q.company)}"
-    return await x402_client.pay_and_fetch(url, os.environ["UBOT_PRIVATE_KEY"])
+    """DISABLED for security until per-user authentication and spend caps are in place (audit #2)."""
+    auth(x_api_key)  # require server key for any future activation
+    raise HTTPException(503, "/agent/query disabled: requires per-user authentication and per-user spend cap. See security audit finding #2.")
 
 
 @app.post("/demo/seed")
 def seed(x_api_key: str | None = Header(default=None)):
+    """Demo seed — server-side only. Browser no longer calls this (audit #1)."""
     auth(x_api_key)
     u = core.upsert_user(0, "Demo User", "en", os.environ.get("UBOT_WALLET_ADDRESS"))
     _seed_for(u["id"])

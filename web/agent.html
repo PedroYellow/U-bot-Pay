@@ -63,7 +63,7 @@ const refresh=()=>fetch("/health").then(r=>r.json()).then(h=>{$("k_recv").textCo
 refresh();
 $("ask").onclick=async()=>{$("out402").textContent="…";const r=await fetch("/report?company="+encodeURIComponent($("co").value));const j=await r.json();$("out402").textContent="HTTP "+r.status+"\n"+JSON.stringify(j,null,1);};
 $("pay").onclick=async()=>{$("paystat").textContent=I18N.t("a_paying");$("out200").textContent="…";
-  try{const r=await fetch("https://api.ubotpay.com/agent/query",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":"__UBOT_API_KEY__"},body:JSON.stringify({company:$("co").value})});const j=await r.json();
+  try{const r=await fetch("https://api.ubotpay.com/agent/query",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company:$("co").value})});const j=await r.json();
     const p=(j.body||{}).payment||{};$("paystat").innerHTML=j.paid?`<span class="badge ok">PAID</span>${j.price_usdc} USDC · ${j.latency_s}s · <a href="${p.explorer}" target="_blank">tx ↗</a>`:`<span class="badge bad">FAILED</span>${(j.body||{}).error||j.error||j.status}`;
     $("out200").textContent="HTTP "+j.status+"\n"+JSON.stringify(j.body,null,1);refresh();}
   catch(e){$("paystat").textContent="error: "+e.message}};
