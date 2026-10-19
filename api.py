@@ -336,15 +336,30 @@ def balance(x_api_key: str | None = Header(default=None), request: Request = Non
     return chain.balance(u["address"] or os.environ["UBOT_WALLET_ADDRESS"])
 
 @app.get("/balance/{address}")
-def balance_by_address(address: str, x_api_key: str | None = Header(default=None)):
-    """Public balance lookup for any address. No auth required.
-    Returns the AVAX and USDC balance of the given address on Avalanche C-Chain."""
+def balance_by_address(address: str, chain_id: int = 43114, x_api_key: str | None = Header(default=None)):
+    """Public balance lookup for any address on any enabled chain.
+
+    Query params:
+      chain_id: 1=ETH, 10=OP, 137=Polygon, 8453=Base, 42161=Arbitrum, 43114=Avalanche.
+    Default is 43114 (Avalanche C-Chain) for backward compatibility.
+
+    Returns the native and USDC balance of the given address on the chosen chain.
+    No auth required (balances are public on-chain data)."""
     if not Web3.is_address(address):
         raise HTTPException(400, "bad address")
     try:
-        return chain.balance_at(Web3.to_checksum_address(address), 43114)
+        return chain.balance_at(Web3.to_checksum_address(address), chain_id)
     except Exception as e:
-        return {"error": str(e)[:120], "address": address, "chain": "avalanche-mainnet", "usdc": 0.0, "native_balance": 0.0, "native": "AVAX"}
+        ch = chain.get_chain(chain_id) if chain_id != 43114 else None
+        return {
+            "error": str(e)[:120],
+            "address": address,
+            "chain": ch.name if ch else "avalanche-mainnet",
+            "chain_id": chain_id,
+            "usdc": 0.0,
+            "native_balance": 0.0,
+            "native": ch.native if ch else "AVAX",
+        }
 
 
 @app.get("/history")

@@ -150,15 +150,15 @@ _BUILTIN_CHAINS = {
                  os.environ.get("USDC_ADDRESS", "0x5425890298aed601595a70AB815c96711a31Bc65"),
                  os.environ.get("EXPLORER", "https://testnet.snowtrace.io"), "AVAX"),
     8453:  Chain(8453, "Base", "https://mainnet.base.org",
-                 "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "https://basescan.org", "ETH", enabled=False),
+                 "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "https://basescan.org", "ETH"),
     137:   Chain(137, "Polygon", "https://polygon-rpc.com",
-                 "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", "https://polygonscan.com", "MATIC", enabled=False),
+                 "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", "https://polygonscan.com", "MATIC"),
     42161: Chain(42161, "Arbitrum One", "https://arb1.arbitrum.io/rpc",
-                 "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "https://arbiscan.io", "ETH", enabled=False),
+                 "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "https://arbiscan.io", "ETH"),
     1:     Chain(1, "Ethereum", "https://eth.merkle.io",
-                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "https://etherscan.io", "ETH", enabled=False),
+                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "https://etherscan.io", "ETH"),
     10:    Chain(10, "Optimism", "https://mainnet.optimism.io",
-                 "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", "https://optimistic.etherscan.io", "ETH", enabled=False),
+                 "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", "https://optimistic.etherscan.io", "ETH"),
 }
 
 def chains() -> list[dict]:
