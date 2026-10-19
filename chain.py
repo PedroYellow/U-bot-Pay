@@ -159,6 +159,15 @@ _BUILTIN_CHAINS = {
                  "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "https://etherscan.io", "ETH"),
     10:    Chain(10, "Optimism", "https://mainnet.optimism.io",
                  "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", "https://optimistic.etherscan.io", "ETH"),
+    # ZK / Optimistic L2s (added Phase 8). All use ETH as native gas.
+    324:   Chain(324, "zkSync Era", "https://mainnet.era.zksync.io",
+                 "0x1d17CBcF0D6D143135aE902365D2E5e2A16538D4", "https://explorer.zksync.io", "ETH"),
+    59144: Chain(59144, "Linea", "https://rpc.linea.build",
+                 "0x176211869cA2b568f2A7D4EE941E073a821EE1ff", "https://lineascan.build", "ETH"),
+    534352: Chain(534352, "Scroll", "https://rpc.scroll.io",
+                 "0x06eFdBFf2a14a7c8E15944D1F4A48F9F95F663A4", "https://scrollscan.com", "ETH"),
+    5000:  Chain(5000, "Mantle", "https://rpc.mantle.xyz",
+                 "0x09Bc4E0D864854c6aFB6eB9A9cdF58aC190D0dF9", "https://mantlescan.info", "MNT"),
 }
 
 def chains() -> list[dict]:

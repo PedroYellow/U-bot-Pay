@@ -540,7 +540,8 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
       chains.forEach(c => {
         const o = document.createElement("option");
         o.value = c.id;
-        o.textContent = c.name + " (" + c.native + ")";
+        const meta = (typeof CHAIN_META !== "undefined" && CHAIN_META[c.id]) || { icon: "⛓️" };
+        o.textContent = meta.icon + " " + c.name + " (" + c.native + ")";
         if (c.id === 43114) o.selected = true;  // default recipient chain = Avalanche
         sel.appendChild(o);
       });
@@ -891,7 +892,8 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     Object.keys(CHAIN_PARAMS).forEach(id => {
       const opt = document.createElement("option");
       opt.value = id;
-      opt.textContent = CHAIN_PARAMS[id].chainName + " (" + CHAIN_PARAMS[id].nativeCurrency.symbol + ")";
+      const meta = CHAIN_META[id] || { icon: "⛓️", color: "#888", short: id };
+      opt.textContent = meta.icon + " " + CHAIN_PARAMS[id].chainName + " (" + CHAIN_PARAMS[id].nativeCurrency.symbol + ")";
       if (parseInt(id) === selectedChainId) opt.selected = true;
       sel.appendChild(opt);
     });
@@ -953,6 +955,22 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
   // Chain configuration: all 7 enabled chains. The user picks
   // which chain to pay from in the modal; we use wallet_switchEthereumChain
   // to move their wallet to that chain before signing.
+  // Visual style per chain: emoji icon + accent color for the dropdown,
+  // balance popover, and any chain picker. Kept inline so we don't
+  // load external assets.
+  const CHAIN_META = {
+    1:      { icon: "🔷", color: "#627EEA", short: "ETH"     },
+    10:     { icon: "🔴", color: "#FF0420", short: "OP"      },
+    137:    { icon: "🟣", color: "#8247E5", short: "POLY"    },
+    8453:   { icon: "🔵", color: "#0052FF", short: "BASE"    },
+    42161:  { icon: "🔵", color: "#28A0F0", short: "ARB"     },
+    43114:  { icon: "🔺", color: "#E84142", short: "AVAX"    },
+    43113:  { icon: "🔺", color: "#FF8B8B", short: "FUJI"    },
+    324:    { icon: "🌀", color: "#8C8DFC", short: "ZK"      },
+    59144:  { icon: "🟢", color: "#61DFFF", short: "LINEA"   },
+    534352: { icon: "📜", color: "#FFEEDA", short: "SCROLL"  },
+    5000:   { icon: "🟩", color: "#000000", short: "MNT"     },
+  };
   const CHAIN_PARAMS = {
     1:      { chainId: "0x1",   chainName: "Ethereum",      nativeCurrency: { name: "ETH",  symbol: "ETH",  decimals: 18 }, rpcUrls: ["https://eth.merkle.io"],                            blockExplorerUrls: ["https://etherscan.io"] },
     10:     { chainId: "0xA",   chainName: "Optimism",      nativeCurrency: { name: "ETH",  symbol: "ETH",  decimals: 18 }, rpcUrls: ["https://mainnet.optimism.io"],                    blockExplorerUrls: ["https://optimistic.etherscan.io"] },
@@ -961,6 +979,11 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     42161:  { chainId: "0xA4B1",chainName: "Arbitrum One",  nativeCurrency: { name: "ETH",  symbol: "ETH",  decimals: 18 }, rpcUrls: ["https://arb1.arbitrum.io/rpc"],                     blockExplorerUrls: ["https://arbiscan.io"] },
     43114:  { chainId: "0xA86A",chainName: "Avalanche C-Chain", nativeCurrency: { name: "AVAX", symbol: "AVAX", decimals: 18 }, rpcUrls: ["https://api.avax.network/ext/bc/C/rpc"],        blockExplorerUrls: ["https://snowtrace.io"] },
     43113:  { chainId: "0xA869",chainName: "Avalanche Fuji (testnet)", nativeCurrency: { name: "AVAX", symbol: "AVAX", decimals: 18 }, rpcUrls: ["https://api.avax-test.network/ext/bc/C/rpc"], blockExplorerUrls: ["https://testnet.snowtrace.io"] },
+    // L2s (Phase 8)
+    324:    { chainId: "0x144", chainName: "zkSync Era",        nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://mainnet.era.zksync.io"],              blockExplorerUrls: ["https://explorer.zksync.io"] },
+    59144:  { chainId: "0xE708",chainName: "Linea",             nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://rpc.linea.build"],                    blockExplorerUrls: ["https://lineascan.build"] },
+    534352: { chainId: "0x82750",chainName: "Scroll",            nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://rpc.scroll.io"],                      blockExplorerUrls: ["https://scrollscan.com"] },
+    5000:   { chainId: "0x1388",chainName: "Mantle",            nativeCurrency: { name: "MNT", symbol: "MNT", decimals: 18 }, rpcUrls: ["https://rpc.mantle.xyz"],                     blockExplorerUrls: ["https://mantlescan.info"] },
   };
   const SUPPORTED_CHAINS = Object.keys(CHAIN_PARAMS).map(Number);
   // Default: Avalanche C-Chain (preserves previous UX)
