@@ -141,7 +141,6 @@
 </div>
 
 <script type="module">
-try{
 console.log("[ubotpay] main module loading…");
 const API = "https://api.ubotpay.com";
 // API key removed from browser for security — see api.py to enable session-based auth
@@ -771,7 +770,11 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
   } catch (e) {
     console.error("[ubotpay] IIFE crashed:", e.message, e.stack);
   }
+})();  } catch (e) {
+    console.error("[ubotpay] IIFE crashed:", e.message, e.stack);
+  }
 })();
-}catch(e){console.error("[ubotpay] main module error:",e);}
-</script></body>
-</html>
+// Debug helper: open modal automatically if ?open=1
+if (location.search.indexOf("open=1") >= 0) {
+  setTimeout(() => { try { openModal(); } catch(e) { console.error("auto-open failed", e); } }, 1000);
+}
