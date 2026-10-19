@@ -168,6 +168,13 @@ _BUILTIN_CHAINS = {
                  "0x06eFdBFf2a14a7c8E15944D1F4A48F9F95F663A4", "https://scrollscan.com", "ETH"),
     5000:  Chain(5000, "Mantle", "https://rpc.mantle.xyz",
                  "0x09Bc4E0D864854c6aFB6eB9A9cdF58aC190D0dF9", "https://mantlescan.info", "MNT"),
+    # Phase 9 chains (L1 mobile + Worldcoin L2 + Uniswap L2)
+    42220: Chain(42220, "Celo", "https://forno.celo.org",
+                 "0xcebA9300f2b948710d2653dD7B07f33A8B32118C", "https://celoscan.io", "CELO"),
+    480:   Chain(480, "World Chain", "https://worldchain-mainnet.g.alchemy.com/public",
+                 "0x79A02482A880bCE3F13e09Da970dC34db4CD24d1", "https://worldscan.org", "ETH"),
+    130:   Chain(130, "Unichain", "https://mainnet.unichain.org",
+                 "0x078D782b760474a361dDA0AF3839290b0EF57AD6", "https://uniscan.xyz", "ETH"),
 }
 
 def chains() -> list[dict]:
