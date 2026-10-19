@@ -87,6 +87,35 @@ def _health_full():
         b = {"error": str(e)[:80]}
     return {"ok": True, "chain": chain.NETWORK_NAME, "revenue": core.revenue_stats(), "treasury": b, "ts": int(time.time())}
 
+@app.get("/dashboard")
+def dashboard():
+    """Public dashboard KPIs (no auth) for the home-page tiles.
+    Only exposes aggregated, non-sensitive data:
+      - treasury_usdc: USDC balance of the operator's treasury wallet
+      - last_settlement_ts: unix timestamp of the last successful payment
+      - revenue_total_usdc: total fees collected over the lifetime of the service
+      - chain: "avalanche-mainnet"
+      - status: "live"
+    Does NOT expose wallet addresses, individual transactions, or
+    per-user data (audit #5)."""
+    try:
+        b = chain.balance_at(os.environ["UBOT_WALLET_ADDRESS"], 43114)
+    except Exception as e:
+        b = {"usdc": 0.0, "native_balance": 0.0, "chain": "avalanche-mainnet", "error": str(e)[:80]}
+    rev = core.revenue_stats() if hasattr(core, "revenue_stats") else {}
+    last_settlement_ts = rev.get("last_settled_at") or 0
+    return {
+        "ok": True,
+        "chain": chain.NETWORK_NAME,
+        "chain_id": 43114,
+        "status": "live",
+        "treasury_usdc": round(b.get("usdc", 0), 2),
+        "treasury_avax": round(b.get("native_balance", 0), 4),
+        "last_settlement_ts": last_settlement_ts,
+        "revenue_total_usdc": round(rev.get("total_usdc", 0), 2),
+        "ts": int(time.time()),
+    }
+
 @app.get("/health/full")
 def health_full(x_api_key: str | None = Header(default=None)):
     """Detailed health: requires internal API key (audit #5)."""
@@ -290,11 +319,32 @@ def _resolve_demo_user():
     return resolve_user("demo")
 
 @app.get("/balance")
-def balance(x_api_key: str | None = Header(default=None)):
-    """Balance for the demo user. Replaced by session-bound user once auth is in place (audit #3)."""
+def balance(x_api_key: str | None = Header(default=None), request: Request = None):
+    """Balance for the demo user OR for the JWT-authenticated user.
+    With a Bearer JWT in the Authorization header, returns the balance
+    of the connected wallet (audit #3). Without a JWT, requires the
+    internal x-api-key header."""
+    if request and request.headers.get("Authorization", "").startswith("Bearer "):
+        token = request.headers["Authorization"][7:].strip()
+        payload = core.verify_session_jwt(token, JWT_SECRET)
+        if payload:
+            u = core.get_user(user_id=payload.get("sub"))
+            if u and u.get("address"):
+                return chain.balance_at(u["address"], payload.get("chain", 43114))
     auth(x_api_key)
     u = _resolve_demo_user()
     return chain.balance(u["address"] or os.environ["UBOT_WALLET_ADDRESS"])
+
+@app.get("/balance/{address}")
+def balance_by_address(address: str, x_api_key: str | None = Header(default=None)):
+    """Public balance lookup for any address. No auth required.
+    Returns the AVAX and USDC balance of the given address on Avalanche C-Chain."""
+    if not Web3.is_address(address):
+        raise HTTPException(400, "bad address")
+    try:
+        return chain.balance_at(Web3.to_checksum_address(address), 43114)
+    except Exception as e:
+        return {"error": str(e)[:120], "address": address, "chain": "avalanche-mainnet", "usdc": 0.0, "native_balance": 0.0, "native": "AVAX"}
 
 
 @app.get("/history")

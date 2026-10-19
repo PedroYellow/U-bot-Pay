@@ -171,28 +171,116 @@ inp.addEventListener("keydown", e => { if (e.key === "Enter") send(inp.value); }
 const // Public /health returns minimal JSON. Operational data (chain name, status) come
 // from response headers X-Chain and X-Status, so the public endpoint never leaks
 // treasury / revenue details (security audit #5).
-refreshHealth = () => { const auth = window.__ubotpayAuth ? window.__ubotpayAuth() : {};
-return fetch(API + "/health", { headers: Object.assign({ "Cache-Control": "no-store" }, auth) }).then(r => {
+// Fetch operator dashboard (treasury + revenue + status) and, if the user
+// has connected a wallet, also fetch the user's own wallet balance.
+// Renders the four KPI tiles (MY WALLET or TREASURY / LAST SETTLEMENT /
+// REVENUE) and the "● Avalanche mainnet · live" status pill.
+async function refreshHealth() {
   const n = document.getElementById("netstat");
-  const chain = r.headers.get("X-Chain") || "avalanche-mainnet";
-  const ok = r.headers.get("X-Status") === "live" && r.ok;
-  const label = chain === "avalanche-mainnet" ? "Avalanche mainnet" : chain;
-  if (ok) {
-    n.textContent = "● " + label + " · " + I18N.t("live");
-    n.removeAttribute("data-i18n"); n.style.color = "var(--ok)";
-  } else {
+  try {
+    // Public dashboard (no auth) — operator's treasury + revenue
+    const r = await fetch(API + "/dashboard", { cache: "no-store" });
+    const d = await r.json();
+    if (d.status === "live" && d.ok) {
+      n.textContent = "● Avalanche mainnet · " + I18N.t("live");
+      n.removeAttribute("data-i18n"); n.style.color = "var(--ok)";
+    } else {
+      n.textContent = I18N.t("offline");
+      n.removeAttribute("data-i18n"); n.style.color = "var(--bad)";
+    }
+    // Render the four KPI tiles
+    renderKpis(d);
+  } catch (e) {
     n.textContent = I18N.t("offline");
     n.removeAttribute("data-i18n"); n.style.color = "var(--bad)";
   }
-  return r.json();
-}).then(h => {
-  // k_usdc / k_rev are populated by the /turn balance reply, not by /health.
-  // The frontend now shows "—" for the USDC tiles until a /turn response
-  // arrives. To re-enable live USDC/revenue on the home page, call
-  // /health/full server-side and surface a public sanitized summary.
-  document.getElementById("k_usdc").textContent = (h.kpis && h.kpis.usdc) || "—";
-  document.getElementById("k_rev").textContent = (h.kpis && h.kpis.revenue_usdc) || "0";
-}).catch(() => { const n = document.getElementById("netstat"); n.textContent = I18N.t("offline"); n.removeAttribute("data-i18n"); n.style.color = "var(--bad)"; });
+  // If the user is connected, also show their own wallet balance
+  const sess = (() => { try { return localStorage.getItem("ubotpay_session"); } catch (e) { return null; } })();
+  if (sess) await fetchUserWallet();
+}
+
+// Render the KPI tiles: when a wallet is connected, the first tile shows
+// the user's own balance; otherwise it shows the operator's treasury.
+function renderKpis(d) {
+  const tiles = document.querySelectorAll(".kpi");
+  if (!tiles.length) return;
+  // Tile 0: MY WALLET (if connected) or TREASURY
+  const t0 = tiles[0];
+  const label0 = t0.querySelector("small");
+  if (connectedUser) {
+    if (label0) label0.textContent = "MY WALLET (USDC)";
+    t0.querySelector("b, .kpi-value") || (t0.appendChild(Object.assign(document.createElement("b"), { className: "kpi-value", textContent: "—" })));
+    const v = t0.querySelector("b, .kpi-value");
+    if (v) v.textContent = userBalances.usdc != null ? userBalances.usdc.toFixed(2) + " USDC" : "…";
+  } else {
+    if (label0) label0.textContent = "TREASURY";
+    const v = t0.querySelector("b, .kpi-value");
+    if (v) v.textContent = d.treasury_usdc != null ? d.treasury_usdc.toFixed(2) + " USDC" : "—";
+  }
+  // Tile 1: LAST SETTLEMENT
+  if (tiles[1]) {
+    const v = tiles[1].querySelector("b, .kpi-value");
+    if (v) {
+      if (d.last_settlement_ts) {
+        const dt = new Date(d.last_settlement_ts * 1000);
+        v.textContent = dt.toLocaleString();
+      } else v.textContent = "—";
+    }
+  }
+  // Tile 2: REVENUE
+  if (tiles[2]) {
+    const v = tiles[2].querySelector("b, .kpi-value");
+    if (v) v.textContent = d.revenue_total_usdc != null ? d.revenue_total_usdc.toFixed(2) + " USDC" : "—";
+  }
+}
+
+// Fetch the connected user's AVAX + USDC balances
+async function fetchUserWallet() {
+  const stored = (() => { try { return JSON.parse(localStorage.getItem("ubotpay_wallet") || "{}"); } catch (e) { return {}; } })();
+  if (!stored || !stored.user || !stored.user.address) return;
+  connectedUser = stored;
+  const addr = stored.user.address;
+  // AVAX via eth_getBalance
+  if (window.ethereum) {
+    try {
+      const bal = await window.ethereum.request({ method: "eth_getBalance", params: [addr, "latest"] });
+      userBalances.avax = parseInt(bal, 16) / 1e18;
+    } catch (e) {}
+  }
+  // USDC via the backend (auth required)
+  try {
+    const r = await fetch(API + "/balance/" + addr + "?chain_id=43114", {
+      headers: window.__ubotpayAuth ? window.__ubotpayAuth() : {},
+      cache: "no-store",
+    });
+    if (r.ok) {
+      const b = await r.json();
+      userBalances.usdc = b.usdc;
+    }
+  } catch (e) {}
+  // Re-render the tiles now that we have the user balance
+  const d = (window.__lastDashboard) || {};
+  renderKpis(d);
+}
+
+// Track the currently connected wallet + its balances
+let connectedUser = null;
+let userBalances = { avax: null, usdc: null };
+// Store last dashboard response so we can re-render after a user connect
+const _origFetch = window.fetch;
+window.fetch = function(...args) {
+  return _origFetch.apply(this, args).then(r => {
+    try {
+      const u = (args[0] || "").toString();
+      if (u.indexOf("/dashboard") >= 0) {
+        const cl = r.clone();
+        cl.json().then(d => { window.__lastDashboard = d; }).catch(() => {});
+      }
+    } catch (e) {}
+    return r;
+  });
+};
+
 refreshHealth(); setInterval(refreshHealth, 10000);
 
 // ── ElevenLabs voice ──
@@ -279,6 +367,8 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     btn.title = "Connected: " + data.user.address + " (" + (data.chain && data.chain.name || "chain") + ")";
     // Fetch live balances right after connect
     fetchWalletInfo();
+    // Refresh the home-page tiles so they switch from TREASURY to MY WALLET
+    if (typeof fetchUserWallet === "function") fetchUserWallet();
   }
 
   // Build a small popover that opens when the user clicks the connected
@@ -379,6 +469,10 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     $("wallet-tx").textContent = "Connect wallet";
     btn.setAttribute("aria-label", "Connect wallet");
     btn.title = "";
+    connectedUser = null;
+    userBalances = { avax: null, usdc: null };
+    // Refresh the home-page tiles so they go back to TREASURY
+    if (typeof refreshHealth === "function") refreshHealth();
   }
   function openModal(){
     console.log("[ubotpay] openModal() called, adding .open class to modal");
