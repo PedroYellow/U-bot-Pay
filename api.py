@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 import core, chain, brain, x402_client
 from brain import say
+from web3 import Web3
 
 log = logging.getLogger("ubotpay")
 logging.basicConfig(level=logging.INFO)
@@ -41,15 +42,24 @@ def auth(x_api_key: str | None):
         raise HTTPException(401, "Unauthorized")
 
 
-def resolve_user(user_key: str) -> dict:
-    """user_key = telegram id (int) or 'demo'."""
+def resolve_user(user_key: str | None, chain_id: int = 43114) -> dict:
+    """Resolve a user by:
+      1) literal "demo" or None → demo user (telegram_id=0)
+      2) an int that exists as telegram_id → that user
+      3) an EVM address (0x... 40 hex) → look up by (chain_id, address)
+    Creates the wallet user on first sight (chain_id, address).
+    """
     if user_key in ("demo", "", None):
-        u = core.get_user(telegram_id=0) or core.upsert_user(0, "Demo User", "en", os.environ.get("UBOT_WALLET_ADDRESS"))
+        u = core.get_user(telegram_id=0) or core.upsert_user(0, "Demo User", "en", os.environ.get("UBOT_WALLET_ADDRESS"), chain_id)
         return u
-    u = core.get_user(telegram_id=int(user_key))
-    if not u:
-        raise HTTPException(404, "unknown user; say hi on Telegram first")
-    return u
+    if user_key.isdigit() and (u := core.get_user(telegram_id=int(user_key))):
+        return u
+    if user_key.startswith("0x") and len(user_key) == 42:
+        u = core.get_user_by_wallet(user_key, chain_id)
+        if not u:
+            u = core.upsert_user_by_wallet(user_key, chain_id)
+        return u
+    raise HTTPException(404, "unknown user; sign in with Telegram or a wallet first")
 
 
 class Turn(BaseModel):
@@ -105,9 +115,15 @@ async def turn(t: Turn):
 
     # ── balance ──
     if intent == "balance":
-        b = chain.balance(user["address"] or os.environ["UBOT_WALLET_ADDRESS"])
-        local = round(b["usdc"] / core.FX["THB"], 0)
-        return {"say": say(lang, "balance", usdc=b["usdc"], local=int(local), ccy="baht" if lang != "th" else "บาท"), "action": "balance", "data": b}
+        addr = user["address"] or os.environ["UBOT_WALLET_ADDRESS"]
+        try:
+            b = chain.balance_at(addr, t.chain_id)
+        except Exception as e:
+            log.warning("balance lookup failed: %s", e)
+            b = {"usdc": 0.0, "native_balance": 0.0, "chain": "avalanche-mainnet"}
+        local_ccy = {"th": "THB", "es": "EUR", "en": "USD"}.get(lang, "USD")
+        local = round(b.get("usdc", 0) * core.FX.get(local_ccy, 1.0), 2)
+        return {"say": say(lang, "balance", usdc=b.get("usdc", 0), local=local, ccy=local_ccy), "action": "balance", "data": b}
 
     # ── invoices ──
     if intent == "invoices":
@@ -353,3 +369,97 @@ def _seed_for(uid):
         core.add_invoice(uid, "Somchai Restaurant", demo, float(os.environ.get("DEMO_INV_2", "3")), "Team dinner 12 Oct", 3)
         core.add_invoice(uid, "Bangkok Office Rent", demo, float(os.environ.get("DEMO_INV_3", "12")), "October rent", 9)
     core.set_policy(uid, daily_limit=float(os.environ.get("DEMO_DAILY_LIMIT", "40")), dual_threshold=float(os.environ.get("DEMO_DUAL_THRESHOLD", "10")))
+
+
+# ───────── session helpers (Nivel 1+2+3) ─────────
+JWT_SECRET = os.environ.get("UBOT_JWT_SECRET", "")
+if not JWT_SECRET or JWT_SECRET == "auto":
+    import secrets as _s
+    JWT_SECRET = _s.token_urlsafe(48)
+    os.environ["UBOT_JWT_SECRET"] = JWT_SECRET
+    log.warning("UBOT_JWT_SECRET not set — generated a fresh one. Persist it in /opt/ubotpay/.env to keep sessions across restarts.")
+
+def _user_from_request(request: Request) -> tuple[dict | None, str | None]:
+    """Resolve the current user from a JWT in `Authorization: Bearer *** `, OR
+    the internal x-api-key. Returns (user, error). `error` is set to a 401/403
+    reason when the request cannot be served; `user` is None in that case."""
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:].strip()
+        payload = core.verify_session_jwt(token, JWT_SECRET)
+        if not payload:
+            return None, "invalid or expired session"
+        u = core.get_user(user_id=payload.get("sub"))
+        if not u:
+            return None, "session user not found"
+        return u, None
+    return None, None  # unauthenticated; caller decides
+
+def _require_session(request: Request) -> dict:
+    user, err = _user_from_request(request)
+    if err or user is None:
+        raise HTTPException(401, err or "auth required")
+    return user
+
+# ───────── wallet-based auth (Nivel 1) ─────────
+class WalletNonceRequest(BaseModel):
+    address: str
+    chain_id: int = 43114
+
+class WalletVerifyRequest(BaseModel):
+    address: str
+    chain_id: int = 43114
+    signature: str     # 0x-prefixed 65-byte EIP-191 signature
+
+class WalletVerifyResponse(BaseModel):
+    token: str
+    user: dict
+    chain: dict
+
+@app.post("/auth/wallet/nonce")
+async def auth_wallet_nonce(req: WalletNonceRequest):
+    """Return a one-shot nonce for the user's wallet to sign. Replay-safe (rotates any previous nonce)."""
+    if not Web3.is_address(req.address):
+        raise HTTPException(400, "bad address")
+    nonce = core.new_wallet_nonce(Web3.to_checksum_address(req.address), req.chain_id)
+    return {"nonce": nonce, "expires_in": 600, "chain_id": req.chain_id}
+
+@app.post("/auth/wallet/verify")
+async def auth_wallet_verify(req: WalletVerifyRequest):
+    """Verify the personal_sign signature, return a 7-day JWT bound to (chain_id, address)."""
+    from eth_account.messages import encode_defunct
+    if not Web3.is_address(req.address):
+        raise HTTPException(400, "bad address")
+    cur = core.get_user_by_wallet(req.address, req.chain_id)
+    if not cur or not cur.get("jwt_nonce"):
+        # Either no row yet, or no active nonce — re-issue a nonce so the
+        # client can retry with a fresh signature. (Front-end should
+        # normally call /auth/wallet/nonce first.)
+        core.new_wallet_nonce(req.address, req.chain_id)
+        cur = core.get_user_by_wallet(req.address, req.chain_id)
+    if not cur or not cur.get("jwt_nonce"):
+        raise HTTPException(400, "request a nonce first")
+    try:
+        msg = encode_defunct(text=cur["jwt_nonce"])
+        recovered = Web3().eth.account.recover_message(msg, signature=bytes.fromhex(req.signature.replace("0x", "")))
+    except Exception as e:
+        raise HTTPException(400, f"bad signature: {e}")
+    if recovered.lower() != cur["address"].lower():
+        raise HTTPException(401, "signature does not match address")
+    # Rotate the nonce so it can't be re-used
+    with core.conn() as cc:
+        cc.execute("UPDATE users SET jwt_nonce = NULL, jwt_exp = NULL WHERE id = ?", (cur["id"],))
+    token = core.issue_session_jwt(cur, JWT_SECRET)
+    chain = chain.get_chain(req.chain_id)
+    return {"token": token, "user": cur,
+            "chain": {"id": chain.id, "name": chain.name, "native": chain.native, "explorer": chain.explorer}}
+
+@app.get("/auth/chains")
+async def auth_chains():
+    """Public list of supported chains. Used by the wallet selector."""
+    return chain.chains()
+
+@app.get("/auth/me")
+async def auth_me(request: Request):
+    """Return the current user from the Bearer token. 401 if no/invalid session."""
+    return _require_session(request)

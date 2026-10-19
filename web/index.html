@@ -7,13 +7,97 @@
 <meta name="description" content="Voice-first USDC payments on Avalanche. Speak in any language, settle in under two seconds.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><radialGradient id='g' cx='35%' cy='30%'><stop offset='0' stop-color='%23BFE0FF'/><stop offset='.55' stop-color='%234C7DF0'/><stop offset='1' stop-color='%236C5CE7'/></radialGradient></defs><circle cx='32' cy='32' r='30' fill='url(%23g)'/><g fill='white'><rect x='18' y='27' width='4' height='10' rx='2'/><rect x='25' y='22' width='4' height='20' rx='2'/><rect x='32' y='17' width='4' height='30' rx='2'/><rect x='39' y='22' width='4' height='20' rx='2'/><rect x='46' y='27' width='4' height='10' rx='2'/></g></svg>">
 <script>(function(){var t=localStorage.getItem("ubotpay-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.setAttribute("data-theme",t);})();</script>
+<style>
+  .wallet{position:fixed;top:16px;right:120px;z-index:50;display:inline-flex;align-items:center;gap:6px;padding:9px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.18);background:rgba(11,13,42,.55);color:#fff;font:inherit;font-size:14px;font-weight:500;cursor:pointer;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:.15s}
+  .wallet:hover{background:rgba(11,13,42,.8)}
+  .wallet.connected{border-color:rgba(82,196,26,.6);background:rgba(22,78,33,.45)}
+  .wallet.connected:hover{background:rgba(22,78,33,.7)}
+  .wallet code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;opacity:.85}
+  @media (max-width:640px){.wallet{top:12px;right:64px;padding:7px 10px;font-size:12px}.wallet code{font-size:10px}}
+.wallet-modal{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;pointer-events:none;transition:.18s}
+.wallet-modal.open{opacity:1;pointer-events:auto}
+.wallet-modal .panel{width:100%;max-width:380px;background:linear-gradient(180deg,#11132a 0%,#0a0c20 100%);border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:22px;color:#fff;box-shadow:0 30px 60px rgba(0,0,0,.5);transform:scale(.96);transition:.18s}
+.wallet-modal.open .panel{transform:scale(1)}
+.wallet-modal h3{margin:0 0 4px;font-size:18px;font-weight:600}
+.wallet-modal p.sub{margin:0 0 18px;font-size:13px;opacity:.7}
+.wallet-modal .row{display:flex;align-items:center;gap:12px;padding:12px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);cursor:pointer;margin-bottom:8px;transition:.12s}
+.wallet-modal .row:hover{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.12)}
+.wallet-modal .row.disabled{opacity:.4;cursor:not-allowed}
+.wallet-modal .row .ic{width:36px;height:36px;border-radius:8px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;color:#000;flex:0 0 36px;overflow:hidden}
+.wallet-modal .row .ic img{width:100%;height:100%;object-fit:contain}
+.wallet-modal .row .lbl{font-size:14px;font-weight:500;line-height:1.2}
+.wallet-modal .row .lbl small{display:block;font-size:11px;opacity:.6;margin-top:2px;font-weight:400}
+.wallet-modal .row .badge{margin-left:auto;font-size:11px;opacity:.6;background:rgba(255,255,255,.06);padding:3px 8px;border-radius:6px}
+.wallet-modal .close{position:absolute;top:14px;right:14px;background:transparent;border:0;color:#fff;font-size:20px;cursor:pointer;opacity:.6;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.wallet-modal .close:hover{opacity:1;background:rgba(255,255,255,.08)}
+.wallet-modal .footer{margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.08);font-size:11px;opacity:.55;text-align:center;line-height:1.5}
+.wallet-modal .chain-note{margin-top:10px;padding:10px;border-radius:8px;background:rgba(255,196,0,.1);border:1px solid rgba(255,196,0,.2);font-size:12px;line-height:1.4;display:none}
+.wallet-modal .chain-note.show{display:block}
+</style>
+<script>
+(function(){
+  // Minimal IIFE: the modal opens on click when disconnected, the modal calls
+  // window.__ubotpayConnect, and we just toggle the button between "Connect
+  // wallet" and the short address.
+  const btn = document.getElementById("wallet-btn");
+  const ic  = document.getElementById("wallet-ic");
+  const tx  = document.getElementById("wallet-tx");
+  const SESSION_KEY = "ubotpay_session";
+  const WALLET_KEY  = "ubotpay_wallet";
+  function shortAddr(a){ return a ? a.slice(0,6) + "..." + a.slice(-4) : ""; }
+  function renderConnected(s){
+    btn.classList.add("connected");
+    ic.textContent = "🟢";
+    tx.innerHTML = "<code>" + shortAddr(s.user.address) + "</code>";
+    btn.setAttribute("aria-label", "Disconnect wallet");
+    btn.title = "Connected: " + s.user.address + " (" + (s.chain && s.chain.name || "chain") + ")";
+  }
+  function renderDisconnected(){
+    btn.classList.remove("connected");
+    ic.textContent = "🔌";
+    tx.textContent = "Connect wallet";
+    btn.setAttribute("aria-label", "Connect wallet");
+    btn.title = "";
+  }
+  function disconnect(){
+    localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(WALLET_KEY);
+    renderDisconnected();
+  }
+  window.__ubotpayAuth = function(){
+    const t = localStorage.getItem(SESSION_KEY);
+    return t ? { "Authorization": "Bearer " + t } : {};
+  };
+  // The modal script opens on click when disconnected. When connected, the
+  // button disconnects. (The modal's click handler returns early on connected
+  // so the disconnect path runs.)
+  btn.addEventListener("click", () => {
+    if (btn.classList.contains("connected")) disconnect();
+  });
+  // Init from localStorage
+  const t = localStorage.getItem(SESSION_KEY);
+  const w = localStorage.getItem(WALLET_KEY);
+  if (t && w) {
+    try { renderConnected(JSON.parse(w)); } catch (e) { renderDisconnected(); }
+  } else {
+    renderDisconnected();
+  }
+  // Listen for account/chain changes
+  if (window.ethereum && window.ethereum.on) {
+    window.ethereum.on("accountsChanged", (accs) => {
+      if (!accs || !accs.length) disconnect();
+    });
+    window.ethereum.on("chainChanged", () => location.reload());
+  }
+})();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/ubot.css">
 <script src="/i18n.js"></script>
 </head>
 <body>
-<button class="theme" id="theme" type="button" aria-label="Toggle dark mode"><span id="theme-ic">🌙</span><span id="theme-tx">Dark</span></button>
+<button class="wallet" id="wallet-btn" type="button" aria-label="Connect wallet"><span id="wallet-ic">🔌</span><span id="wallet-tx">Connect wallet</span></button><button class="theme" id="theme" type="button" aria-label="Toggle dark mode"><span id="theme-ic">🌙</span><span id="theme-tx">Dark</span></button>
 
 <div class="hero">
   <div class="dark">
@@ -129,10 +213,11 @@ function render(res){
   add("b", esc(res.say) + extra);
 }
 async function send(text){
+  const auth = window.__ubotpayAuth ? window.__ubotpayAuth() : {};
   if(!text.trim()) return;
   add("u", esc(text)); inp.value = "";
   const t = add("sys", I18N.t("thinking"));
-  try { const r = await fetch(API + "/turn", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({user_key:"demo", text, channel:"web"})}); const res = await r.json(); t.remove(); render(res); }
+  try { const r = await fetch(API + "/turn", {method:"POST", headers:Object.assign({"Content-Type":"application/json"}, auth), body: JSON.stringify({text, channel:"web"})}); const res = await r.json(); t.remove(); render(res); }
   catch(e){ t.innerHTML = "⚠️ " + esc(e.message); }
 }
 document.getElementById("send").onclick = () => send(inp.value);
@@ -140,7 +225,8 @@ inp.addEventListener("keydown", e => { if (e.key === "Enter") send(inp.value); }
 const // Public /health returns minimal JSON. Operational data (chain name, status) come
 // from response headers X-Chain and X-Status, so the public endpoint never leaks
 // treasury / revenue details (security audit #5).
-refreshHealth = () => fetch(API + "/health").then(r => {
+refreshHealth = () => { const auth = window.__ubotpayAuth ? window.__ubotpayAuth() : {};
+return fetch(API + "/health", { headers: Object.assign({ "Cache-Control": "no-store" }, auth) }).then(r => {
   const n = document.getElementById("netstat");
   const chain = r.headers.get("X-Chain") || "avalanche-mainnet";
   const ok = r.headers.get("X-Status") === "live" && r.ok;
@@ -211,5 +297,128 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
 </script>
 <elevenlabs-convai agent-id="agent_3601m4yz1xhgffmb1mb4j0sab89a" placement="bottom-left" variant="tiny"></elevenlabs-convai>
 <script src="https://unpkg.com/@elevenlabs/convai-widget-embed" async type="text/javascript"></script>
+<!-- Connect Wallet modal -->
+<div class="wallet-modal" id="wallet-modal" role="dialog" aria-modal="true" aria-label="Connect a wallet">
+  <div class="panel">
+    <button class="close" id="wallet-modal-close" aria-label="Close">×</button>
+    <h3>Connect a wallet</h3>
+    <p class="sub">Sign in with the wallet that holds your USDC. We never custody your funds.</p>
+    <div id="wallet-modal-list"></div>
+    <div class="chain-note" id="wallet-chain-note"></div>
+    <div class="footer">
+      New to wallets? <a href="https://metamask.io/download/" target="_blank" rel="noopener" style="color:#9ec5ff">Install MetaMask</a><br>
+      By connecting, you sign a free message to prove address ownership. No gas is paid.
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  const modal = document.getElementById("wallet-modal");
+  const list  = document.getElementById("wallet-modal-list");
+  const close = document.getElementById("wallet-modal-close");
+  const note  = document.getElementById("wallet-chain-note");
+  // Open the modal whenever the wallet button is clicked while disconnected.
+  const btn = document.getElementById("wallet-btn");
+  if (btn) btn.addEventListener("click", (e) => {
+    if (btn.classList.contains("connected")) return; // let disconnect handler run
+    e.stopImmediatePropagation();
+    openModal();
+  });
+  // Also catch clicks that bubble up from the IIFE-injected button (it lives
+  // earlier in the document). Re-binding here is safe; the IIFE one will fire too
+  // and the user gets one click.
+  function openModal(){ list.innerHTML = ""; note.classList.remove("show"); buildRows(); modal.classList.add("open"); }
+  function closeModal(){ modal.classList.remove("open"); }
+  close.addEventListener("click", closeModal);
+  modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+
+  // Detect injected wallets
+  function detect(){
+    const e = window.ethereum;
+    if (!e) return [];
+    const found = [];
+    if (e.isMetaMask)    found.push({ id:"metamask",    name:"MetaMask",   sub:"Browser extension",     icon:"🦊" });
+    if (e.isRabby)       found.push({ id:"rabby",       name:"Rabby",      sub:"Browser extension",     icon:"🐰" });
+    if (e.isBraveWallet) found.push({ id:"brave",       name:"Brave Wallet", sub:"Built into Brave",    icon:"🦁" });
+    if (e.isCoinbaseWallet) found.push({ id:"coinbase", name:"Coinbase Wallet", sub:"Browser + mobile", icon:"🔵" });
+    if (e.isPhantom)     found.push({ id:"phantom",     name:"Phantom (EVM)", sub:"Browser extension",  icon:"👻" });
+    if (e.isFrame)       found.push({ id:"frame",       name:"Frame",      sub:"Browser extension",     icon:"🖼" });
+    if (e.isTrust)       found.push({ id:"trust",       name:"Trust Wallet", sub:"Browser + mobile",   icon:"🛡" });
+    if (e.isCoreApp)     found.push({ id:"core",        name:"Core",       sub:"Avalanche-native wallet", icon:"🔺" });
+    if (e.isOKExWallet)  found.push({ id:"okx",         name:"OKX Wallet", sub:"Browser + mobile",    icon:"⭕" });
+    if (e.isBitKeep)     found.push({ id:"bitkeep",     name:"BitKeep",    sub:"Browser + mobile",     icon:"🔑" });
+    if (e.isTokenPocket) found.push({ id:"tp",          name:"TokenPocket",sub:"Browser + mobile",     icon:"🟦" });
+    if (e.isOpera)       found.push({ id:"opera",       name:"Opera",      sub:"Built into Opera",     icon:"🎭" });
+    if (e.isTally)       found.push({ id:"tally",       name:"Tally",      sub:"Browser extension",    icon:"🟪" });
+    // Generic EIP-1193 fallback if no specific wallet was flagged
+    if (!found.length)   found.push({ id:"generic",     name:"Browser Wallet", sub:"EIP-1193 detected", icon:"🔌" });
+    return found;
+  }
+  function buildRows(){
+    const wallets = detect();
+    if (!wallets.length) {
+      // Nothing injected
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML = '<div class="ic">🦊</div><div class="lbl">No wallet detected<small>Install MetaMask or open from a wallet-enabled browser</small></div>';
+      list.appendChild(row);
+      return;
+    }
+    wallets.forEach(w => {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML = '<div class="ic">'+w.icon+'</div>'
+        + '<div class="lbl">'+w.name+'<small>'+w.sub+'</small></div>'
+        + '<div class="badge">Detected</div>';
+      row.addEventListener("click", async () => {
+        closeModal();
+        await window.__ubotpayConnect(window.ethereum, w.name);
+      });
+      list.appendChild(row);
+    });
+  }
+  // Expose the connect function to the IIFE
+  window.__ubotpayConnect = async function(provider, label){
+    if (!provider) return;
+    let accounts;
+    try { accounts = await provider.request({ method: "eth_requestAccounts" }); }
+    catch (e) { alert((label || "Wallet") + " rejected the connection."); return; }
+    if (!accounts || !accounts.length) return;
+    const address = accounts[0];
+    const chainIdHex = await provider.request({ method: "eth_chainId" });
+    const chainId = parseInt(chainIdHex, 16);
+    const r = await fetch(API + "/auth/wallet/nonce", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ address, chain_id: chainId })
+    });
+    if (!r.ok) { alert("Could not get sign-in nonce: HTTP " + r.status); return; }
+    const { nonce } = await r.json();
+    let signature;
+    try { signature = await provider.request({ method: "personal_sign", params: [nonce, address] }); }
+    catch (e) { alert("Wallet rejected the signature."); return; }
+    const v = await fetch(API + "/auth/wallet/verify", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ address, chain_id: chainId, signature })
+    });
+    if (!v.ok) { alert("Sign-in failed: HTTP " + v.status); return; }
+    const data = await v.json();
+    localStorage.setItem("ubotpay_session", data.token);
+    localStorage.setItem("ubotpay_wallet", JSON.stringify({ user: data.user, chain: data.chain }));
+    window.__ubotpayRenderConnected(data);
+    if (typeof refreshHealth === "function") refreshHealth();
+  };
+  // Provide a way for the IIFE to update the button when the connect completes
+  window.__ubotpayRenderConnected = function(data){
+    const b = document.getElementById("wallet-btn");
+    if (!b) return;
+    b.classList.add("connected");
+    document.getElementById("wallet-ic").textContent = "🟢";
+    document.getElementById("wallet-tx").innerHTML = "<code>" + (data.user.address.slice(0,6) + "..." + data.user.address.slice(-4)) + "</code>";
+    b.setAttribute("aria-label", "Disconnect wallet");
+    b.title = "Connected: " + data.user.address + " (" + (data.chain.name || "chain") + ")";
+  };
+})();
+</script>
 </body>
 </html>

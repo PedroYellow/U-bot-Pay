@@ -10,16 +10,13 @@ DB = os.environ.get("UBOT_DB", "/opt/ubotpay/ubotpay.db")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users(
   id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, lang TEXT DEFAULT 'en',
-  telegram_id INTEGER UNIQUE, voice_pin TEXT, address TEXT, daily_limit REAL DEFAULT 500,
-  dual_threshold REAL DEFAULT 1000, approver_telegram_id INTEGER, created_at INTEGER);
+  telegram_id INTEGER UNIQUE, voice_pin TEXT, address TEXT, chain_id INTEGER DEFAULT 43114,
+  daily_limit REAL DEFAULT 500, dual_threshold REAL DEFAULT 1000, approver_telegram_id INTEGER,
+  jwt_nonce TEXT, jwt_exp INTEGER, created_at INTEGER);
 CREATE TABLE IF NOT EXISTS contacts(
   id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, alias TEXT, name TEXT, address TEXT,
-  country TEXT, currency TEXT DEFAULT 'USDC', is_agent INTEGER DEFAULT 0, UNIQUE(user_id, alias));
-CREATE TABLE IF NOT EXISTS payments(
-  id TEXT PRIMARY KEY, user_id INTEGER, contact_alias TEXT, to_address TEXT,
-  amount_usdc REAL, amount_local REAL, local_ccy TEXT, fx_rate REAL, fee_usdc REAL DEFAULT 0,
-  memo TEXT, memo_hash TEXT, status TEXT, tx TEXT, latency_s REAL, channel TEXT,
-  needs_approval INTEGER DEFAULT 0, approved_by INTEGER, created_at INTEGER, settled_at INTEGER);
+  chain_id INTEGER DEFAULT 43114, country TEXT, currency TEXT DEFAULT 'USDC', is_agent INTEGER DEFAULT 0,
+  UNIQUE(user_id, alias, chain_id));
 CREATE TABLE IF NOT EXISTS invoices(
   id TEXT PRIMARY KEY, user_id INTEGER, from_name TEXT, from_address TEXT, amount_usdc REAL,
   description TEXT, due INTEGER, status TEXT DEFAULT 'open', paid_tx TEXT, created_at INTEGER);
@@ -41,8 +38,61 @@ def conn():
 
 
 def init():
+    """Create tables if missing, then idempotently add new columns for multi-chain support.
+    SQLite has no ADD COLUMN IF NOT EXISTS, so we swallow the 'duplicate column' error.
+
+    Migration order matters: ALTERs first to add the new columns with defaults,
+    then backfill NULL rows, then create the partial unique index. Otherwise the
+    unique index explodes on the (NULL, NULL) collisions from legacy users."""
+    treasury = os.environ.get("UBOT_WALLET_ADDRESS", "")
     with conn() as c:
         c.executescript(SCHEMA)
+        for ddl in [
+            "ALTER TABLE users    ADD COLUMN chain_id  INTEGER DEFAULT 43114",
+            "ALTER TABLE users    ADD COLUMN jwt_nonce TEXT",
+            "ALTER TABLE users    ADD COLUMN jwt_exp   INTEGER",
+            "ALTER TABLE contacts ADD COLUMN chain_id  INTEGER DEFAULT 43114",
+            "ALTER TABLE payments ADD COLUMN chain_id  INTEGER DEFAULT 43114",
+            "ALTER TABLE invoices ADD COLUMN chain_id  INTEGER DEFAULT 43114",
+        ]:
+            try: c.execute(ddl)
+            except Exception: pass
+        # Backfill users with NULL address to the operator treasury (Avalanche).
+        # Avoids (NULL,NULL) collisions on the unique index below.
+        if treasury:
+            try: c.execute("UPDATE users SET address = ?, chain_id = 43114 WHERE address IS NULL", (treasury,))
+            except Exception as e: log.warning("backfill users.address: %s", e)
+        # Dedupe users by (chain_id, lower(address)) — merge payments/contacts/invoices
+        # into the lowest id and delete the rest. Required before the unique index.
+        # If a collision happens on contacts (same alias in two users), the canonical
+        # row wins; the secondary is dropped. Same for invoices.
+        try:
+            dups = list(c.execute(
+                "SELECT chain_id, lower(address) AS a, COUNT(*) c FROM users "
+                "WHERE address IS NOT NULL GROUP BY chain_id, a HAVING c > 1"))
+            for chain_id, addr_lc, _ in dups:
+                canonical = c.execute("SELECT id FROM users WHERE chain_id = ? AND lower(address) = ? ORDER BY id LIMIT 1", (chain_id, addr_lc)).fetchone()
+                if not canonical: continue
+                cid = canonical[0]
+                for (uid,) in c.execute("SELECT id FROM users WHERE chain_id = ? AND lower(address) = ? AND id != ?", (chain_id, addr_lc, cid)).fetchall():
+                    # contacts: drop the secondary row if alias collides with canonical
+                    c.execute("DELETE FROM contacts WHERE user_id = ? AND alias IN (SELECT alias FROM contacts WHERE user_id = ?)", (uid, cid))
+                    c.execute("UPDATE contacts SET user_id = ? WHERE user_id = ?", (cid, uid))
+                    # invoices: no UNIQUE on (user_id, ...) in this DB, so safe to update
+                    try: c.execute("UPDATE invoices SET user_id = ? WHERE user_id = ?", (cid, uid))
+                    except Exception: pass
+                    # payments: same
+                    try: c.execute("UPDATE payments SET user_id = ? WHERE user_id = ?", (cid, uid))
+                    except Exception: pass
+                    c.execute("DELETE FROM users WHERE id = ?", (uid,))
+        except Exception as e: print(f"[core.init] dedupe users: {e}")
+        try: c.execute("UPDATE contacts SET chain_id = 43114 WHERE chain_id IS NULL")
+        except Exception: pass
+        try: c.execute("UPDATE payments SET chain_id = 43114 WHERE chain_id IS NULL")
+        except Exception: pass
+        try: c.execute("UPDATE invoices SET chain_id = 43114 WHERE chain_id IS NULL")
+        except Exception: pass
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_wallet ON users(chain_id, lower(address)) WHERE address IS NOT NULL")
 
 
 # ───────── pricing (business model) ─────────
@@ -88,6 +138,25 @@ def upsert_user(telegram_id: int, name: str, lang="en", address=None) -> dict:
                   (name, lang, telegram_id, address, int(time.time())))
         return dict(c.execute("SELECT * FROM users WHERE telegram_id=?", (telegram_id,)).fetchone())
 
+
+def get_user_by_wallet(address: str, chain_id: int = 43114) -> dict | None:
+    """Look up user by (chain_id, address). Lowercased address. Returns row or None."""
+    with conn() as cc:
+        row = cc.execute("SELECT * FROM users WHERE lower(address) = lower(?) AND chain_id = ?",
+                         (address, chain_id)).fetchone()
+    return dict(row) if row else None
+
+def upsert_user_by_wallet(address: str, chain_id: int = 43114) -> dict:
+    """Create or return the user owning (chain_id, address). Idempotent."""
+    u = get_user_by_wallet(address, chain_id)
+    if u:
+        return u
+    with conn() as cc:
+        cc.execute(
+            "INSERT INTO users(name, lang, address, chain_id) VALUES(?, ?, ?, ?)",
+            (f"wallet:{address[:6]}...{address[-4:]}", "en", address, chain_id),
+        )
+    return get_user_by_wallet(address, chain_id)
 
 def get_user(user_id=None, telegram_id=None) -> dict | None:
     with conn() as c:
@@ -199,3 +268,79 @@ def open_invoices(user_id) -> list[dict]:
 def pay_invoice(iid, tx):
     with conn() as c:
         c.execute("UPDATE invoices SET status='paid', paid_tx=? WHERE id=?", (tx, iid))
+
+# ───────── wallet-based session (Nivel 1) ─────────
+# JWT firmado server-side. El user firma un nonce con su wallet (EIP-191 personal_sign),
+# el server valida y emite un JWT de 7 días. El cliente lo guarda en localStorage
+# y lo envía como `Authorization: Bearer *** en cada llamada.
+# El `jwt_nonce` en users se rota al pedir uno nuevo (replay protection).
+
+import hmac as _hmac, hashlib as _hashlib, base64 as _b64, json as _json, time as _time
+
+def _b64u(b: bytes) -> str:
+    return _b64.urlsafe_b64encode(b).rstrip(b"=").decode()
+
+def _jwt_sign(payload: dict, secret: str) -> str:
+    h = {"alg": "HS256", "typ": "JWT"}
+    h_b64 = _b64u(_json.dumps(h, separators=(",",":")).encode())
+    p_b64 = _b64u(_json.dumps(payload, separators=(",",":")).encode())
+    sig = _hmac.new(secret.encode(), f"{h_b64}.{p_b64}".encode(), _hashlib.sha256).digest()
+    return f"{h_b64}.{p_b64}.{_b64u(sig)}"
+
+def _jwt_verify(token: str, secret: str) -> dict | None:
+    try:
+        h_b64, p_b64, s_b64 = token.split(".")
+        sig = _b64.urlsafe_b64decode(s_b64 + "==")
+        expected = _hmac.new(secret.encode(), f"{h_b64}.{p_b64}".encode(), _hashlib.sha256).digest()
+        if not _hmac.compare_digest(sig, expected):
+            return None
+        payload = _json.loads(_b64.urlsafe_b64decode(p_b64 + "=="))
+        if payload.get("exp", 0) < _time.time():
+            return None
+        return payload
+    except Exception:
+        return None
+
+def new_wallet_nonce(address: str, chain_id: int = 43114) -> str:
+    """Generate a single-use nonce for the user to sign. Rotates any previous nonce for that user."""
+    import secrets as _secrets
+    nonce = "UbotPay sign-in: " + _secrets.token_urlsafe(24) + " — chain " + str(chain_id) + " — " + address
+    exp = int(_time.time()) + 600
+    with conn() as cc:
+        # Detect if a row already exists for this (chain_id, address). If yes,
+        # update the nonce in place; if no, create a new row.
+        existing = cc.execute("SELECT 1 FROM users WHERE lower(address) = lower(?) AND chain_id = ?",
+                              (address, chain_id)).fetchone()
+        if existing:
+            cc.execute("UPDATE users SET jwt_nonce = ?, jwt_exp = ? WHERE lower(address) = lower(?) AND chain_id = ?",
+                       (nonce, exp, address, chain_id))
+        else:
+            cc.execute("INSERT INTO users(name, lang, address, chain_id, jwt_nonce, jwt_exp) VALUES(?, ?, ?, ?, ?, ?)",
+                       (f"wallet:{address[:6]}...{address[-4:]}", "en", address, chain_id, nonce, exp))
+    return nonce
+
+def consume_wallet_nonce(nonce: str) -> dict | None:
+    """Read the user that owns this nonce. Returns the user row or None if expired/unknown."""
+    with conn() as cc:
+        row = cc.execute("SELECT * FROM users WHERE jwt_nonce = ?", (nonce,)).fetchone()
+    if not row:
+        return None
+    user = dict(row)
+    if not user.get("jwt_exp") or user["jwt_exp"] < _time.time():
+        return None
+    return user
+
+def issue_session_jwt(user: dict, secret: str, ttl_s: int = 7 * 24 * 3600) -> str:
+    """Mint a 7-day JWT bound to (chain_id, address, user_id)."""
+    payload = {
+        "sub": user["id"],
+        "addr": user["address"],
+        "chain": user.get("chain_id") or 43114,
+        "iat": int(_time.time()),
+        "exp": int(_time.time()) + ttl_s,
+    }
+    return _jwt_sign(payload, secret)
+
+def verify_session_jwt(token: str, secret: str) -> dict | None:
+    """Verify and return the JWT payload, or None."""
+    return _jwt_verify(token, secret)

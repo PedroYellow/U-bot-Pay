@@ -14,9 +14,29 @@
 .two{display:grid;gap:12px}
 .card h4 .badge{vertical-align:middle;margin-left:6px}
 .stat{font-size:13px;color:var(--muted);margin-top:8px;min-height:20px}
+.wallet{position:fixed;top:16px;right:120px;z-index:50;display:inline-flex;align-items:center;gap:6px;padding:9px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.18);background:rgba(11,13,42,.55);color:#fff;font:inherit;font-size:14px;font-weight:500;cursor:pointer;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:.15s}
+.wallet:hover{background:rgba(11,13,42,.8)}
+.wallet.connected{border-color:rgba(82,196,26,.6);background:rgba(22,78,33,.45)}
+.wallet code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;opacity:.85}
+@media (max-width:640px){.wallet{top:12px;right:64px;padding:7px 10px;font-size:12px}.wallet code{font-size:10px}}
+.wallet-modal{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;pointer-events:none;transition:.18s}
+.wallet-modal.open{opacity:1;pointer-events:auto}
+.wallet-modal .panel{width:100%;max-width:380px;background:linear-gradient(180deg,#11132a 0%,#0a0c20 100%);border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:22px;color:#fff;box-shadow:0 30px 60px rgba(0,0,0,.5);transform:scale(.96);transition:.18s;position:relative}
+.wallet-modal.open .panel{transform:scale(1)}
+.wallet-modal h3{margin:0 0 4px;font-size:18px;font-weight:600}
+.wallet-modal p.sub{margin:0 0 18px;font-size:13px;opacity:.7}
+.wallet-modal .row{display:flex;align-items:center;gap:12px;padding:12px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);cursor:pointer;margin-bottom:8px;transition:.12s}
+.wallet-modal .row:hover{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.12)}
+.wallet-modal .row .ic{width:36px;height:36px;border-radius:8px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;color:#000;flex:0 0 36px;overflow:hidden}
+.wallet-modal .row .lbl{font-size:14px;font-weight:500;line-height:1.2}
+.wallet-modal .row .lbl small{display:block;font-size:11px;opacity:.6;margin-top:2px;font-weight:400}
+.wallet-modal .row .badge{margin-left:auto;font-size:11px;opacity:.6;background:rgba(255,255,255,.06);padding:3px 8px;border-radius:6px}
+.wallet-modal .close{position:absolute;top:14px;right:14px;background:transparent;border:0;color:#fff;font-size:20px;cursor:pointer;opacity:.6;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.wallet-modal .close:hover{opacity:1;background:rgba(255,255,255,.08)}
+.wallet-modal .footer{margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.08);font-size:11px;opacity:.55;text-align:center;line-height:1.5}
 </style></head>
 <body data-page="agent">
-<button class="theme" id="theme" type="button" aria-label="Toggle dark mode"><span id="theme-ic">🌙</span><span id="theme-tx">Dark</span></button>
+<button class="wallet" id="wallet-btn" type="button" aria-label="Connect wallet"><span id="wallet-ic">🔌</span><span id="wallet-tx">Connect wallet</span></button><button class="theme" id="theme" type="button" aria-label="Toggle dark mode"><span id="theme-ic">🌙</span><span id="theme-tx">Dark</span></button>
 <div class="hero">
   <div class="dark">
     <a class="brand" href="https://ubotpay.com"><svg viewBox="0 0 64 64" aria-hidden="true"><defs><radialGradient id="g" cx="35%" cy="30%"><stop offset="0" stop-color="#BFE0FF"/><stop offset=".55" stop-color="#4C7DF0"/><stop offset="1" stop-color="#6C5CE7"/></radialGradient></defs><circle cx="32" cy="32" r="30" fill="url(#g)"/><g fill="#fff"><rect x="18" y="27" width="4" height="10" rx="2"/><rect x="25" y="22" width="4" height="20" rx="2"/><rect x="32" y="17" width="4" height="30" rx="2"/><rect x="39" y="22" width="4" height="20" rx="2"/><rect x="46" y="27" width="4" height="10" rx="2"/></g></svg>ubotpay <small>DATAAGENT</small></a>
@@ -82,4 +102,132 @@ $("pay").onclick=async()=>{$("paystat").textContent=I18N.t("a_paying");$("out200
 </script>
 <elevenlabs-convai agent-id="agent_3601m4yz1xhgffmb1mb4j0sab89a" placement="bottom-left" variant="tiny"></elevenlabs-convai>
 <script src="https://unpkg.com/@elevenlabs/convai-widget-embed" async type="text/javascript"></script>
+<!-- Connect Wallet modal (Nivel 1 + multi-chain) -->
+<div class="wallet-modal" id="wallet-modal" role="dialog" aria-modal="true" aria-label="Connect a wallet">
+  <div class="panel">
+    <button class="close" id="wallet-modal-close" aria-label="Close">×</button>
+    <h3>Connect a wallet</h3>
+    <p class="sub">Sign in to pay x402 endpoints with your own USDC. We never custody your funds.</p>
+    <div id="wallet-modal-list"></div>
+    <div class="footer">
+      New to wallets? <a href="https://metamask.io/download/" target="_blank" rel="noopener" style="color:#9ec5ff">Install MetaMask</a><br>
+      By connecting, you sign a free message to prove address ownership. No gas is paid.
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  const API = "https://api.ubotpay.com";
+  const modal = document.getElementById("wallet-modal");
+  const list  = document.getElementById("wallet-modal-list");
+  const close = document.getElementById("wallet-modal-close");
+  const btn = document.getElementById("wallet-btn");
+  if (btn) btn.addEventListener("click", (e) => {
+    if (btn.classList.contains("connected")) return;
+    e.stopImmediatePropagation();
+    openModal();
+  });
+  function openModal(){ list.innerHTML = ""; buildRows(); modal.classList.add("open"); }
+  function closeModal(){ modal.classList.remove("open"); }
+  close.addEventListener("click", closeModal);
+  modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+
+  function detect(){
+    const e = window.ethereum;
+    if (!e) return [];
+    const found = [];
+    if (e.isMetaMask)    found.push({ id:"metamask",    name:"MetaMask",   sub:"Browser extension",     icon:"🦊" });
+    if (e.isRabby)       found.push({ id:"rabby",       name:"Rabby",      sub:"Browser extension",     icon:"🐰" });
+    if (e.isBraveWallet) found.push({ id:"brave",       name:"Brave Wallet", sub:"Built into Brave",    icon:"🦁" });
+    if (e.isCoinbaseWallet) found.push({ id:"coinbase", name:"Coinbase Wallet", sub:"Browser + mobile", icon:"🔵" });
+    if (e.isPhantom)     found.push({ id:"phantom",     name:"Phantom (EVM)", sub:"Browser extension",  icon:"👻" });
+    if (e.isTrust)       found.push({ id:"trust",       name:"Trust Wallet", sub:"Browser + mobile",   icon:"🛡" });
+    if (e.isCoreApp)     found.push({ id:"core",        name:"Core",       sub:"Avalanche-native wallet", icon:"🔺" });
+    if (!found.length)   found.push({ id:"generic",     name:"Browser Wallet", sub:"EIP-1193 detected", icon:"🔌" });
+    return found;
+  }
+  function buildRows(){
+    const wallets = detect();
+    if (!wallets.length) {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML = '<div class="ic">🦊</div><div class="lbl">No wallet detected<small>Install MetaMask or open from a wallet-enabled browser</small></div>';
+      list.appendChild(row);
+      return;
+    }
+    wallets.forEach(w => {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML = '<div class="ic">'+w.icon+'</div>'
+        + '<div class="lbl">'+w.name+'<small>'+w.sub+'</small></div>'
+        + '<div class="badge">Detected</div>';
+      row.addEventListener("click", async () => {
+        closeModal();
+        await window.__ubotpayConnect(window.ethereum, w.name);
+      });
+      list.appendChild(row);
+    });
+  }
+  window.__ubotpayConnect = async function(provider, label){
+    if (!provider) return;
+    let accounts;
+    try { accounts = await provider.request({ method: "eth_requestAccounts" }); }
+    catch (e) { alert((label || "Wallet") + " rejected the connection."); return; }
+    if (!accounts || !accounts.length) return;
+    const address = accounts[0];
+    const chainId = parseInt(await provider.request({ method: "eth_chainId" }), 16);
+    const r = await fetch(API + "/auth/wallet/nonce", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ address, chain_id: chainId })
+    });
+    if (!r.ok) { alert("Could not get sign-in nonce: HTTP " + r.status); return; }
+    const { nonce } = await r.json();
+    let signature;
+    try { signature = await provider.request({ method: "personal_sign", params: [nonce, address] }); }
+    catch (e) { alert("Wallet rejected the signature."); return; }
+    const v = await fetch(API + "/auth/wallet/verify", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ address, chain_id: chainId, signature })
+    });
+    if (!v.ok) { alert("Sign-in failed: HTTP " + v.status); return; }
+    const data = await v.json();
+    localStorage.setItem("ubotpay_session", data.token);
+    localStorage.setItem("ubotpay_wallet", JSON.stringify({ user: data.user, chain: data.chain }));
+    window.__ubotpayRenderConnected(data);
+  };
+  window.__ubotpayRenderConnected = function(data){
+    const b = document.getElementById("wallet-btn");
+    if (!b) return;
+    b.classList.add("connected");
+    document.getElementById("wallet-ic").textContent = "🟢";
+    document.getElementById("wallet-tx").innerHTML = "<code>" + (data.user.address.slice(0,6) + "..." + data.user.address.slice(-4)) + "</code>";
+    b.setAttribute("aria-label", "Disconnect wallet");
+    b.title = "Connected: " + data.user.address;
+  };
+  // Init from localStorage
+  const t = localStorage.getItem("ubotpay_session");
+  const w = localStorage.getItem("ubotpay_wallet");
+  if (t && w) {
+    try {
+      const data = JSON.parse(w);
+      btn.classList.add("connected");
+      document.getElementById("wallet-ic").textContent = "🟢";
+      document.getElementById("wallet-tx").innerHTML = "<code>" + (data.user.address.slice(0,6) + "..." + data.user.address.slice(-4)) + "</code>";
+    } catch (e) {}
+  }
+  if (window.ethereum && window.ethereum.on) {
+    window.ethereum.on("accountsChanged", (accs) => {
+      if (!accs || !accs.length) {
+        localStorage.removeItem("ubotpay_session");
+        localStorage.removeItem("ubotpay_wallet");
+        btn.classList.remove("connected");
+        document.getElementById("wallet-ic").textContent = "🔌";
+        document.getElementById("wallet-tx").textContent = "Connect wallet";
+      }
+    });
+    window.ethereum.on("chainChanged", () => location.reload());
+  }
+})();
+</script>
 </body></html>

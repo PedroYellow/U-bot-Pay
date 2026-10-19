@@ -121,3 +121,83 @@ def settle_authorization(auth: dict) -> dict:
     h = w3.eth.send_raw_transaction(acct.sign_transaction(tx).raw_transaction)
     rcpt = w3.eth.wait_for_transaction_receipt(h, timeout=60)
     return {"tx": h.hex(), "ok": rcpt.status == 1, "latency_s": round(time.time() - t0, 2), "explorer": f"{EXPLORER}/tx/{h.hex()}"}
+
+# ───────── multi-chain registry (Nivel 2 / 3) ─────────
+# Mantiene compatibilidad con todo el código existente (default Avalanche C-Chain).
+# Una chain = (chain_id, rpc, usdc_address, explorer, name, native_currency).
+# Las funciones `send_usdc` y `balance` aceptan chain_id opcional; sin él, usan
+# las globales de Avalanche.
+
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class Chain:
+    id: int
+    name: str
+    rpc: str
+    usdc: str
+    explorer: str
+    native: str = "AVAX"     # ETH on EVM chains, MATIC on Polygon, etc.
+    evm: bool = True
+    enabled: bool = True     # turn on/off per chain without code change
+
+# Built-in registry. To enable a new chain, just add it here.
+_BUILTIN_CHAINS = {
+    43114: Chain(43114, "Avalanche C-Chain", os.environ.get("AVAX_RPC", "https://api.avax.network/ext/bc/C/rpc"),
+                 os.environ.get("USDC_ADDRESS", "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E"),
+                 os.environ.get("EXPLORER", "https://snowtrace.io"), "AVAX"),
+    43113: Chain(43113, "Avalanche Fuji (testnet)", os.environ.get("AVAX_RPC", "https://api.avax-test.network/ext/bc/C/rpc"),
+                 os.environ.get("USDC_ADDRESS", "0x5425890298aed601595a70AB815c96711a31Bc65"),
+                 os.environ.get("EXPLORER", "https://testnet.snowtrace.io"), "AVAX"),
+    8453:  Chain(8453, "Base", "https://mainnet.base.org",
+                 "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "https://basescan.org", "ETH", enabled=False),
+    137:   Chain(137, "Polygon", "https://polygon-rpc.com",
+                 "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", "https://polygonscan.com", "MATIC", enabled=False),
+    42161: Chain(42161, "Arbitrum One", "https://arb1.arbitrum.io/rpc",
+                 "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "https://arbiscan.io", "ETH", enabled=False),
+    1:     Chain(1, "Ethereum", "https://eth.merkle.io",
+                 "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "https://etherscan.io", "ETH", enabled=False),
+    10:    Chain(10, "Optimism", "https://mainnet.optimism.io",
+                 "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", "https://optimistic.etherscan.io", "ETH", enabled=False),
+}
+
+def chains() -> list[dict]:
+    """Public list of enabled chains for the wallet selector. Excludes disabled entries."""
+    return [{"id": c.id, "name": c.name, "native": c.native, "explorer": c.explorer}
+            for c in _BUILTIN_CHAINS.values() if c.enabled]
+
+def get_chain(chain_id: int = 43114) -> Chain:
+    """Resolve a chain by id, default Avalanche. Raises if unknown or disabled."""
+    c = _BUILTIN_CHAINS.get(chain_id)
+    if not c:
+        raise ValueError(f"unknown chain_id={chain_id}")
+    if not c.enabled:
+        raise ValueError(f"chain {c.name} is registered but disabled")
+    return c
+
+# Cache of Web3/contract instances per chain_id, so RPC nodes aren't reset between calls.
+_CHAIN_RUNTIME: dict[int, tuple] = {}
+
+def _runtime(chain_id: int) -> tuple:
+    if chain_id in _CHAIN_RUNTIME:
+        return _CHAIN_RUNTIME[chain_id]
+    c = get_chain(chain_id)
+    w3_local = Web3(Web3.HTTPProvider(c.rpc, request_kwargs={"timeout": 20}))
+    usdc_local = w3_local.eth.contract(Web3.to_checksum_address(c.usdc), abi=ERC20_ABI)
+    _CHAIN_RUNTIME[chain_id] = (c, w3_local, usdc_local)
+    return _CHAIN_RUNTIME[chain_id]
+
+def balance_at(address: str, chain_id: int = 43114) -> dict:
+    """Balance on a specific chain. Returns address, native (AVAX/ETH), and USDC."""
+    c, w3l, _ = _runtime(chain_id)
+    a = Web3.to_checksum_address(address)
+    return {"address": a, "chain": c.name, "chain_id": chain_id,
+            "native": c.native, "native_balance": float(Web3.from_wei(w3l.eth.get_balance(a), "ether")),
+            "usdc": float(_balance_usdc(w3l, c, a))}
+
+def _balance_usdc(w3l, c, a) -> Decimal:
+    global _DEC
+    _DEC = w3l.eth.contract(Web3.to_checksum_address(c.usdc), abi=[{"name":"decimals","type":"function","stateMutability":"view","inputs":[],"outputs":[{"type":"uint8"}], "constant":True}])
+    dec = _DEC.functions.decimals().call()
+    raw = _CHAIN_RUNTIME[c.id][2].functions.balanceOf(a).call()
+    return Decimal(raw) / (10 ** dec)
