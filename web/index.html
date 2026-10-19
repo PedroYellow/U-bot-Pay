@@ -14,6 +14,7 @@
   .wallet.connected{border-color:#13B37A;background:linear-gradient(135deg,#13B37A 0%,#0B8C5C 100%);box-shadow:0 4px 14px rgba(19,179,122,.5)}
   .wallet.connected:hover{box-shadow:0 6px 18px rgba(19,179,122,.65)}
   .wallet code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:rgba(0,0,0,.18);padding:1px 6px;border-radius:4px}
+  .wallet *{pointer-events:none;user-select:none}
   @media (max-width:640px){.wallet{top:60px;right:12px;padding:8px 14px;font-size:13px;border-radius:8px}.wallet code{font-size:10px;padding:1px 4px}}
 .wallet-modal{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;pointer-events:none;transition:.18s}
 .wallet-modal.open{opacity:1;pointer-events:auto}
@@ -379,11 +380,21 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     } catch (e) { alert("Sign-in failed: " + e.message); }
   }
 
-  // Single click handler on the button
-  btn.addEventListener("click", (e) => {
-    e.preventDefault();
+  // Single click handler on the button. We also listen for mousedown because
+  // some ad blockers swallow "click" but let mousedown through.
+  const handleOpen = (e) => {
+    if (e) e.preventDefault();
     if (btn.classList.contains("connected")) disconnect();
-    else openModal();
+    else { openModal(); }
+  };
+  btn.addEventListener("click", handleOpen);
+  btn.addEventListener("mousedown", (e) => { if (e.button === 0) handleOpen(e); });
+  // Delegated handler at the document level — works even if a browser
+  // extension is intercepting clicks on the button.
+  document.addEventListener("click", (e) => {
+    if (e.target === btn || (e.target && e.target.closest && e.target.closest("#wallet-btn"))) {
+      handleOpen(e);
+    }
   });
   if (closeBtn) closeBtn.addEventListener("click", closeModal);
   modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
