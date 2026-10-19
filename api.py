@@ -61,8 +61,14 @@ class Turn(BaseModel):
 
 @app.get("/health")
 def health():
-    """Public health check — only return status, never operational or treasury details (audit #5)."""
-    return {"ok": True, "ts": int(time.time())}
+    """Public health check — only return status, never operational or treasury details (audit #5).
+    Operational info (chain, treasury, revenue) is exposed via response headers
+    X-Chain and X-Status so the web console can render a live indicator
+    without exposing the JSON payload publicly."""
+    return JSONResponse(
+        {"ok": True, "ts": int(time.time())},
+        headers={"X-Chain": chain.NETWORK_NAME, "X-Status": "live"},
+    )
 
 def _health_full():
     try:

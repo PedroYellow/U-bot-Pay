@@ -137,7 +137,30 @@ async function send(text){
 }
 document.getElementById("send").onclick = () => send(inp.value);
 inp.addEventListener("keydown", e => { if (e.key === "Enter") send(inp.value); });
-const refreshHealth = () => fetch(API + "/health").then(r=>r.json()).then(h=>{ const n = document.getElementById("netstat"); n.textContent = "● " + (h.chain === "avalanche-mainnet" ? "Avalanche mainnet" : h.chain) + " · " + I18N.t("live"); n.removeAttribute("data-i18n"); n.style.color = "var(--ok)"; document.getElementById("k_usdc").textContent = (h.treasury?.usdc ?? "—") + " USDC"; document.getElementById("k_rev").textContent = (h.revenue?.revenue_usdc ?? 0) + " USDC"; }).catch(()=>{ const n = document.getElementById("netstat"); n.textContent = I18N.t("offline"); n.removeAttribute("data-i18n"); n.style.color = "var(--bad)"; });
+const // Public /health returns minimal JSON. Operational data (chain name, status) come
+// from response headers X-Chain and X-Status, so the public endpoint never leaks
+// treasury / revenue details (security audit #5).
+refreshHealth = () => fetch(API + "/health").then(r => {
+  const n = document.getElementById("netstat");
+  const chain = r.headers.get("X-Chain") || "avalanche-mainnet";
+  const ok = r.headers.get("X-Status") === "live" && r.ok;
+  const label = chain === "avalanche-mainnet" ? "Avalanche mainnet" : chain;
+  if (ok) {
+    n.textContent = "● " + label + " · " + I18N.t("live");
+    n.removeAttribute("data-i18n"); n.style.color = "var(--ok)";
+  } else {
+    n.textContent = I18N.t("offline");
+    n.removeAttribute("data-i18n"); n.style.color = "var(--bad)";
+  }
+  return r.json();
+}).then(h => {
+  // k_usdc / k_rev are populated by the /turn balance reply, not by /health.
+  // The frontend now shows "—" for the USDC tiles until a /turn response
+  // arrives. To re-enable live USDC/revenue on the home page, call
+  // /health/full server-side and surface a public sanitized summary.
+  document.getElementById("k_usdc").textContent = (h.kpis && h.kpis.usdc) || "—";
+  document.getElementById("k_rev").textContent = (h.kpis && h.kpis.revenue_usdc) || "0";
+}).catch(() => { const n = document.getElementById("netstat"); n.textContent = I18N.t("offline"); n.removeAttribute("data-i18n"); n.style.color = "var(--bad)"; });
 refreshHealth(); setInterval(refreshHealth, 10000);
 
 // ── ElevenLabs voice ──
