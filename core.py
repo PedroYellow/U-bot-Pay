@@ -39,6 +39,20 @@ CREATE TABLE IF NOT EXISTS bridges(
   confirmed_at INTEGER);
 CREATE INDEX IF NOT EXISTS idx_bridges_status ON bridges(status);
 CREATE INDEX IF NOT EXISTS idx_bridges_user ON bridges(user_id);
+CREATE TABLE IF NOT EXISTS push_subscriptions(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  endpoint TEXT NOT NULL,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  user_agent TEXT,
+  is_alive INTEGER DEFAULT 1,
+  created_at INTEGER,
+  last_used_at INTEGER,
+  UNIQUE(endpoint)
+);
+CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
+CREATE INDEX IF NOT EXISTS idx_push_alive ON push_subscriptions(is_alive);
 """
 
 # demo FX table (USDC per 1 unit of local). Real build → oracle / Circle FX.
@@ -408,6 +422,61 @@ def issue_session_jwt(user: dict, secret: str, ttl_s: int = 7 * 24 * 3600) -> st
 def verify_session_jwt(token: str, secret: str) -> dict | None:
     """Verify and return the JWT payload, or None."""
     return _jwt_verify(token, secret)
+
+
+# ───────── push subscriptions (Web Push) ─────────
+def save_push_subscription(user_id: int, endpoint: str, p256dh: str, auth: str, user_agent: str = "") -> int:
+    """Insert or update a Web Push subscription. Returns the row id."""
+    with conn() as c:
+        existing = c.execute(
+            "SELECT id FROM push_subscriptions WHERE endpoint = ?",
+            (endpoint,),
+        ).fetchone()
+        now = int(time.time())
+        if existing:
+            c.execute(
+                "UPDATE push_subscriptions SET user_id = ?, p256dh = ?, auth = ?, user_agent = ?, is_alive = 1, last_used_at = ? WHERE id = ?",
+                (user_id, p256dh, auth, user_agent, now, existing["id"]),
+            )
+            return existing["id"]
+        else:
+            cur = c.execute(
+                "INSERT INTO push_subscriptions(user_id, endpoint, p256dh, auth, user_agent, created_at, last_used_at) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?)",
+                (user_id, endpoint, p256dh, auth, user_agent, now, now),
+            )
+            return cur.lastrowid
+
+
+def get_push_subscriptions_for_user(user_id: int) -> list[dict]:
+    """Return all live push subscriptions for a user. Format matches what
+    the Web Push Protocol expects (the dict structure the browser gave us)."""
+    with conn() as c:
+        rows = c.execute(
+            "SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ? AND is_alive = 1",
+            (user_id,),
+        ).fetchall()
+    return [{"endpoint": r["endpoint"], "keys": {"p256dh": r["p256dh"], "auth": r["auth"]}} for r in rows]
+
+
+def delete_push_subscription(endpoint: str, user_id: int = 0) -> bool:
+    """Mark a subscription as dead (soft delete) or hard delete it."""
+    with conn() as c:
+        if user_id:
+            cur = c.execute("UPDATE push_subscriptions SET is_alive = 0 WHERE endpoint = ? AND user_id = ?", (endpoint, user_id))
+        else:
+            cur = c.execute("UPDATE push_subscriptions SET is_alive = 0 WHERE endpoint = ?", (endpoint,))
+        return cur.rowcount > 0
+
+
+def cleanup_dead_subscriptions(user_id: int) -> int:
+    """Drop dead subscriptions (called when push service returns 404/410)."""
+    with conn() as c:
+        cur = c.execute(
+            "UPDATE push_subscriptions SET is_alive = 0 WHERE user_id = ? AND is_alive = 1 AND last_used_at < ?",
+            (user_id, int(time.time()) - 86400 * 30),
+        )
+    return cur.rowcount
 
 
 def link_telegram_to_user(token: str, secret: str, telegram_id: int) -> dict | None:

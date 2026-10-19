@@ -14,7 +14,7 @@
  * In particular we skip caching anything sent with an Authorization header.
  */
 
-const CACHE_NAME = "ubotpay-v1";
+const CACHE_NAME = "ubotpay-v2";
 const PRECACHE = [
   "/",
   "/manifest.json",
@@ -141,4 +141,57 @@ self.addEventListener("fetch", (event) => {
 self.addEventListener("message", (event) => {
   // Allow the page to request immediate activation of the new version.
   if (event.data === "SKIP_WAITING") self.skipWaiting();
+});
+
+// ───────── Web Push handler ─────────
+// Fired by the browser when the server sends a push message via VAPID.
+// payload is JSON: { title, body, url, tag, icon }
+self.addEventListener("push", (event) => {
+  let data = { title: "Ubotpay", body: "You have a new update.", url: "/" };
+  try {
+    if (event.data) {
+      const parsed = event.data.json();
+      data = Object.assign(data, parsed);
+    }
+  } catch (e) {
+    if (event.data) data.body = event.data.text();
+  }
+  const options = {
+    body: data.body,
+    icon: data.icon || "/icon-192.png",
+    badge: "/icon-72.png",        // optional small badge
+    tag: data.tag || undefined,
+    data: { url: data.url || "/" },
+    requireInteraction: false,
+    renotify: true,
+    vibrate: [200, 100, 200],
+    actions: [
+      { action: "open", title: "Open Ubotpay" },
+      { action: "dismiss", title: "Dismiss" },
+    ],
+  };
+  event.waitUntil(
+    self.registration.showNotification(data.title, options).catch((e) =>
+      console.error("[sw] showNotification failed:", e)
+    )
+  );
+});
+
+// Fired when the user clicks (or taps) the notification.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || "/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+      // Try to focus an existing tab
+      for (const w of wins) {
+        if (w.url.includes(self.location.origin)) {
+          w.navigate ? w.navigate(url) : (w.location.href = url);
+          return w.focus();
+        }
+      }
+      // No tab open → open a new one
+      return self.clients.openWindow(url);
+    })
+  );
 });

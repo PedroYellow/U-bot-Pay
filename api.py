@@ -126,6 +126,33 @@ async def _notify_bridge(bridge: dict, event: str, user: dict | None = None):
     except Exception as e:
         log.warning("notify bridge failed: %s", e)
 
+    # Web Push: also fire a browser notification. The user gets a
+    # native notification even when the tab is closed. We map the
+    # bridge event to a title + body for the notification.
+    try:
+        owner_id = user["id"] if user else bridge.get("user_id")
+        if owner_id and push_module and push_module.is_configured():
+            subs = core.get_push_subscriptions_for_user(owner_id)
+            if subs:
+                push_title = {
+                    "started": "🌉 Bridge started",
+                    "submitted": "📝 Bridge submitted",
+                    "confirming": "🔄 Bridge confirming",
+                    "done": "✅ Bridge done!",
+                    "failed": "❌ Bridge failed",
+                }.get(event, f"Ubotpay bridge {event}")
+                # Strip HTML from the Telegram-flavoured text for the push body
+                push_body = text.replace("<b>", "").replace("</b>", "").replace("<code>", "").replace("</code>", "")
+                # Cap body length (push notifications are short)
+                if len(push_body) > 200:
+                    push_body = push_body[:197] + "…"
+                push_url = f"/analytics"
+                asyncio.create_task(
+                    push_module.fan_out_push(subs, push_title, push_body, url=push_url, tag=bridge_id[:32])
+                )
+    except Exception as e:
+        log.warning("push fan_out failed: %s", e)
+
 # in-memory conversation state per user: pending quote awaiting "confirm"
 _pending: dict[int, dict] = {}
 
@@ -621,6 +648,7 @@ async def auth_chains():
 
 # ───────── cross-chain bridge (LI.FI) ─────────
 import bridge as _bridge
+import push as push_module
 
 @app.get("/bridge/chains")
 def bridge_chains():
@@ -929,6 +957,74 @@ def bridge_analytics(request: Request, days: int = 30):
         "statuses": statuses,
         "daily": daily,
         "recent": recent,
+    }
+
+
+@app.get("/push/vapid-key")
+def push_vapid_key():
+    """Return the VAPID public key so the browser can subscribe.
+    Public endpoint — no auth needed."""
+    return {
+        "public_key": os.environ.get("VAPID_PUBLIC_KEY", ""),
+        "subject": os.environ.get("VAPID_SUBJECT", ""),
+    }
+
+
+class PushSubscriptionBody(BaseModel):
+    endpoint: str
+    keys: dict  # {"p256dh": "...", "auth": "..."}
+
+
+@app.post("/push/subscribe")
+async def push_subscribe(body: PushSubscriptionBody, request: Request):
+    """Save a Web Push subscription so we can send bridge status
+    notifications to the user's browser even when the tab is closed."""
+    user, err = _user_from_request(request)
+    if err or user is None:
+        raise HTTPException(401, err or "auth required")
+    if not body.endpoint or not body.keys:
+        raise HTTPException(400, "endpoint and keys required")
+    p256dh = body.keys.get("p256dh")
+    auth = body.keys.get("auth")
+    if not (p256dh and auth):
+        raise HTTPException(400, "keys.p256dh and keys.auth required")
+    user_agent = request.headers.get("User-Agent", "")[:300]
+    sub_id = core.save_push_subscription(
+        user_id=user["id"],
+        endpoint=body.endpoint,
+        p256dh=p256dh,
+        auth=auth,
+        user_agent=user_agent,
+    )
+    return {"ok": True, "id": sub_id, "subscribed": True}
+
+
+@app.post("/push/unsubscribe")
+async def push_unsubscribe(body: dict, request: Request):
+    """Mark a push subscription as dead. Called by the browser when
+    the user revokes notification permission, or when we get 404/410
+    from the push service."""
+    user, err = _user_from_request(request)
+    if err or user is None:
+        raise HTTPException(401, err or "auth required")
+    endpoint = str(body.get("endpoint") or "")
+    if not endpoint:
+        raise HTTPException(400, "endpoint required")
+    ok = core.delete_push_subscription(endpoint, user_id=user["id"])
+    return {"ok": ok}
+
+
+@app.get("/push/status")
+def push_status(request: Request):
+    """How many active push subscriptions the user has."""
+    user, err = _user_from_request(request)
+    if err or user is None:
+        raise HTTPException(401, err or "auth required")
+    subs = core.get_push_subscriptions_for_user(user["id"])
+    return {
+        "subscribed": len(subs) > 0,
+        "count": len(subs),
+        "vapid_configured": bool(os.environ.get("VAPID_PUBLIC_KEY")),
     }
 
 
