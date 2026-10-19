@@ -1,0 +1,32 @@
+{
+  "name": "Ubotpay — Voice-first payments",
+  "short_name": "Ubotpay",
+  "description": "Send USDC to any chain, by voice or click. Multi-chain wallet + AI agent.",
+  "start_url": "/?utm_source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#06071a",
+  "theme_color": "#0B0D2A",
+  "orientation": "portrait-primary",
+  "categories": ["finance", "productivity", "utilities"],
+  "icons": [
+    {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+    {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ],
+  "shortcuts": [
+    {
+      "name": "Send USDC",
+      "short_name": "Send",
+      "url": "/?action=pay&utm_source=pwa",
+      "description": "Open the cross-chain payment modal"
+    },
+    {
+      "name": "Analytics",
+      "short_name": "Stats",
+      "url": "/analytics?utm_source=pwa",
+      "description": "View your bridge analytics dashboard"
+    }
+  ]
+}

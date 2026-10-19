@@ -34,7 +34,14 @@
 .wallet-modal .close{position:absolute;top:14px;right:14px;background:transparent;border:0;color:#fff;font-size:20px;cursor:pointer;opacity:.6;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center}
 .wallet-modal .close:hover{opacity:1;background:rgba(255,255,255,.08)}
 .wallet-modal .footer{margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.08);font-size:11px;opacity:.55;text-align:center;line-height:1.5}
-</style></head>
+</style><link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0B0D2A">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Ubotpay">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+</head>
 <body data-page="agent">
 <button class="wallet" id="wallet-btn" type="button" aria-label="Connect wallet"><span id="wallet-ic">🔌</span><span id="wallet-tx">Connect wallet</span></button><button class="theme" id="theme" type="button" aria-label="Toggle dark mode"><span id="theme-ic">🌙</span><span id="theme-tx">Dark</span></button>
 <div class="hero">
@@ -229,5 +236,12 @@ $("pay").onclick=async()=>{$("paystat").textContent=I18N.t("a_paying");$("out200
     window.ethereum.on("chainChanged", () => location.reload());
   }
 })();
+</script>
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch((e) => console.warn("[pwa] sw failed", e));
+  });
+}
 </script>
 </body></html>

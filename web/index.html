@@ -41,8 +41,32 @@
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/ubot.css">
 <script src="/i18n.js"></script>
+
+<!-- PWA -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0B0D2A">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Ubotpay">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<meta name="application-name" content="Ubotpay">
+<meta name="description" content="Send USDC across any chain. Voice or click. Multi-chain wallet + AI agent.">
 </head>
 <body>
+<!-- PWA install prompt banner (Android + desktop) -->
+<div id="pwa-install-banner" style="display:none;position:fixed;bottom:90px;left:24px;right:24px;max-width:480px;margin:0 auto;z-index:50;background:linear-gradient(135deg,#1F5AF0,#6C5CE7);border-radius:14px;padding:14px 18px;color:#fff;box-shadow:0 10px 40px rgba(31,90,240,.4);font-family:Poppins,sans-serif">
+  <div style="display:flex;align-items:center;gap:14px">
+    <img src="/icon-192.png" alt="" style="width:48px;height:48px;border-radius:10px;flex-shrink:0">
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:600;font-size:14px;line-height:1.2">Install Ubotpay</div>
+      <div style="font-size:12px;opacity:.85;line-height:1.3;margin-top:2px">Add to your home screen for one-tap payments.</div>
+    </div>
+    <button id="pwa-install-btn" style="background:#fff;color:#1F5AF0;border:0;border-radius:99px;padding:8px 14px;font:600 13px Poppins;cursor:pointer;white-space:nowrap">Install</button>
+    <button id="pwa-install-close" style="background:transparent;border:0;color:white;font-size:20px;cursor:pointer;padding:0 4px;opacity:.7" aria-label="Close">×</button>
+  </div>
+</div>
 <button class="wallet" id="wallet-btn" type="button" aria-label="Connect wallet" data-version="3.0"><span id="wallet-ic">🔌</span><span id="wallet-tx">Connect wallet</span></button><button class="theme" id="theme" type="button" aria-label="Toggle dark mode"><span id="theme-ic">🌙</span><span id="theme-tx">Dark</span></button>
 
 <div class="hero">
@@ -1211,6 +1235,65 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
 if (location.search.indexOf("open=1") >= 0) {
   setTimeout(() => { try { openModal(); } catch(e) { console.error("auto-open failed", e); } }, 1000);
 }
+</script>
+<script>
+  // Register the service worker (PWA)
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("/sw.js").then(
+        (reg) => { console.log("[pwa] sw registered", reg.scope); },
+        (err) => { console.warn("[pwa] sw failed", err); }
+      );
+    });
+  }
+
+  // Capture the beforeinstallprompt event so we can show our own
+  // banner instead of the browser's default mini-infobar.
+  let deferredPrompt = null;
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    // Only show our banner if the user hasn't dismissed it in this session
+    if (!sessionStorage.getItem("pwa-banner-dismissed")) {
+      const banner = document.getElementById("pwa-install-banner");
+      if (banner) banner.style.display = "block";
+    }
+  });
+  window.addEventListener("appinstalled", () => {
+    const banner = document.getElementById("pwa-install-banner");
+    if (banner) banner.style.display = "none";
+    deferredPrompt = null;
+  });
+  document.addEventListener("DOMContentLoaded", () => {
+    const installBtn = document.getElementById("pwa-install-btn");
+    const closeBtn = document.getElementById("pwa-install-close");
+    if (installBtn) installBtn.addEventListener("click", async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      const choice = await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      const banner = document.getElementById("pwa-install-banner");
+      if (banner) banner.style.display = "none";
+    });
+    if (closeBtn) closeBtn.addEventListener("click", () => {
+      sessionStorage.setItem("pwa-banner-dismissed", "1");
+      const banner = document.getElementById("pwa-install-banner");
+      if (banner) banner.style.display = "none";
+    });
+  });
+
+  // Deep link handler: open the Send modal if launched with ?action=pay
+  document.addEventListener("DOMContentLoaded", () => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("action") === "pay") {
+        // Wait for the wallet IIFE to wire up the Pay button.
+        setTimeout(() => {
+          if (window.__ubotpayOpenPayModal) window.__ubotpayOpenPayModal();
+        }, 1200);
+      }
+    } catch (e) {}
+  });
 </script>
 </body>
 </html>

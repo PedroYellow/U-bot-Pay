@@ -94,6 +94,13 @@
   }
   .loading { opacity: .5; }
 </style>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0B0D2A">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Ubotpay">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
 </head>
 <body>
   <div class="header">
@@ -294,6 +301,13 @@ function render(data) {
     document.getElementById("root").innerHTML = `<div class="err">Network error: ${e.message || e}</div>`;
   }
 })();
+</script>
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch((e) => console.warn("[pwa] sw failed", e));
+  });
+}
 </script>
 </body>
 </html>
