@@ -298,6 +298,53 @@ const paySubmitBtn = document.getElementById("pay-submit");
 if (payCloseBtn) payCloseBtn.onclick = () => { if (window.__ubotpayClosePayModal) window.__ubotpayClosePayModal(); else if (payModal) payModal.classList.remove("open"); };
 if (payCancelBtn) payCancelBtn.onclick = () => { if (window.__ubotpayClosePayModal) window.__ubotpayClosePayModal(); else if (payModal) payModal.classList.remove("open"); };
 if (paySubmitBtn) paySubmitBtn.onclick = () => { if (window.__ubotpaySubmitPay) window.__ubotpaySubmitPay(); else alert("Pay not ready, please reload."); };
+const queueBtn = document.getElementById("pay-queue-btn");
+if (queueBtn) queueBtn.onclick = async () => {
+  const to = document.getElementById("pay-to").value.trim();
+  const amount = parseFloat(document.getElementById("pay-amount").value);
+  const toChain = parseInt(document.getElementById("pay-to-chain").value);
+  if (!to || !amount) { alert("Fill in the address and amount first."); return; }
+  let fromAddress = "";
+  let fromChain = 43114;
+  try {
+    const accounts = await window.ethereum.request({ method: "eth_accounts" });
+    fromAddress = accounts[0] || "";
+    const hex = await window.ethereum.request({ method: "eth_chainId" });
+    fromChain = parseInt(hex, 16);
+  } catch (e) { /* user not connected */ }
+  const intent = {
+    url: ROOT_API + "/bridge/start",
+    method: "POST",
+    body: {
+      from_chain: fromChain,
+      to_chain: toChain,
+      amount_usdc: amount,
+      from_address: fromAddress,
+      to_address: to,
+    },
+    headers: { "Content-Type": "application/json", ...(window.__ubotpayAuth ? window.__ubotpayAuth() : {}) },
+    notify_on_complete: {
+      title: "✅ Queued payment sent",
+      body: "Your queued payment of {amount} USDC to {to} just went through.",
+      url: "/analytics",
+    },
+    created_at: Date.now(),
+  };
+  try {
+    if (typeof queuePayment === "function") {
+      await queuePayment(intent);
+    } else {
+      throw new Error("outbox not ready");
+    }
+    const status = document.getElementById("pay-status");
+    status.style.display = "block";
+    status.style.background = "rgba(229,176,34,.15)";
+    status.style.color = "#FFD25C";
+    status.innerHTML = "📥 <b>Queued.</b> When you're back online, open Ubotpay and sign the bridge to send " + amount + " USDC.";
+  } catch (e) {
+    alert("Could not queue: " + e.message);
+  }
+};
 // Live quote: refresh on every change of to/amount/chain
 ["pay-to", "pay-amount", "pay-to-chain"].forEach(id => {
   const el = document.getElementById(id);
@@ -441,8 +488,10 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
         <div id="pay-scan-time" style="text-align:right;opacity:.4;margin-top:4px;font-size:10px"></div>
       </div>
       <div id="pay-status" style="display:none;border-radius:10px;padding:12px;font:600 13px;text-align:center"></div>
+      <div id="pay-offline-banner" style="display:none;background:rgba(229,176,34,.1);border:1px solid rgba(229,176,34,.3);border-radius:10px;padding:10px 12px;font:500 12px ui-monospace,monospace;margin-top:4px">⚠️ You're offline. Queue this payment to send when reconnected.</div>
       <div style="display:flex;gap:8px;margin-top:4px">
         <button id="pay-cancel" style="flex:1;padding:11px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff;font:600 14px Poppins;cursor:pointer">Cancel</button>
+        <button id="pay-queue-btn" style="display:none;flex:1;padding:11px;border-radius:8px;background:rgba(229,176,34,.2);border:1px solid rgba(229,176,34,.4);color:#FFD25C;font:600 14px Poppins;cursor:pointer">📥 Queue</button>
         <button id="pay-submit" style="flex:2;padding:11px;border-radius:8px;background:linear-gradient(135deg,#1F5AF0,#6C5CE7);border:0;color:#fff;font:700 14px Poppins;cursor:pointer">Sign &amp; Pay</button>
       </div>
     </div>
@@ -1231,6 +1280,82 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
     return out;
   }
+
+  // ───────── Offline outbox ─────────
+  // The SW keeps the actual IndexedDB store and processes queued
+  // actions when the network is back. From the page we just ask the
+  // SW to queue an action via postMessage.
+  let outboxCount = 0;
+  let outboxRefreshInterval = null;
+
+  function requestSWFlush() {
+    if (!navigator.serviceWorker || !navigator.serviceWorker.controller) return;
+    try {
+      navigator.serviceWorker.controller.postMessage("FLUSH_OUTBOX");
+    } catch (e) { /* SW not ready yet */ }
+  }
+
+  async function queuePayment(intent) {
+    // intent: { url, method, body, headers, notify_on_complete }
+    if (!("serviceWorker" in navigator)) {
+      throw new Error("Service Worker not available");
+    }
+    const reg = await navigator.serviceWorker.ready;
+    if (!reg.active) throw new Error("SW not active");
+    // The actual IndexedDB write happens inside the SW via postMessage.
+    // We use a BroadcastChannel for simplicity (works with active SW).
+    if (!window.__ubotpayOutboxCh) {
+      window.__ubotpayOutboxCh = new BroadcastChannel("ubotpay-outbox");
+      window.__ubotpayOutboxCh.onmessage = (ev) => {
+        if (ev.data && ev.data.type === "OUTBOX_UPDATED") {
+          outboxCount = ev.data.count || 0;
+          updateOutboxUI();
+        }
+      };
+    }
+    window.__ubotpayOutboxCh.postMessage({
+      type: "ADD_TO_OUTBOX",
+      action: intent,
+    });
+    // Best-effort: ask the SW to register a Background Sync so the
+    // queue is flushed even when the user closes the tab.
+    try {
+      if ("sync" in reg) await reg.sync.register("ubotpay-outbox-flush");
+    } catch (e) { /* Background Sync not available — fallback to online event */ }
+    // Refresh our local counter
+    setTimeout(refreshOutboxCount, 200);
+  }
+
+  async function refreshOutboxCount() {
+    if (!navigator.serviceWorker || !navigator.serviceWorker.controller) return;
+    try {
+      const ch = window.__ubotpayOutboxCh || new BroadcastChannel("ubotpay-outbox");
+      window.__ubotpayOutboxCh = ch;
+      ch.postMessage({ type: "GET_OUTBOX_COUNT" });
+    } catch (e) {}
+  }
+
+  function updateOutboxUI() {
+    const banner = document.getElementById("pay-offline-banner");
+    const queueBtn = document.getElementById("pay-queue-btn");
+    const submit = document.getElementById("pay-submit");
+    // Show offline hint + Queue button when offline
+    const offline = !navigator.onLine;
+    if (banner) banner.style.display = offline ? "block" : "none";
+    if (queueBtn) queueBtn.style.display = offline ? "block" : "none";
+    if (submit) submit.style.opacity = offline ? "0.5" : "1";
+    if (submit) submit.disabled = false;  // keep enabled so user can still try
+  }
+
+  // Listen for online/offline transitions and refresh the UI.
+  window.addEventListener("online",  () => { updateOutboxUI(); requestSWFlush(); });
+  window.addEventListener("offline", () => { updateOutboxUI(); });
+
+  // Initial UI state + count
+  document.addEventListener("DOMContentLoaded", () => {
+    updateOutboxUI();
+    refreshOutboxCount();
+  });
 
   // Single, robust handler that runs in capture phase. Stops the event
   // from continuing so no other listener (extension, etc.) can cancel it.

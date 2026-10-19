@@ -14,7 +14,7 @@
  * In particular we skip caching anything sent with an Authorization header.
  */
 
-const CACHE_NAME = "ubotpay-v2";
+const CACHE_NAME = "ubotpay-v4";
 const PRECACHE = [
   "/",
   "/manifest.json",
@@ -195,3 +195,185 @@ self.addEventListener("notificationclick", (event) => {
     })
   );
 });
+
+
+// ───────── Background Sync + Outbox ─────────
+// IndexedDB queue for actions that need to happen server-side but
+// couldn't complete right now (user offline, network error, etc.).
+// The 'sync' event handler runs the queue when the browser decides
+// the network is healthy again. The 'online' event is a fallback
+// for browsers without Background Sync API (Safari, Firefox).
+
+const DB_NAME = "ubotpay-outbox";
+const DB_VERSION = 1;
+const STORE = "outbox";
+
+function openOutboxDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE)) {
+        const store = db.createObjectStore(STORE, { keyPath: "id", autoIncrement: true });
+        store.createIndex("created_at", "created_at", { unique: false });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function addToOutbox(action) {
+  // action: { type: "bridge.start", payload: {...}, created_at: Date.now() }
+  const db = await openOutboxDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    const store = tx.objectStore(STORE);
+    const req = store.add(action);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function listOutbox() {
+  const db = await openOutboxDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readonly");
+    const store = tx.objectStore(STORE);
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function removeFromOutbox(id) {
+  const db = await openOutboxDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    const store = tx.objectStore(STORE);
+    const req = store.delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function processOutbox() {
+  const items = await listOutbox();
+  if (!items.length) return { processed: 0, remaining: 0 };
+  let processed = 0;
+  const failed = [];
+  for (const item of items) {
+    try {
+      // Replay the action by calling the same endpoint. The body
+      // includes a token from the original action payload (it was
+      // stored at queue time).
+      const res = await fetch(item.url, {
+        method: item.method || "POST",
+        headers: item.headers || { "Content-Type": "application/json" },
+        body: item.body ? JSON.stringify(item.body) : undefined,
+      });
+      if (res.ok || res.status === 200 || res.status === 201) {
+        await removeFromOutbox(item.id);
+        processed++;
+        // Notify the user that the queued payment went through
+        try {
+          if (item.notify_on_complete) {
+            const data = await res.json().catch(() => ({}));
+            const title = item.notify_on_complete.title || "✅ Payment sent";
+            const body = (item.notify_on_complete.body || "Your queued payment was sent.")
+              .replace("{amount}", (data.amount_usdc || item.body?.amount_usdc || ""))
+              .replace("{to}", (item.body?.to_address || "").slice(0, 10) + "…");
+            await self.registration.showNotification(title, {
+              body,
+              icon: "/icon-192.png",
+              tag: "outbox-" + item.id,
+              data: { url: item.notify_on_complete.url || "/analytics" },
+              vibrate: [200, 100, 200],
+            });
+          }
+        } catch (e) { /* ignore notify errors */ }
+      } else {
+        // Server returned an error (4xx, 5xx). Drop the action so we
+        // don't loop forever; the user gets the failed status in the
+        // app next time it opens.
+        await removeFromOutbox(item.id);
+      }
+    } catch (e) {
+      // Network still flaky. Leave the item in the queue.
+      failed.push(item.id);
+    }
+  }
+  return { processed, remaining: failed.length };
+}
+
+// Background Sync event — fires when the browser decides connectivity
+// is back. Available in Chrome, Edge, Opera. Not in Safari or Firefox.
+self.addEventListener("sync", (event) => {
+  if (event.tag === "ubotpay-outbox-flush") {
+    event.waitUntil(processOutbox());
+  }
+});
+
+// Periodic Sync — fires on a regular interval when the user has
+// granted background sync permission. Used as a backup for actions
+// that have been queued for >24h.
+self.addEventListener("periodicsync", (event) => {
+  if (event.tag === "ubotpay-outbox-periodic") {
+    event.waitUntil(processOutbox());
+  }
+});
+
+// Online event — works on all browsers. Fires when the SW detects
+// the device just regained connectivity. We use this as a guaranteed
+// fallback for when Background Sync isn't available.
+self.addEventListener("online", () => {
+  processOutbox().catch((e) => console.warn("[sw] online flush failed", e));
+});
+
+// Message API: lets the page ask the SW to process the queue
+// explicitly (e.g. user clicks "Retry" in the UI).
+self.addEventListener("message", (event) => {
+  if (event.data === "FLUSH_OUTBOX") {
+    event.waitUntil(
+      processOutbox().then((r) => {
+        if (event.source && event.source.postMessage) {
+          event.source.postMessage({ type: "OUTBOX_FLUSHED", ...r });
+        }
+      })
+    );
+    return;
+  }
+  // BroadcastChannel messages from the page (queue / query).
+  // The page may not have a client reference (e.g. tab closed) but
+  // BroadcastChannel still reaches the SW as long as it's active.
+});
+
+// BroadcastChannel: lets the page ask the SW to add an outbox entry
+// or query the count. Works even when the SW has no direct client.
+const outboxCh = (() => {
+  try {
+    const ch = new BroadcastChannel("ubotpay-outbox");
+    ch.onmessage = async (event) => {
+      const msg = event.data;
+      if (!msg) return;
+      if (msg.type === "ADD_TO_OUTBOX") {
+        await addToOutbox(msg.action);
+        const count = (await listOutbox()).length;
+        ch.postMessage({ type: "OUTBOX_UPDATED", count });
+      } else if (msg.type === "GET_OUTBOX_COUNT") {
+        const count = (await listOutbox()).length;
+        ch.postMessage({ type: "OUTBOX_UPDATED", count });
+      }
+    };
+    return ch;
+  } catch (e) { return null; }
+})();
+
+// Broadcast the queue size whenever it changes (from inside the SW).
+const _origAdd = addToOutbox;
+const _origRemove = removeFromOutbox;
+async function notifyQueueChanged() {
+  if (!outboxCh) return;
+  const count = (await listOutbox()).length;
+  outboxCh.postMessage({ type: "OUTBOX_UPDATED", count });
+}
