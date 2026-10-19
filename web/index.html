@@ -259,15 +259,15 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
 </div>
 <script>
 (function(){
+  try {
   if (window.__ubotpayBooted) return; window.__ubotpayBooted = true;
-  const API = (typeof API !== "undefined") ? API : (window.API || "/api");
-  // Allow the main page to override the API host (e.g. for cross-origin)
-  if (window.location.hostname === "agent.ubotpay.com") window.API = "https://api.ubotpay.com";
-  const ROOT_API = window.API || "https://api.ubotpay.com";
+  console.log("[ubotpay] IIFE starting…");
+  const ROOT_API = "https://api.ubotpay.com";
   const $ = id => document.getElementById(id);
   const btn = $("wallet-btn"), modal = $("wallet-modal"), list = $("wallet-modal-list");
   const closeBtn = $("wallet-modal-close");
   const SESSION = "ubotpay_session", WALLET = "ubotpay_wallet";
+  console.log("[ubotpay] elements:", { btn: !!btn, modal: !!modal, list: !!list, closeBtn: !!closeBtn });
   if (!btn || !modal || !list) { console.warn("[ubotpay] wallet elements missing"); return; }
 
   function shortAddr(a){ return a ? a.slice(0,6) + "…" + a.slice(-4) : ""; }
@@ -457,6 +457,10 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
       if (!accs || !accs.length) disconnect();
     });
     window.ethereum.on("chainChanged", () => location.reload());
+  }
+  console.log("[ubotpay] IIFE finished, __ubotpayAuth defined:", typeof window.__ubotpayAuth);
+  } catch (e) {
+    console.error("[ubotpay] IIFE crashed:", e.message, e.stack);
   }
 })();
 </script></body>
