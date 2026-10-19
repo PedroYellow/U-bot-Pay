@@ -16,11 +16,11 @@
   .wallet code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:rgba(0,0,0,.18);padding:1px 6px;border-radius:4px}
   .wallet *{pointer-events:none;user-select:none}
   @media (max-width:640px){.wallet{top:60px;right:12px;padding:8px 14px;font-size:13px;border-radius:8px}.wallet code{font-size:10px;padding:1px 4px}}
-.wallet-modal{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;pointer-events:none;transition:.18s}
+.wallet-modal{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;pointer-events:none;transition:.2s ease-out}
 .wallet-modal.open{opacity:1;pointer-events:auto}
-.wallet-modal .panel{width:100%;max-width:380px;background:linear-gradient(180deg,#11132a 0%,#0a0c20 100%);border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:22px;color:#fff;box-shadow:0 30px 60px rgba(0,0,0,.5);transform:scale(.96);transition:.18s}
+.wallet-modal .panel{width:100%;max-width:380px;background:linear-gradient(180deg,#1A1B3A 0%,#0B0D2A 100%);border:2px solid #1F5AF0;border-radius:18px;padding:22px;color:#fff;box-shadow:0 0 80px rgba(31,90,240,.4),0 30px 60px rgba(0,0,0,.7);transform:scale(.96);transition:.2s}
 .wallet-modal.open .panel{transform:scale(1)}
-.wallet-modal h3{margin:0 0 4px;font-size:18px;font-weight:600}
+.wallet-modal h3{margin:0 0 4px;font-size:22px;font-weight:700;color:#fff}
 .wallet-modal p.sub{margin:0 0 18px;font-size:13px;opacity:.7}
 .wallet-modal .row{display:flex;align-items:center;gap:12px;padding:12px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);cursor:pointer;margin-bottom:8px;transition:.12s}
 .wallet-modal .row:hover{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.12)}
@@ -286,9 +286,30 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     btn.title = "";
   }
   function openModal(){
+    console.log("[ubotpay] openModal() called, adding .open class to modal");
+    console.log("[ubotpay] modal element:", modal);
+    console.log("[ubotpay] modal current classes:", modal.className);
     list.innerHTML = "";
     buildRows();
     modal.classList.add("open");
+    console.log("[ubotpay] modal classes after:", modal.className);
+    console.log("[ubotpay] computed style opacity:", getComputedStyle(modal).opacity);
+    console.log("[ubotpay] computed style z-index:", getComputedStyle(modal).zIndex);
+    console.log("[ubotpay] bounding rect:", modal.getBoundingClientRect());
+    // Visual debug: briefly flash a notification so the user knows the
+    // click was received. Visible even if the modal's CSS is being
+    // overridden by something.
+    try {
+      const t = document.createElement("div");
+      t.textContent = "✓ Wallet modal opened";
+      t.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#13B37A;color:#000;padding:10px 20px;border-radius:8px;font-weight:600;font-size:14px;z-index:99999;box-shadow:0 4px 20px rgba(19,179,122,.4);font-family:inherit";
+      t.id = "ubotpay-open-toast";
+      const old = document.getElementById("ubotpay-open-toast");
+      if (old) old.remove();
+      document.body.appendChild(t);
+      setTimeout(() => { t.style.transition = ".3s"; t.style.opacity = "0"; }, 1800);
+      setTimeout(() => { t.remove(); }, 2200);
+    } catch (e) {}
   }
   function closeModal(){ modal.classList.remove("open"); }
   function disconnect(){
@@ -383,19 +404,30 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
   // Single click handler on the button. We also listen for mousedown because
   // some ad blockers swallow "click" but let mousedown through.
   const handleOpen = (e) => {
+    console.log("[ubotpay] handleOpen called, connected=", btn.classList.contains("connected"));
     if (e) e.preventDefault();
     if (btn.classList.contains("connected")) disconnect();
     else { openModal(); }
   };
-  btn.addEventListener("click", handleOpen);
-  btn.addEventListener("mousedown", (e) => { if (e.button === 0) handleOpen(e); });
-  // Delegated handler at the document level — works even if a browser
-  // extension is intercepting clicks on the button.
+  // Capture-phase listeners run BEFORE any bubble-phase extension handlers.
+  // useCapture=true makes our handler fire first; even if an extension
+  // tries to stopImmediatePropagation in bubble phase, we've already
+  // handled it. We listen for mousedown (not just click) because some
+  // ad blockers strip "click" but let "mousedown" through.
+  btn.addEventListener("mousedown", (e) => { if (e.button === 0) handleOpen(e); }, true);
+  btn.addEventListener("click", handleOpen, true);
+  btn.addEventListener("pointerdown", (e) => { if (e.button === 0) handleOpen(e); }, true);
+  // Document-level delegation as a last resort, also in capture phase.
+  document.addEventListener("mousedown", (e) => {
+    if (e.target && e.target.closest && e.target.closest("#wallet-btn")) {
+      handleOpen(e);
+    }
+  }, true);
   document.addEventListener("click", (e) => {
     if (e.target === btn || (e.target && e.target.closest && e.target.closest("#wallet-btn"))) {
       handleOpen(e);
     }
-  });
+  }, true);
   if (closeBtn) closeBtn.addEventListener("click", closeModal);
   modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
