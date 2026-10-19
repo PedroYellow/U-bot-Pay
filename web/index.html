@@ -363,6 +363,63 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
       list.appendChild(r);
     });
   }
+  // Chain configuration: Avalanche C-Chain (43114) is the primary one.
+  // We also accept Avalanche Fuji (43113) for testing. The rest are
+  // disabled in the backend registry (set `enabled=True` in chain.py
+  // to enable Base/Polygon/Arbitrum/ETH/OP).
+  const SUPPORTED_CHAINS = [43114, 43113];
+  const CHAIN_PARAMS = {
+    43114: {
+      chainId: "0xA86A",
+      chainName: "Avalanche C-Chain",
+      nativeCurrency: { name: "AVAX", symbol: "AVAX", decimals: 18 },
+      rpcUrls: ["https://api.avax.network/ext/bc/C/rpc"],
+      blockExplorerUrls: ["https://snowtrace.io"]
+    },
+    43113: {
+      chainId: "0xA869",
+      chainName: "Avalanche Fuji (testnet)",
+      nativeCurrency: { name: "AVAX", symbol: "AVAX", decimals: 18 },
+      rpcUrls: ["https://api.avax-test.network/ext/bc/C/rpc"],
+      blockExplorerUrls: ["https://testnet.snowtrace.io"]
+    }
+  };
+
+  async function ensureAvalancheChain(provider) {
+    let chainId;
+    try {
+      const hex = await provider.request({ method: "eth_chainId" });
+      chainId = parseInt(hex, 16);
+    } catch (e) { chainId = 0; }
+    if (SUPPORTED_CHAINS.includes(chainId)) return chainId;
+    // Try to switch to Avalanche
+    try {
+      await provider.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: "0xA86A" }]
+      });
+    } catch (e) {
+      // 4902 = chain not added to wallet. Add it.
+      if (e && (e.code === 4902 || /Unrecognized chain/i.test(e.message || ""))) {
+        try {
+          await provider.request({
+            method: "wallet_addEthereumChain",
+            params: [CHAIN_PARAMS[43114]]
+          });
+        } catch (e2) {
+          alert("Please switch your wallet to Avalanche C-Chain manually.");
+          throw e2;
+        }
+      } else {
+        alert("Please switch your wallet to Avalanche C-Chain.");
+        throw e;
+      }
+    }
+    // Re-read the chain
+    const hex2 = await provider.request({ method: "eth_chainId" });
+    return parseInt(hex2, 16);
+  }
+
   async function connect(provider, label){
     if (!provider) { alert("No wallet detected."); return; }
     let accounts;
@@ -370,11 +427,16 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     catch (e) { alert((label || "Wallet") + " rejected the connection."); return; }
     if (!accounts || !accounts.length) return;
     const address = accounts[0];
+
+    // Make sure the wallet is on Avalanche C-Chain
     let chainId;
-    try {
-      const hex = await provider.request({ method: "eth_chainId" });
-      chainId = parseInt(hex, 16);
-    } catch (e) { chainId = 43114; }
+    try { chainId = await ensureAvalancheChain(provider); }
+    catch (e) { return; }
+    if (!SUPPORTED_CHAINS.includes(chainId)) {
+      alert("Ubotpay only supports Avalanche C-Chain right now. Please switch your wallet to Avalanche and try again.");
+      return;
+    }
+
     let nonce;
     try {
       const r = await fetch(ROOT_API + "/auth/wallet/nonce", {
