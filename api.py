@@ -432,13 +432,12 @@ async def auth_wallet_verify(req: WalletVerifyRequest):
         raise HTTPException(400, "bad address")
     cur = core.get_user_by_wallet(req.address, req.chain_id)
     if not cur or not cur.get("jwt_nonce"):
-        # Either no row yet, or no active nonce — re-issue a nonce so the
-        # client can retry with a fresh signature. (Front-end should
-        # normally call /auth/wallet/nonce first.)
-        core.new_wallet_nonce(req.address, req.chain_id)
-        cur = core.get_user_by_wallet(req.address, req.chain_id)
-    if not cur or not cur.get("jwt_nonce"):
-        raise HTTPException(400, "request a nonce first")
+        # No row or no active nonce — the front-end should have called
+        # /auth/wallet/nonce first. We could silently re-issue one, but
+        # that breaks the case where the user signed the original nonce:
+        # the original is now rotated away and the signature fails.
+        # Better to fail loudly so the client knows to re-fetch a nonce.
+        raise HTTPException(400, "no active nonce — call /auth/wallet/nonce first")
     try:
         msg = encode_defunct(text=cur["jwt_nonce"])
         recovered = Web3().eth.account.recover_message(msg, signature=bytes.fromhex(req.signature.replace("0x", "")))
@@ -450,9 +449,9 @@ async def auth_wallet_verify(req: WalletVerifyRequest):
     with core.conn() as cc:
         cc.execute("UPDATE users SET jwt_nonce = NULL, jwt_exp = NULL WHERE id = ?", (cur["id"],))
     token = core.issue_session_jwt(cur, JWT_SECRET)
-    chain = chain.get_chain(req.chain_id)
+    ch = chain.get_chain(req.chain_id)
     return {"token": token, "user": cur,
-            "chain": {"id": chain.id, "name": chain.name, "native": chain.native, "explorer": chain.explorer}}
+            "chain": {"id": ch.id, "name": ch.name, "native": ch.native, "explorer": ch.explorer}}
 
 @app.get("/auth/chains")
 async def auth_chains():
