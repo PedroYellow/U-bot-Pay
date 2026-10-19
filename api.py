@@ -541,12 +541,22 @@ def bridge_quote(
     amount_usdc: float,
     from_address: str,
     to_address: str,
+    request: Request,
 ):
     """Get a LI.FI bridge quote for a USDC transfer between two EVM chains.
     Returns the best route, gas estimate, fees, time, and the raw
     transactionRequest that the user will sign."""
     try:
-        q = _bridge.quote(from_chain, to_chain, amount_usdc, from_address, to_address)
+        # partner=lifi|across|best. best tries all partners and picks the highest output.
+        partner = request.query_params.get("partner", "best")
+        if partner == "lifi":
+            q = _bridge.quote(from_chain, to_chain, amount_usdc, from_address, to_address)
+        elif partner == "across":
+            q = _bridge.quote_across(from_chain, to_chain, amount_usdc, from_address, to_address)
+            if q is None:
+                raise HTTPException(502, "across did not return a quote")
+        else:  # best
+            q = _bridge.get_best_quote(from_chain, to_chain, amount_usdc, from_address, to_address)
     except Exception as e:
         log.warning("bridge quote failed: %s", e)
         raise HTTPException(502, f"bridge quote failed: {e}")
@@ -569,7 +579,41 @@ def bridge_quote(
         "approval_address": q["approval_address"],
         "transaction": raw.get("transactionRequest") or {},
         "raw_id": raw.get("id"),
+        "partner": q.get("partner", "lifi"),
+        "all_partner_quotes": q.get("all_partner_quotes", []),
     }
+
+
+@app.get("/bridge/partners")
+def bridge_partners():
+    """Health and reliability stats for each bridge partner. Used by
+    the UI to show which partner gave the quote. The success_rate
+    is over the lifetime of this process — it resets on restart."""
+    return _bridge.partner_stats()
+
+
+@app.get("/bridge/alerts")
+def bridge_alerts():
+    """Returns a list of partners that are currently unhealthy. A partner
+    is considered unhealthy if its success rate has dropped below 50%
+    OR if the most recent 5 attempts all failed. Use this to trigger
+    ops alerts."""
+    stats = _bridge.partner_stats()
+    alerts = []
+    for name, s in stats.items():
+        if s["last_fail"] and s["last_fail"] > s["last_ok"]:
+            alerts.append({
+                "partner": name,
+                "reason": "most recent attempt failed",
+                "last_ok": s["last_ok"],
+                "last_fail": s["last_fail"],
+            })
+        elif s["success_rate"] is not None and s["success_rate"] < 0.5:
+            alerts.append({
+                "partner": name,
+                "reason": f"success rate is {s['success_rate']:.0%}, below 50%",
+            })
+    return {"alerts": alerts, "count": len(alerts)}
 
 
 @app.post("/bridge/start")

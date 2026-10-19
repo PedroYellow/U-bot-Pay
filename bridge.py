@@ -9,6 +9,7 @@ Public API: https://li.quest/v1/quote (no key required, 100k req/month free)
 import os
 import json
 import time
+import threading
 import urllib.request
 import urllib.parse
 import urllib.error
@@ -57,7 +58,7 @@ def _http_get_json(url: str, timeout: int = 12) -> dict:
 
 
 def quote(from_chain: int, to_chain: int, amount_usdc: float,
-          from_address: str, to_address: str) -> dict:
+          from_address: str, to_address: str, use_cache: bool = True) -> dict:
     """Get a LI.FI bridge quote from one EVM chain to another.
 
     Args:
@@ -105,7 +106,16 @@ def quote(from_chain: int, to_chain: int, amount_usdc: float,
     }
     url = f"{LIFI_BASE}/quote?{urllib.parse.urlencode(params)}"
     log.info("LI.FI quote: %s", url)
+    cache_key = _cache_key("lifi", from_chain, to_chain, amount_usdc, from_address, to_address)
+    if use_cache:
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached
     data = _http_get_json(url)
+    if "estimate" not in data:
+        _partner_fail("lifi")
+        raise ValueError(f"LI.FI response missing estimate: {data}")
+    _partner_ok("lifi")
 
     # Parse and normalize
     estimate = data.get("estimate") or {}
@@ -136,7 +146,11 @@ def quote(from_chain: int, to_chain: int, amount_usdc: float,
         "approval_address": estimate.get("approvalAddress"),
         "transaction_request": action.get("fromAddress"),
         "raw": data,
+        "partner": "lifi",
     }
+    if use_cache:
+        _cache_set(cache_key, result)
+    return result
 
 
 def get_status(bridge_id: str) -> dict:
@@ -152,6 +166,197 @@ def get_status(bridge_id: str) -> dict:
     except Exception as e:
         log.warning("LI.FI status check failed: %s", e)
         return {"status": "pending", "error": str(e)[:120]}
+
+
+# ───────── Across Protocol (fallback partner) ─────────
+# Across is a competing bridge aggregator with different liquidity
+# routes. We use it as a fallback when LI.FI fails or returns a
+# worse rate. API: https://app.across.to/api — no key required
+# for the basic /suggested-fees endpoint.
+
+ACROSS_BASE = "https://app.across.to/api/suggested-fees"
+
+# ACROSS expects token addresses in their canonical format. For USDC
+# we hardcode the canonical addresses per chain (same as LI.FI/USDC).
+
+# In-memory quote cache to avoid hammering LI.FI/Across on every
+# keystroke. Cache lives in this Python process; on a multi-worker
+# deployment each worker has its own cache, which is fine.
+_CACHE = {}            # key -> (timestamp, quote)
+_CACHE_TTL_SEC = 30    # 30 seconds
+_CACHE_LOCK = threading.Lock()
+_PARTNER_STATS = {     # rolling success rate
+    "lifi":    {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0},
+    "across":  {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0},
+}
+
+def _partner_ok(partner: str):
+    s = _PARTNER_STATS.get(partner)
+    if s: s["ok"] += 1; s["last_ok"] = time.time()
+
+def _partner_fail(partner: str):
+    s = _PARTNER_STATS.get(partner)
+    if s: s["fail"] += 1; s["last_fail"] = time.time()
+
+def _cache_key(partner, from_chain, to_chain, amount_usdc, from_address, to_address):
+    return f"{partner}:{from_chain}:{to_chain}:{amount_usdc}:{from_address.lower()}:{to_address.lower()}"
+
+def _cache_get(key):
+    with _CACHE_LOCK:
+        v = _CACHE.get(key)
+        if not v: return None
+        ts, data = v
+        if time.time() - ts > _CACHE_TTL_SEC:
+            _CACHE.pop(key, None)
+            return None
+        return data
+
+def _cache_set(key, data):
+    with _CACHE_LOCK:
+        _CACHE[key] = (time.time(), data)
+
+
+def quote_across(from_chain: int, to_chain: int, amount_usdc: float,
+                 from_address: str, to_address: str) -> Optional[dict]:
+    """Get an Across Protocol quote. Returns None if Across cannot
+    route this pair (e.g. unsupported chain pair) or if the API is
+    unavailable. Same dict shape as quote() so callers can pick the
+    best one."""
+    if from_chain == to_chain:
+        return None  # Across only does cross-chain
+    if from_chain not in USDC_BY_CHAIN or to_chain not in USDC_BY_CHAIN:
+        return None
+    cache_key = _cache_key("across", from_chain, to_chain, amount_usdc, from_address, to_address)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+    from_token = USDC_BY_CHAIN[from_chain]
+    to_token = USDC_BY_CHAIN[to_chain]
+    from_amount_int = int(amount_usdc * 1_000_000)
+    params = {
+        "inputToken": from_token,
+        "outputToken": to_token,
+        "originChainId": str(from_chain),
+        "destinationChainId": str(to_chain),
+        "amount": str(from_amount_int),
+        "skipAmountLimit": "true",
+    }
+    url = f"{ACROSS_BASE}?{urllib.parse.urlencode(params)}"
+    try:
+        req = urllib.request.Request(url, headers={
+            "Accept": "application/json",
+            "User-Agent": "ubotpay-bridge/1.0",
+        })
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read())
+    except Exception as e:
+        log.warning("Across quote failed: %s", e)
+        _partner_fail("across")
+        return None
+    # Across returns: outputAmount (str, in token units), totalRelayFee.total (str, in token units)
+    if "outputAmount" not in data or "totalRelayFee" not in data:
+        log.warning("Across response missing fields: %s", data)
+        _partner_fail("across")
+        return None
+    # USDC has 6 decimals
+    output_amount = int(data["outputAmount"])
+    fee_total = int(data["totalRelayFee"]["total"])
+    fee_usd = fee_total / 1e6
+    # Across doesn't include gas cost in USD. Estimate based on chain.
+    gas_estimate_usd = {
+        1: 3.0, 10: 0.5, 137: 0.05, 8453: 0.5, 42161: 0.5, 43114: 0.3,
+    }.get(from_chain, 1.0)
+    result = {
+        "tool": "Across Protocol",
+        "from_chain": from_chain,
+        "to_chain": to_chain,
+        "from_amount": from_amount_int,
+        "from_amount_human": amount_usdc,
+        "to_amount": output_amount,
+        "to_amount_human": output_amount / 1e6,
+        "to_amount_min": int(data.get("limits", {}).get("minDeposit", "0")),
+        "to_amount_min_human": int(data.get("limits", {}).get("minDeposit", "0")) / 1e6,
+        "gas_cost_usd": gas_estimate_usd,
+        "bridge_fee_usd": round(fee_usd, 4),
+        "total_fee_usd": round(fee_usd + gas_estimate_usd, 4),
+        "execution_duration": int(data.get("estimatedFillTimeSec", 30)),
+        "approval_address": data.get("spokePoolAddress"),
+        "transaction_request": from_address,  # Across expects user to send via their contract
+        "raw": data,
+        "partner": "across",
+    }
+    _cache_set(cache_key, result)
+    _partner_ok("across")
+    log.info("Across quote OK: %s USDC %s → %s", amount_usdc, from_chain, to_chain)
+    return result
+
+
+def get_best_quote(from_chain: int, to_chain: int, amount_usdc: float,
+                   from_address: str, to_address: str) -> dict:
+    """Query all enabled bridge partners in parallel and return the
+    best quote (highest to_amount, with ties broken by lowest fee and
+    shortest time). If all partners fail, raise a ValueError.
+    """
+    if from_chain == to_chain:
+        # Same-chain: just use LI.FI for the canonical fee estimate
+        q = quote(from_chain, to_chain, amount_usdc, from_address, to_address)
+        return q
+
+    import concurrent.futures
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+        futures = {
+            "lifi":   ex.submit(quote, from_chain, to_chain, amount_usdc, from_address, to_address),
+            "across": ex.submit(quote_across, from_chain, to_chain, amount_usdc, from_address, to_address),
+        }
+        for name, fut in futures.items():
+            try:
+                q = fut.result(timeout=15)
+                if q is not None:
+                    results.append(q)
+            except Exception as e:
+                log.warning("Partner %s failed: %s", name, e)
+    if not results:
+        raise ValueError("all bridge partners failed; try again in a moment")
+    # Pick the best: highest to_amount, ties broken by lowest fee, then fastest
+    def score(q):
+        # We want max to_amount and min total_fee, min time
+        # Normalize: score = to_amount (in human) - 0.001 * fee_usd - 0.0001 * time_sec
+        return q["to_amount_human"] - 0.001 * q["total_fee_usd"] - 0.0001 * q["execution_duration"]
+    best = max(results, key=score)
+    log.info("Best quote: %s via %s (output %s, fee %s, time %s)",
+             best["partner"], best["tool"], best["to_amount_human"], best["total_fee_usd"], best["execution_duration"])
+    # Attach partner metadata so the frontend can show all quotes
+    best["all_partner_quotes"] = [
+        {
+            "partner": q.get("partner", "lifi"),
+            "tool": q["tool"],
+            "to_amount_human": q["to_amount_human"],
+            "total_fee_usd": q["total_fee_usd"],
+            "execution_duration": q["execution_duration"],
+        }
+        for q in results
+    ]
+    return best
+
+
+def partner_stats() -> dict:
+    """Return the rolling success stats for each partner. Used by
+    /bridge/status to show in the UI which partner the quote came
+    from and how reliable it is."""
+    out = {}
+    for name, s in _PARTNER_STATS.items():
+        total = s["ok"] + s["fail"]
+        rate = (s["ok"] / total) if total else None
+        out[name] = {
+            "ok": s["ok"],
+            "fail": s["fail"],
+            "success_rate": rate,
+            "last_ok": s["last_ok"],
+            "last_fail": s["last_fail"],
+            "is_healthy": rate is None or rate > 0.5,
+        }
+    return out
 
 
 # Smoke test on import

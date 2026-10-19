@@ -402,11 +402,13 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
         <select id="pay-to-chain" style="width:100%;padding:8px 10px;border-radius:8px;background:#0B0D2A;border:1px solid #1F5AF0;color:#fff;font:600 13px Poppins;cursor:pointer"></select>
       </div>
       <div id="pay-bridge-preview" style="display:none;background:rgba(31,90,240,.08);border:1px solid rgba(31,90,240,.3);border-radius:10px;padding:12px;font:500 12px ui-monospace,monospace;line-height:1.6">
-        <div style="display:flex;justify-content:space-between"><span>Bridge</span><b id="pay-bridge-tool">—</b></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="opacity:.6">Bridge</span><b id="pay-bridge-tool" style="color:#9ec5ff">—</b></div>
         <div style="display:flex;justify-content:space-between"><span>You send</span><b id="pay-bridge-from">—</b></div>
         <div style="display:flex;justify-content:space-between"><span>They receive (min)</span><b id="pay-bridge-to">—</b></div>
         <div style="display:flex;justify-content:space-between"><span>Total fee</span><b id="pay-bridge-fee">—</b></div>
         <div style="display:flex;justify-content:space-between"><span>Time</span><b id="pay-bridge-time">—</b></div>
+        <div id="pay-partner-list" style="margin-top:10px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.1);font-size:11px"></div>
+        <div id="pay-scan-time" style="text-align:right;opacity:.4;margin-top:4px;font-size:10px"></div>
       </div>
       <div id="pay-status" style="display:none;border-radius:10px;padding:12px;font:600 13px;text-align:center"></div>
       <div style="display:flex;gap:8px;margin-top:4px">
@@ -576,12 +578,26 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
       const hex = await window.ethereum.request({ method: "eth_chainId" });
       fromChain = parseInt(hex, 16);
     } catch (e) { return; }
-    // Fetch quote
+    // Fetch quote from all partners and pick the best
+    const t0 = Date.now();
     try {
-      const r = await fetch(ROOT_API + "/bridge/quote?from_chain=" + fromChain + "&to_chain=" + toChain + "&amount_usdc=" + amount + "&from_address=" + fromAddress + "&to_address=" + to);
+      const r = await fetch(ROOT_API + "/bridge/quote?partner=best&from_chain=" + fromChain + "&to_chain=" + toChain + "&amount_usdc=" + amount + "&from_address=" + fromAddress + "&to_address=" + to);
+      const dt = Date.now() - t0;
       if (!r.ok) { preview.style.display = "none"; return; }
       const q = await r.json();
       payCurrentQuote = q;
+      // Show alternatives
+      const list = document.getElementById("pay-partner-list");
+      list.innerHTML = "<div style=\"margin-bottom:6px;opacity:.6\">Other partners:</div>" + (q.all_partner_quotes || [])
+        .filter(p => p.partner !== q.partner)
+        .map(p =>
+          "<div style=\"display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dotted rgba(255,255,255,.06)\" data-partner=\"" + p.partner + "\">" +
+            "<span style=\"opacity:.7\">" + p.partner + " · " + p.tool + "</span>" +
+            "<span>" + p.to_amount_human + " USDC · $" + p.total_fee_usd + " · " + p.execution_duration + "s</span>" +
+            "<span style=\"opacity:.5;cursor:pointer\" onclick=\"document.getElementById(\'pay-to-chain\').dispatchEvent(new Event('input'))\">→</span>" +
+          "</div>"
+        ).join("");
+      document.getElementById("pay-scan-time").textContent = "Scanned " + (q.all_partner_quotes || []).length + " partners in " + dt + "ms";
       // Show preview
       document.getElementById("pay-bridge-tool").textContent = q.tool;
       document.getElementById("pay-bridge-from").textContent = amount + " USDC on " + chainNameOf(fromChain);
