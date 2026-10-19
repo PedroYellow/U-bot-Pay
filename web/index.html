@@ -277,7 +277,102 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     $("wallet-tx").innerHTML = "<code>" + shortAddr(data.user.address) + "</code>";
     btn.setAttribute("aria-label", "Disconnect wallet");
     btn.title = "Connected: " + data.user.address + " (" + (data.chain && data.chain.name || "chain") + ")";
+    // Fetch live balances right after connect
+    fetchWalletInfo();
   }
+
+  // Build a small popover that opens when the user clicks the connected
+  // wallet button. Shows the network, AVAX balance, USDC balance, full
+  // address, copy button, explorer link, and disconnect.
+  function openWalletInfo(){
+    closeWalletInfo();
+    const data = (() => { try { return JSON.parse(localStorage.getItem(WALLET) || "{}"); } catch (e) { return {}; } })();
+    if (!data.user) return;
+    const addr = data.user.address;
+    const chain = data.chain || {};
+    const pop = document.createElement("div");
+    pop.id = "ubotpay-wallet-info";
+    pop.style.cssText = "position:fixed;bottom:80px;right:24px;z-index:100;width:340px;background:linear-gradient(180deg,#1A1B3A 0%,#0B0D2A 100%);border:2px solid #1F5AF0;border-radius:16px;padding:18px;color:#fff;font:14px/1.5 Poppins,system-ui;box-shadow:0 10px 40px rgba(0,0,0,.5)";
+    pop.innerHTML = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">'
+      + '<div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#13B37A,#0B8C5C);display:flex;align-items:center;justify-content:center;font-size:18px">🟢</div>'
+      + '<div><div style="font-weight:600;font-size:15px">Connected</div>'
+      + '<div style="font-size:11px;opacity:.7">Avalanche C-Chain</div></div></div>'
+      + '<div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:12px;margin-bottom:10px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="opacity:.7;font-size:11px;text-transform:uppercase;letter-spacing:.05em">AVAX Balance</span><span id="info-avax" style="font-weight:600;font-size:14px">…</span></div>'
+      + '<div style="display:flex;justify-content:space-between;align-items:baseline"><span style="opacity:.7;font-size:11px;text-transform:uppercase;letter-spacing:.05em">USDC Balance</span><span id="info-usdc" style="font-weight:600;font-size:14px">…</span></div>'
+      + '</div>'
+      + '<div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-family:ui-monospace,monospace;font-size:11px;word-break:break-all;cursor:pointer" id="info-addr" title="Click to copy">' + addr + '</div>'
+      + '<div style="display:flex;gap:8px"><button id="info-copy" style="flex:1;padding:9px;border-radius:8px;background:rgba(31,90,240,.2);border:1px solid #1F5AF0;color:#fff;font:600 13px Poppins;cursor:pointer">📋 Copy</button>'
+      + '<button id="info-explorer" style="flex:1;padding:9px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff;font:600 13px Poppins;cursor:pointer">🔍 Snowtrace</button>'
+      + '<button id="info-disconnect" style="flex:1;padding:9px;border-radius:8px;background:rgba(229,72,77,.15);border:1px solid #E5484D;color:#fff;font:600 13px Poppins;cursor:pointer">⏏ Disconnect</button></div>';
+    document.body.appendChild(pop);
+    pop.querySelector("#info-addr").addEventListener("click", () => {
+      navigator.clipboard && navigator.clipboard.writeText(addr);
+    });
+    pop.querySelector("#info-copy").addEventListener("click", () => {
+      navigator.clipboard && navigator.clipboard.writeText(addr);
+    });
+    pop.querySelector("#info-explorer").addEventListener("click", () => {
+      const ex = (chain.explorer || "https://snowtrace.io") + "/address/" + addr;
+      window.open(ex, "_blank");
+    });
+    pop.querySelector("#info-disconnect").addEventListener("click", () => {
+      disconnect();
+      closeWalletInfo();
+    });
+    setTimeout(() => {
+      document.addEventListener("click", closeOnOutside, true);
+    }, 0);
+    fetchWalletInfo();
+  }
+  function closeOnOutside(e) {
+    const pop = document.getElementById("ubotpay-wallet-info");
+    if (!pop) return;
+    if (pop.contains(e.target)) return;
+    if (e.target === btn || (e.target.closest && e.target.closest("#wallet-btn"))) return;
+    closeWalletInfo();
+    document.removeEventListener("click", closeOnOutside, true);
+  }
+  function closeWalletInfo() {
+    const pop = document.getElementById("ubotpay-wallet-info");
+    if (pop) pop.remove();
+  }
+
+  // Fetch AVAX + USDC balances for the connected address and update the popover
+  async function fetchWalletInfo() {
+    const data = (() => { try { return JSON.parse(localStorage.getItem(WALLET) || "{}"); } catch (e) { return {}; } })();
+    if (!data.user || !data.user.address) return;
+    const addr = data.user.address;
+    if (window.ethereum) {
+      try {
+        const bal = await window.ethereum.request({
+          method: "eth_getBalance",
+          params: [addr, "latest"]
+        });
+        const avax = (parseInt(bal, 16) / 1e18).toFixed(4);
+        const el = document.getElementById("info-avax");
+        if (el) el.textContent = avax + " AVAX";
+      } catch (e) { /* ignore */ }
+    }
+    try {
+      const r = await fetch(ROOT_API + "/balance/" + addr + "?chain_id=43114", {
+        headers: window.__ubotpayAuth ? window.__ubotpayAuth() : {}
+      });
+      if (r.ok) {
+        const b = await r.json();
+        const el = document.getElementById("info-usdc");
+        if (el) el.textContent = (b.usdc != null ? b.usdc : "0") + " USDC";
+      } else {
+        const el = document.getElementById("info-usdc");
+        if (el) el.textContent = "—";
+      }
+    } catch (e) { /* ignore */ }
+  }
+  setInterval(() => {
+    if (btn && btn.classList.contains("connected")) {
+      fetchWalletInfo();
+    }
+  }, 30000);
   function renderDisconnected(){
     btn.classList.remove("connected");
     $("wallet-ic").textContent = "🔌";
@@ -533,19 +628,13 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     try { e.stopPropagation(); } catch (err) {}
     try { e.preventDefault(); } catch (err) {}
     console.log("[ubotpay] event received:", e.type);
-    // Visual confirmation toast
-    try {
-      const t = document.createElement("div");
-      t.textContent = "✓ " + e.type + " received";
-      t.style.cssText = "position:fixed;top:60px;right:24px;background:#13B37A;color:#000;padding:6px 12px;border-radius:6px;font:600 12px/1 ui-monospace,monospace;z-index:99999";
-      t.id = "ubotpay-event-toast";
-      const old = document.getElementById("ubotpay-event-toast");
-      if (old) old.remove();
-      document.body.appendChild(t);
-      setTimeout(() => { t.remove(); }, 1500);
-    } catch (err) {}
-    if (btn.classList.contains("connected")) disconnect();
-    else openModal();
+    if (btn.classList.contains("connected")) {
+      // Open the wallet info popover instead of disconnecting.
+      // User can click "Disconnect" inside the popover.
+      const pop = document.getElementById("ubotpay-wallet-info");
+      if (pop) closeWalletInfo();
+      else openWalletInfo();
+    } else openModal();
   };
   // Document-level capture-phase handlers. Run BEFORE any bubble-phase
   // extension listener. Listen to many event types in case some are
