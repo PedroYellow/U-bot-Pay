@@ -262,11 +262,19 @@ async function fetchUserWallet() {
   // Re-render the tiles now that we have the user balance
   const d = (window.__lastDashboard) || {};
   renderKpis(d);
+  console.log("[ubotpay] fetchUserWallet done: AVAX=" + userBalances.avax + " USDC=" + userBalances.usdc);
 }
 
 // Track the currently connected wallet + its balances
 let connectedUser = null;
 let userBalances = { avax: null, usdc: null };
+
+// Expose critical functions to window so the wallet IIFE (which is
+// in a separate <script> tag) can call them. Modules do not put
+// declarations on the global scope by default.
+window.fetchUserWallet = fetchUserWallet;
+window.refreshHealth = refreshHealth;
+window.renderKpis = renderKpis;
 // Store last dashboard response so we can re-render after a user connect
 const _origFetch = window.fetch;
 window.fetch = function(...args) {
