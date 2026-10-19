@@ -420,13 +420,66 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     return parseInt(hex2, 16);
   }
 
+  // Show an account picker if the user has more than one account. Returns
+  // the selected address, or null if the user cancelled.
+  async function pickAccount(provider, accounts, walletName) {
+    if (accounts.length === 1) return accounts[0];
+    // Show a modal with all accounts
+    const picker = document.createElement("div");
+    picker.className = "wallet-modal open";
+    picker.id = "ubotpay-account-picker";
+    const list = accounts.map((a, i) => {
+      const short = a.slice(0,6) + "..." + a.slice(-4);
+      return '<div class="row" data-addr="' + a + '"><div class="ic">🦊</div><div class="lbl">Account ' + (i+1) + '<small><code>' + short + '</code></small></div></div>';
+    }).join("");
+    picker.innerHTML = '<div class="panel" style="max-width:380px"><button class="close" id="picker-close">×</button>'
+      + '<h3>Select account</h3>'
+      + '<p class="sub">' + walletName + ' has ' + accounts.length + ' accounts. Choose which one to use with Ubotpay.</p>'
+      + '<div>' + list + '</div>'
+      + '<div class="footer">The selected account is the only one that can sign in to Ubotpay. You can change it from your wallet settings.</div></div>';
+    document.body.appendChild(picker);
+    return new Promise((resolve) => {
+      picker.querySelectorAll(".row").forEach(r => {
+        r.addEventListener("click", () => {
+          const addr = r.getAttribute("data-addr");
+          picker.remove();
+          resolve(addr);
+        });
+      });
+      picker.querySelector("#picker-close").addEventListener("click", () => {
+        picker.remove();
+        resolve(null);
+      });
+    });
+  }
+
   async function connect(provider, label){
     if (!provider) { alert("No wallet detected."); return; }
+    // Use wallet_requestPermissions to force MetaMask to show the
+    // account picker (if it has more than one). This way the user
+    // always sees which account is about to be used, instead of
+    // having MetaMask silently pick the first one.
     let accounts;
-    try { accounts = await provider.request({ method: "eth_requestAccounts" }); }
+    try {
+      try {
+        // Force MetaMask to (re-)show the account picker
+        const perms = await provider.request({
+          method: "wallet_requestPermissions",
+          params: [{ eth_accounts: {} }]
+        });
+        // After permissions are granted, fetch the now-authorized accounts
+        accounts = await provider.request({ method: "eth_accounts" });
+      } catch (e) {
+        // If the wallet doesn't support wallet_requestPermissions, fall back
+        if (e.code === 4001) { alert((label || "Wallet") + " rejected the connection."); return; }
+        accounts = await provider.request({ method: "eth_requestAccounts" });
+      }
+    }
     catch (e) { alert((label || "Wallet") + " rejected the connection."); return; }
     if (!accounts || !accounts.length) return;
-    const address = accounts[0];
+    // If multiple accounts, let the user choose which one
+    const address = await pickAccount(provider, accounts, label || "Wallet");
+    if (!address) return;  // user cancelled the picker
 
     // Make sure the wallet is on Avalanche C-Chain
     let chainId;
