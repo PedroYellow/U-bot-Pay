@@ -20,6 +20,25 @@ CREATE TABLE IF NOT EXISTS contacts(
 CREATE TABLE IF NOT EXISTS invoices(
   id TEXT PRIMARY KEY, user_id INTEGER, from_name TEXT, from_address TEXT, amount_usdc REAL,
   description TEXT, due INTEGER, status TEXT DEFAULT 'open', paid_tx TEXT, created_at INTEGER);
+CREATE TABLE IF NOT EXISTS bridges(
+  id TEXT PRIMARY KEY,
+  user_id INTEGER,
+  from_chain INTEGER NOT NULL,
+  to_chain INTEGER NOT NULL,
+  from_address TEXT NOT NULL,
+  to_address TEXT NOT NULL,
+  amount_usdc REAL NOT NULL,
+  to_amount_min TEXT,
+  tool TEXT,
+  total_fee_usd REAL,
+  tx_hash TEXT,
+  status TEXT DEFAULT 'pending',  -- pending | submitted | confirming | done | failed
+  error TEXT,
+  raw_quote TEXT,                  -- JSON blob of the full LI.FI quote for replay/debug
+  created_at INTEGER,
+  confirmed_at INTEGER);
+CREATE INDEX IF NOT EXISTS idx_bridges_status ON bridges(status);
+CREATE INDEX IF NOT EXISTS idx_bridges_user ON bridges(user_id);
 """
 
 # demo FX table (USDC per 1 unit of local). Real build → oracle / Circle FX.
@@ -138,6 +157,51 @@ def upsert_user(telegram_id: int, name: str, lang="en", address=None) -> dict:
                   (name, lang, telegram_id, address, int(time.time())))
         return dict(c.execute("SELECT * FROM users WHERE telegram_id=?", (telegram_id,)).fetchone())
 
+
+# ───────── bridges (LI.FI cross-chain) ─────────
+import secrets as _secrets_bridge
+def create_bridge(user_id: int, from_chain: int, to_chain: int, from_address: str, to_address: str, amount_usdc: float, tool: str, total_fee_usd: float, to_amount_min: str, raw_quote: str) -> dict:
+    """Create a new bridge record. The tx_hash is filled in later
+    when the user submits the bridge transaction on the source chain."""
+    bid = "br_" + _secrets_bridge.token_urlsafe(12)
+    with conn() as cc:
+        cc.execute(
+            "INSERT INTO bridges(id, user_id, from_chain, to_chain, from_address, to_address, amount_usdc, to_amount_min, tool, total_fee_usd, raw_quote, status, created_at) "
+            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
+            (bid, user_id, from_chain, to_chain, from_address, to_address, amount_usdc, to_amount_min, tool, total_fee_usd, raw_quote, int(time.time())),
+        )
+    return get_bridge(bid)
+
+def get_bridge(bridge_id: str) -> dict | None:
+    with conn() as cc:
+        row = cc.execute("SELECT * FROM bridges WHERE id = ?", (bridge_id,)).fetchone()
+    return dict(row) if row else None
+
+def list_bridges(user_id: int | None = None, status: str | None = None, limit: int = 50) -> list[dict]:
+    with conn() as cc:
+        q = "SELECT * FROM bridges"
+        where = []
+        params = []
+        if user_id is not None:
+            where.append("user_id = ?")
+            params.append(user_id)
+        if status is not None:
+            where.append("status = ?")
+            params.append(status)
+        if where:
+            q += " WHERE " + " AND ".join(where)
+        q += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        rows = cc.execute(q, tuple(params)).fetchall()
+    return [dict(r) for r in rows]
+
+def update_bridge(bridge_id: str, **fields) -> bool:
+    if not fields: return False
+    sets = ", ".join(f"{k} = ?" for k in fields.keys())
+    vals = list(fields.values()) + [bridge_id]
+    with conn() as cc:
+        cc.execute(f"UPDATE bridges SET {sets} WHERE id = ?", tuple(vals))
+    return cc.rowcount > 0
 
 def get_user_by_wallet(address: str, chain_id: int = 43114) -> dict | None:
     """Look up user by (chain_id, address). Lowercased address. Returns row or None."""

@@ -523,6 +523,160 @@ async def auth_chains():
     """Public list of supported chains. Used by the wallet selector."""
     return chain.chains()
 
+
+# ───────── cross-chain bridge (LI.FI) ─────────
+import bridge as _bridge
+
+@app.get("/bridge/chains")
+def bridge_chains():
+    """All enabled chains for cross-chain bridging. Used by the payment
+    modal to show the source/destination chain pickers."""
+    return chain.chains()
+
+
+@app.get("/bridge/quote")
+def bridge_quote(
+    from_chain: int,
+    to_chain: int,
+    amount_usdc: float,
+    from_address: str,
+    to_address: str,
+):
+    """Get a LI.FI bridge quote for a USDC transfer between two EVM chains.
+    Returns the best route, gas estimate, fees, time, and the raw
+    transactionRequest that the user will sign."""
+    try:
+        q = _bridge.quote(from_chain, to_chain, amount_usdc, from_address, to_address)
+    except Exception as e:
+        log.warning("bridge quote failed: %s", e)
+        raise HTTPException(502, f"bridge quote failed: {e}")
+    raw = q.pop("raw", {})
+    return {
+        "ok": True,
+        "tool": q["tool"],
+        "from_chain": q["from_chain"],
+        "to_chain": q["to_chain"],
+        "from_amount": str(q["from_amount"]),
+        "from_amount_human": q["from_amount_human"],
+        "to_amount": str(q["to_amount"]),
+        "to_amount_human": q["to_amount_human"],
+        "to_amount_min": str(q["to_amount_min"]),
+        "to_amount_min_human": q["to_amount_min_human"],
+        "gas_cost_usd": q["gas_cost_usd"],
+        "bridge_fee_usd": q["bridge_fee_usd"],
+        "total_fee_usd": q["total_fee_usd"],
+        "execution_duration": q["execution_duration"],
+        "approval_address": q["approval_address"],
+        "transaction": raw.get("transactionRequest") or {},
+        "raw_id": raw.get("id"),
+    }
+
+
+@app.post("/bridge/start")
+def bridge_start(body: dict, request: Request):
+    """Store the quote so we can track the bridge once the user signs.
+    Requires a valid Bearer JWT."""
+    user, err = _user_from_request(request)
+    if err:
+        raise HTTPException(401, err)
+    try:
+        quote_obj = _bridge.quote(
+            int(body["from_chain"]),
+            int(body["to_chain"]),
+            float(body["amount_usdc"]),
+            str(body["from_address"]),
+            str(body["to_address"]),
+        )
+    except Exception as e:
+        raise HTTPException(400, f"invalid quote parameters: {e}")
+    import json as _json
+    br = core.create_bridge(
+        user_id=user["id"],
+        from_chain=quote_obj["from_chain"],
+        to_chain=quote_obj["to_chain"],
+        from_address=str(body["from_address"]),
+        to_address=str(body["to_address"]),
+        amount_usdc=quote_obj["from_amount_human"],
+        tool=quote_obj["tool"],
+        total_fee_usd=quote_obj["total_fee_usd"],
+        to_amount_min=str(quote_obj["to_amount_min"]),
+        raw_quote=_json.dumps(quote_obj.get("raw", {})),
+    )
+    return {"ok": True, "bridge_id": br["id"], "quote": {
+        "tool": quote_obj["tool"],
+        "to_amount": str(quote_obj["to_amount"]),
+        "to_amount_human": quote_obj["to_amount_human"],
+        "to_amount_min_human": quote_obj["to_amount_min_human"],
+        "total_fee_usd": quote_obj["total_fee_usd"],
+        "execution_duration": quote_obj["execution_duration"],
+    }}
+
+
+@app.post("/bridge/{bridge_id}/confirm")
+def bridge_confirm(bridge_id: str, body: dict, request: Request):
+    """Called by the frontend after the user signs and broadcasts the
+    bridge transaction. Stores the tx_hash and starts the polling loop."""
+    user, err = _user_from_request(request)
+    if err:
+        raise HTTPException(401, err)
+    br = core.get_bridge(bridge_id)
+    if not br:
+        raise HTTPException(404, "bridge not found")
+    if br["user_id"] != user["id"]:
+        raise HTTPException(403, "not your bridge")
+    tx_hash = str(body.get("tx_hash") or "").strip()
+    if not tx_hash:
+        raise HTTPException(400, "tx_hash required")
+    core.update_bridge(bridge_id, tx_hash=tx_hash, status="submitted")
+    return {"ok": True, "bridge_id": bridge_id, "tx_hash": tx_hash}
+
+
+@app.get("/bridge/{bridge_id}/status")
+def bridge_status(bridge_id: str, request: Request):
+    """Returns the current status of a bridge. Polls LI.FI's status
+    endpoint to detect when the destination chain has received the
+    funds. If the bridge is done, marks it as such in the DB."""
+    user, err = _user_from_request(request)
+    if err:
+        raise HTTPException(401, err)
+    br = core.get_bridge(bridge_id)
+    if not br:
+        raise HTTPException(404, "bridge not found")
+    if br["user_id"] != user["id"]:
+        raise HTTPException(403, "not your bridge")
+    if br["status"] in ("done", "failed"):
+        return br
+    if not br.get("tx_hash"):
+        return br
+    try:
+        s = _bridge.get_status(br["tx_hash"])
+        lifi_status = (s.get("status") or "").lower()
+        receiving = s.get("receiving") or {}
+        done_hash = receiving.get("txHash") if isinstance(receiving, dict) else None
+        if lifi_status in ("done", "completed", "success") or done_hash:
+            core.update_bridge(bridge_id, status="done", confirmed_at=int(time.time()))
+            return core.get_bridge(bridge_id)
+        if lifi_status in ("failed", "error"):
+            core.update_bridge(bridge_id, status="failed", error=str(s)[:300])
+            return core.get_bridge(bridge_id)
+        if lifi_status in ("pending",):
+            core.update_bridge(bridge_id, status="confirming")
+            return core.get_bridge(bridge_id)
+        return br
+    except Exception as e:
+        log.warning("bridge status check failed: %s", e)
+        return br
+
+
+@app.get("/bridge/history")
+def bridge_history(request: Request, limit: int = 20):
+    """Recent bridges for the authenticated user."""
+    user, err = _user_from_request(request)
+    if err:
+        raise HTTPException(401, err)
+    return core.list_bridges(user_id=user["id"], limit=limit)
+
+
 @app.get("/auth/me")
 async def auth_me(request: Request):
     """Return the current user from the Bearer token. 401 if no/invalid session."""
