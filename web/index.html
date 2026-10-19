@@ -69,7 +69,7 @@
         <div class="state"><span><span data-i18n="status">Status · </span><b id="orbstate" data-i18n="ready">ready</b></span><span id="netstat" data-i18n="checking">checking…</span></div>
         <div class="microw" id="microw" style="display:none"><span>🎤</span><div class="meter"><div id="lvl"></div></div><select id="micsel" title="Microphone"></select></div>
         <div id="log"><div class="msg sys" data-i18n="try">Try: “Send 100 baht to mom” · “What invoices do I have?”</div></div>
-        <div class="inputrow"><button class="btn mic" id="mic" data-i18n-title="mic_title" title="Talk to ubotpay">🎙</button><input id="inp" data-i18n-ph="ask_ph" placeholder="Ask ubotpay…" autocomplete="off"><button class="btn primary" id="send" data-i18n="send">Send</button></div>
+        <div class="inputrow"><button class="btn mic" id="mic" data-i18n-title="mic_title" title="Talk to ubotpay">🎙</button><input id="inp" data-i18n-ph="ask_ph" placeholder="Ask ubotpay…" autocomplete="off"><button class="btn primary" id="pay-btn" title="Send USDC to any address on any chain" style="background:linear-gradient(135deg,#1F5AF0,#6C5CE7)">💸 Pay</button><button class="btn primary" id="send" data-i18n="send">Send</button></div>
         <div class="kpis"><div class="kpi"><small data-i18n="k_treasury">Treasury</small><b id="k_usdc">—</b></div><div class="kpi"><small data-i18n="k_last">Last settlement</small><b id="k_lat">—</b></div><div class="kpi"><small data-i18n="k_rev">Revenue</small><b id="k_rev">—</b></div></div>
       </div>
       <p class="alt" data-i18n="alt_tg">Prefer Telegram? <a href="https://t.me/Ubotpaybot" target="_blank">Open @Ubotpaybot</a></p>
@@ -169,6 +169,7 @@ async function send(text){
 }
 document.getElementById("send").onclick = () => send(inp.value);
 inp.addEventListener("keydown", e => { if (e.key === "Enter") send(inp.value); });
+const payBtn = document.getElementById("pay-btn"); if (payBtn) payBtn.onclick = () => { if (window.__ubotpayOpenPayModal) window.__ubotpayOpenPayModal(); else alert("Pay modal not ready yet, please reload the page."); };
 // Public /health returns minimal JSON. Operational data (chain name, status) come
 // from response headers X-Chain and X-Status, so the public endpoint never leaks
 // treasury / revenue details (security audit #5).
@@ -264,6 +265,22 @@ async function fetchUserWallet() {
   renderKpis(d);
   console.log("[ubotpay] fetchUserWallet done: AVAX=" + userBalances.avax + " USDC=" + userBalances.usdc);
 }
+
+// Pay modal: open, close, and live quote refresh
+const payModal = document.getElementById("pay-modal");
+const payCloseBtn = document.getElementById("pay-modal-close");
+const payCancelBtn = document.getElementById("pay-cancel");
+const paySubmitBtn = document.getElementById("pay-submit");
+if (payCloseBtn) payCloseBtn.onclick = () => { if (window.__ubotpayClosePayModal) window.__ubotpayClosePayModal(); else if (payModal) payModal.classList.remove("open"); };
+if (payCancelBtn) payCancelBtn.onclick = () => { if (window.__ubotpayClosePayModal) window.__ubotpayClosePayModal(); else if (payModal) payModal.classList.remove("open"); };
+if (paySubmitBtn) paySubmitBtn.onclick = () => { if (window.__ubotpaySubmitPay) window.__ubotpaySubmitPay(); else alert("Pay not ready, please reload."); };
+// Live quote: refresh on every change of to/amount/chain
+["pay-to", "pay-amount", "pay-to-chain"].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener("input", () => { if (window.__ubotpayRefreshQuote) window.__ubotpayRefreshQuote(); });
+});
+// Close on Esc
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && payModal && payModal.classList.contains("open")) payModal.classList.remove("open"); });
 
 // Track the currently connected wallet + its balances
 let connectedUser = null;
@@ -361,6 +378,49 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     </div>
   </div>
 </div>
+
+<!-- Send USDC modal (cross-chain bridge enabled) -->
+<div class="wallet-modal" id="pay-modal" role="dialog" aria-modal="true" aria-label="Send USDC">
+  <div class="panel" style="max-width:440px">
+    <button class="close" id="pay-modal-close" aria-label="Close">×</button>
+    <h3>Send USDC</h3>
+    <p class="sub">Pay anyone, any chain. USDC arrives on their preferred chain.</p>
+    <div id="pay-form" style="display:flex;flex-direction:column;gap:10px">
+      <div>
+        <div style="opacity:.7;font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Recipient address (EVM)</div>
+        <input id="pay-to" placeholder="0x… or alice.eth" style="width:100%;padding:10px 12px;border-radius:8px;background:#0B0D2A;border:1px solid rgba(255,255,255,.12);color:#fff;font:500 14px ui-monospace,monospace"/>
+      </div>
+      <div>
+        <div style="opacity:.7;font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Amount (USDC)</div>
+        <input id="pay-amount" type="number" step="0.01" min="0.01" placeholder="0.00" style="width:100%;padding:10px 12px;border-radius:8px;background:#0B0D2A;border:1px solid rgba(255,255,255,.12);color:#fff;font:600 18px Poppins"/>
+      </div>
+      <div id="pay-chain-select-wrap" style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:10px 12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="opacity:.7;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Recipient chain</span>
+          <span id="pay-detected-chain" style="font:600 11px ui-monospace,monospace;color:#9ec5ff"></span>
+        </div>
+        <select id="pay-to-chain" style="width:100%;padding:8px 10px;border-radius:8px;background:#0B0D2A;border:1px solid #1F5AF0;color:#fff;font:600 13px Poppins;cursor:pointer"></select>
+      </div>
+      <div id="pay-bridge-preview" style="display:none;background:rgba(31,90,240,.08);border:1px solid rgba(31,90,240,.3);border-radius:10px;padding:12px;font:500 12px ui-monospace,monospace;line-height:1.6">
+        <div style="display:flex;justify-content:space-between"><span>Bridge</span><b id="pay-bridge-tool">—</b></div>
+        <div style="display:flex;justify-content:space-between"><span>You send</span><b id="pay-bridge-from">—</b></div>
+        <div style="display:flex;justify-content:space-between"><span>They receive (min)</span><b id="pay-bridge-to">—</b></div>
+        <div style="display:flex;justify-content:space-between"><span>Total fee</span><b id="pay-bridge-fee">—</b></div>
+        <div style="display:flex;justify-content:space-between"><span>Time</span><b id="pay-bridge-time">—</b></div>
+      </div>
+      <div id="pay-status" style="display:none;border-radius:10px;padding:12px;font:600 13px;text-align:center"></div>
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <button id="pay-cancel" style="flex:1;padding:11px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff;font:600 14px Poppins;cursor:pointer">Cancel</button>
+        <button id="pay-submit" style="flex:2;padding:11px;border-radius:8px;background:linear-gradient(135deg,#1F5AF0,#6C5CE7);border:0;color:#fff;font:700 14px Poppins;cursor:pointer">Sign &amp; Pay</button>
+      </div>
+    </div>
+    <div class="footer">
+      <b>Pay same-chain:</b> no bridge, instant USDC transfer.<br>
+      <b>Pay cross-chain:</b> LI.FI finds the best bridge (Layerswap, Stargate, …).<br>
+      You always sign on your chain; recipient receives on theirs.
+    </div>
+  </div>
+</div>
 <script>
 (function(){
   try {
@@ -443,6 +503,216 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     const pop = document.getElementById("ubotpay-wallet-info");
     if (pop) pop.remove();
   }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Send USDC modal: cross-chain bridge payment flow
+  // ─────────────────────────────────────────────────────────────────
+  let payCurrentQuote = null;       // last quote from /bridge/quote
+  let payBridgeId = null;           // DB id of the bridge we're tracking
+  let payPollInterval = null;        // setInterval for /status polling
+
+  async function openPayModal(){
+    const modal = document.getElementById("pay-modal");
+    if (!modal) return;
+    // Reset form state every time the modal opens
+    document.getElementById("pay-to").value = "";
+    document.getElementById("pay-amount").value = "";
+    document.getElementById("pay-bridge-preview").style.display = "none";
+    document.getElementById("pay-status").style.display = "none";
+    document.getElementById("pay-submit").disabled = false;
+    document.getElementById("pay-submit").textContent = "Sign & Pay";
+    payCurrentQuote = null;
+    payBridgeId = null;
+    if (payPollInterval) { clearInterval(payPollInterval); payPollInterval = null; }
+    // Populate chain dropdown
+    const sel = document.getElementById("pay-to-chain");
+    if (sel) {
+      sel.innerHTML = "";
+      const chains = await fetch(ROOT_API + "/bridge/chains").then(r => r.json()).catch(() => []);
+      chains.forEach(c => {
+        const o = document.createElement("option");
+        o.value = c.id;
+        o.textContent = c.name + " (" + c.native + ")";
+        if (c.id === 43114) o.selected = true;  // default recipient chain = Avalanche
+        sel.appendChild(o);
+      });
+    }
+    // Show the user's current chain in the detected label
+    const detected = document.getElementById("pay-detected-chain");
+    if (detected && window.ethereum) {
+      try {
+        const hex = await window.ethereum.request({ method: "eth_chainId" });
+        const cid = parseInt(hex, 16);
+        const all = await fetch(ROOT_API + "/bridge/chains").then(r => r.json()).catch(() => []);
+        const c = all.find(x => x.id === cid);
+        detected.textContent = "Your chain: " + (c ? c.name : "unknown (" + cid + ")");
+      } catch (e) { /* ignore */ }
+    }
+    modal.classList.add("open");
+  }
+  function closePayModal(){
+    const modal = document.getElementById("pay-modal");
+    if (modal) modal.classList.remove("open");
+    if (payPollInterval) { clearInterval(payPollInterval); payPollInterval = null; }
+  }
+
+  async function refreshPayQuote(){
+    const to = document.getElementById("pay-to").value.trim();
+    const amount = parseFloat(document.getElementById("pay-amount").value);
+    const toChain = parseInt(document.getElementById("pay-to-chain").value);
+    const preview = document.getElementById("pay-bridge-preview");
+    if (!to || !amount || amount <= 0 || !toChain) { preview.style.display = "none"; return; }
+    if (!window.ethereum) { alert("Connect your wallet first."); return; }
+    let accounts;
+    try { accounts = await window.ethereum.request({ method: "eth_accounts" }); }
+    catch (e) { return; }
+    if (!accounts || !accounts.length) { alert("Connect your wallet first."); return; }
+    const fromAddress = accounts[0];
+    // Validate address
+    if (!Web3.isAddress(to)) { preview.style.display = "none"; return; }
+    // Get user's current chain
+    let fromChain;
+    try {
+      const hex = await window.ethereum.request({ method: "eth_chainId" });
+      fromChain = parseInt(hex, 16);
+    } catch (e) { return; }
+    // Fetch quote
+    try {
+      const r = await fetch(ROOT_API + "/bridge/quote?from_chain=" + fromChain + "&to_chain=" + toChain + "&amount_usdc=" + amount + "&from_address=" + fromAddress + "&to_address=" + to);
+      if (!r.ok) { preview.style.display = "none"; return; }
+      const q = await r.json();
+      payCurrentQuote = q;
+      // Show preview
+      document.getElementById("pay-bridge-tool").textContent = q.tool;
+      document.getElementById("pay-bridge-from").textContent = amount + " USDC on " + chainNameOf(fromChain);
+      document.getElementById("pay-bridge-to").textContent = q.to_amount_min_human + " USDC on " + chainNameOf(toChain);
+      document.getElementById("pay-bridge-fee").textContent = "$" + q.total_fee_usd + " (gas $ " + q.gas_cost_usd + " + bridge $ " + q.bridge_fee_usd + ")";
+      document.getElementById("pay-bridge-time").textContent = q.execution_duration + "s";
+      preview.style.display = "block";
+    } catch (e) { preview.style.display = "none"; }
+  }
+  function chainNameOf(id) {
+    const names = { 1:"Ethereum", 10:"Optimism", 137:"Polygon", 8453:"Base", 42161:"Arbitrum", 43114:"Avalanche", 43113:"Avalanche Fuji" };
+    return names[id] || ("chain " + id);
+  }
+
+  async function submitPay(){
+    const submit = document.getElementById("pay-submit");
+    const status = document.getElementById("pay-status");
+    if (!payCurrentQuote) { alert("Get a quote first (fill in address + amount)."); return; }
+    if (!window.ethereum) { alert("Connect your wallet first."); return; }
+    const to = document.getElementById("pay-to").value.trim();
+    const amount = parseFloat(document.getElementById("pay-amount").value);
+    const toChain = parseInt(document.getElementById("pay-to-chain").value);
+    let accounts;
+    try { accounts = await window.ethereum.request({ method: "eth_accounts" }); }
+    catch (e) { alert("Wallet error"); return; }
+    const fromAddress = accounts[0];
+    let fromChain;
+    try {
+      const hex = await window.ethereum.request({ method: "eth_chainId" });
+      fromChain = parseInt(hex, 16);
+    } catch (e) { alert("Wallet error"); return; }
+    submit.disabled = true;
+    submit.textContent = "Confirming in wallet…";
+    status.style.display = "block";
+    status.style.background = "rgba(31,90,240,.15)";
+    status.style.color = "#9ec5ff";
+    status.textContent = "📝 Please confirm the transaction in your wallet…";
+    try {
+      // Same chain → simple ERC-20 transfer
+      if (fromChain === toChain) {
+        // Use LI.FI's transaction data (which does the approve+transfer for us)
+        const tx = payCurrentQuote.transaction || {};
+        const params = { from: tx.from || fromAddress, to: tx.to };
+        if (tx.data) params.data = tx.data;
+        if (tx.value && tx.value !== "0x0") params.value = tx.value;
+        if (tx.gas) params.gas = tx.gas;
+        if (tx.gasPrice) params.gasPrice = tx.gasPrice;
+        const txHash = await window.ethereum.request({ method: "eth_sendTransaction", params: [params] });
+        // Track via bridge/start (so we can poll status)
+        const stored = await fetch(ROOT_API + "/bridge/start", {
+          method: "POST",
+          headers: Object.assign({ "Content-Type": "application/json" }, window.__ubotpayAuth ? window.__ubotpayAuth() : {}),
+          body: JSON.stringify({ from_chain: fromChain, to_chain: toChain, amount_usdc: amount, from_address: fromAddress, to_address: to }),
+        }).then(r => r.json()).catch(() => null);
+        if (stored && stored.bridge_id) {
+          payBridgeId = stored.bridge_id;
+          await fetch(ROOT_API + "/bridge/" + payBridgeId + "/confirm", {
+            method: "POST",
+            headers: Object.assign({ "Content-Type": "application/json" }, window.__ubotpayAuth ? window.__ubotpayAuth() : {}),
+            body: JSON.stringify({ tx_hash: txHash }),
+          });
+          startPayPolling();
+        }
+        status.textContent = "🎉 Transaction submitted! Hash: " + txHash.slice(0, 10) + "…";
+      } else {
+        // Cross-chain: 1) start bridge (saves quote), 2) sign + send bridge tx,
+        // 3) confirm with tx_hash, 4) poll until done
+        const stored = await fetch(ROOT_API + "/bridge/start", {
+          method: "POST",
+          headers: Object.assign({ "Content-Type": "application/json" }, window.__ubotpayAuth ? window.__ubotpayAuth() : {}),
+          body: JSON.stringify({ from_chain: fromChain, to_chain: toChain, amount_usdc: amount, from_address: fromAddress, to_address: to }),
+        }).then(r => r.json()).catch(() => null);
+        if (!stored || !stored.bridge_id) throw new Error("could not start bridge");
+        payBridgeId = stored.bridge_id;
+        // Now sign and send the actual bridge transaction
+        const tx = payCurrentQuote.transaction || {};
+        const params = { from: tx.from || fromAddress, to: tx.to };
+        if (tx.data) params.data = tx.data;
+        if (tx.value && tx.value !== "0x0") params.value = tx.value;
+        if (tx.gas) params.gas = tx.gas;
+        if (tx.gasPrice) params.gasPrice = tx.gasPrice;
+        const txHash = await window.ethereum.request({ method: "eth_sendTransaction", params: [params] });
+        // Save the tx_hash
+        await fetch(ROOT_API + "/bridge/" + payBridgeId + "/confirm", {
+          method: "POST",
+          headers: Object.assign({ "Content-Type": "application/json" }, window.__ubotpayAuth ? window.__ubotpayAuth() : {}),
+          body: JSON.stringify({ tx_hash: txHash }),
+        });
+        status.textContent = "🌉 Bridge submitted! Tracking delivery to " + chainNameOf(toChain) + "…";
+        startPayPolling();
+      }
+    } catch (e) {
+      status.style.background = "rgba(229,72,77,.15)";
+      status.style.color = "#ff8888";
+      status.textContent = "❌ " + (e.message || "transaction rejected");
+      submit.disabled = false;
+      submit.textContent = "Sign & Pay";
+    }
+  }
+  function startPayPolling(){
+    if (payPollInterval) clearInterval(payPollInterval);
+    const status = document.getElementById("pay-status");
+    payPollInterval = setInterval(async () => {
+      try {
+        const r = await fetch(ROOT_API + "/bridge/" + payBridgeId + "/status", {
+          headers: window.__ubotpayAuth ? window.__ubotpayAuth() : {},
+        });
+        if (!r.ok) return;
+        const b = await r.json();
+        if (b.status === "done") {
+          status.style.background = "rgba(19,179,122,.15)";
+          status.style.color = "#7ed4a3";
+          status.innerHTML = "✅ Done! Recipient received the funds.<br>Bridge ID: " + payBridgeId;
+          clearInterval(payPollInterval); payPollInterval = null;
+        } else if (b.status === "failed") {
+          status.style.background = "rgba(229,72,77,.15)";
+          status.style.color = "#ff8888";
+          status.innerHTML = "❌ Bridge failed: " + (b.error || "unknown error");
+          clearInterval(payPollInterval); payPollInterval = null;
+        } else if (b.status === "confirming") {
+          status.textContent = "🔄 Confirming on destination chain…";
+        }
+      } catch (e) { /* ignore */ }
+    }, 5000);  // poll every 5s
+  }
+
+  // Expose globally so the main module can call it
+  window.__ubotpayOpenPayModal = openPayModal;
+  window.__ubotpayClosePayModal = closePayModal;
+  window.__ubotpaySubmitPay = submitPay;
+  window.__ubotpayRefreshQuote = refreshPayQuote;
 
   // Fetch AVAX + USDC balances for the connected address and update the popover
   async function fetchWalletInfo() {
