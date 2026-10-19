@@ -8,14 +8,14 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><radialGradient id='g' cx='35%' cy='30%'><stop offset='0' stop-color='%23BFE0FF'/><stop offset='.55' stop-color='%234C7DF0'/><stop offset='1' stop-color='%236C5CE7'/></radialGradient></defs><circle cx='32' cy='32' r='30' fill='url(%23g)'/><g fill='white'><rect x='18' y='27' width='4' height='10' rx='2'/><rect x='25' y='22' width='4' height='20' rx='2'/><rect x='32' y='17' width='4' height='30' rx='2'/><rect x='39' y='22' width='4' height='20' rx='2'/><rect x='46' y='27' width='4' height='10' rx='2'/></g></svg>">
 <script>(function(){var t=localStorage.getItem("ubotpay-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.setAttribute("data-theme",t);})();</script>
 <style>
-  .wallet{position:fixed;top:16px;right:130px;z-index:100;display:inline-flex;align-items:center;gap:6px;padding:9px 14px;border-radius:999px;border:2px solid #1F5AF0;background:linear-gradient(135deg,#1F5AF0 0%,#6C5CE7 100%);color:#fff;font:inherit;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(31,90,240,.5);transition:.15s}
+  .wallet{position:fixed;bottom:24px;right:24px;z-index:100;display:inline-flex;align-items:center;gap:6px;padding:11px 18px;border-radius:999px;border:2px solid #1F5AF0;background:linear-gradient(135deg,#1F5AF0 0%,#6C5CE7 100%);color:#fff;font:inherit;font-size:15px;font-weight:600;cursor:pointer;box-shadow:0 6px 20px rgba(31,90,240,.5);transition:.15s}
   .wallet:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(31,90,240,.65)}
   .wallet:active{transform:translateY(0)}
   .wallet.connected{border-color:#13B37A;background:linear-gradient(135deg,#13B37A 0%,#0B8C5C 100%);box-shadow:0 4px 14px rgba(19,179,122,.5)}
   .wallet.connected:hover{box-shadow:0 6px 18px rgba(19,179,122,.65)}
   .wallet code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:rgba(0,0,0,.18);padding:1px 6px;border-radius:4px}
   .wallet *{pointer-events:none;user-select:none}
-  @media (max-width:640px){.wallet{top:60px;right:12px;padding:8px 14px;font-size:13px;border-radius:8px}.wallet code{font-size:10px;padding:1px 4px}}
+  @media (max-width:640px){.wallet{bottom:16px;right:16px;padding:10px 14px;font-size:14px;border-radius:999px}.wallet code{font-size:10px;padding:1px 4px}}
 .wallet-modal{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;pointer-events:none;transition:.2s ease-out}
 .wallet-modal.open{opacity:1;pointer-events:auto}
 .wallet-modal .panel{width:100%;max-width:380px;background:linear-gradient(180deg,#1A1B3A 0%,#0B0D2A 100%);border:2px solid #1F5AF0;border-radius:18px;padding:22px;color:#fff;box-shadow:0 0 80px rgba(31,90,240,.4),0 30px 60px rgba(0,0,0,.7);transform:scale(.96);transition:.2s}
@@ -404,8 +404,20 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
   // Single click handler on the button. We also listen for mousedown because
   // some ad blockers swallow "click" but let mousedown through.
   const handleOpen = (e) => {
-    console.log("[ubotpay] handleOpen called, connected=", btn.classList.contains("connected"));
     if (e) e.preventDefault();
+    console.log("[ubotpay] handleOpen called, type=" + (e && e.type) + " connected=" + btn.classList.contains("connected"));
+    // Show a tiny on-screen indicator that the handler fired (helps debug
+    // when browser extensions are swallowing events silently).
+    try {
+      const t = document.createElement("div");
+      t.textContent = "✓ " + (e && e.type) + " received";
+      t.style.cssText = "position:fixed;top:60px;right:24px;background:#13B37A;color:#000;padding:6px 12px;border-radius:6px;font:600 12px/1 ui-monospace,monospace;z-index:99999;box-shadow:0 4px 12px rgba(19,179,122,.4)";
+      t.id = "ubotpay-event-toast";
+      const old = document.getElementById("ubotpay-event-toast");
+      if (old) old.remove();
+      document.body.appendChild(t);
+      setTimeout(() => { t.remove(); }, 1500);
+    } catch (err) {}
     if (btn.classList.contains("connected")) disconnect();
     else { openModal(); }
   };
