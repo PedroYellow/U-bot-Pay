@@ -401,17 +401,28 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     } catch (e) { alert("Sign-in failed: " + e.message); }
   }
 
-  // Single click handler on the button. We also listen for mousedown because
-  // some ad blockers swallow "click" but let mousedown through.
-  const handleOpen = (e) => {
-    if (e) e.preventDefault();
-    console.log("[ubotpay] handleOpen called, type=" + (e && e.type) + " connected=" + btn.classList.contains("connected"));
-    // Show a tiny on-screen indicator that the handler fired (helps debug
-    // when browser extensions are swallowing events silently).
+  // Single, robust handler that runs in capture phase. Stops the event
+  // from continuing so no other listener (extension, etc.) can cancel it.
+  // We listen on BOTH the button directly AND the document for any clicks
+  // that bubble up — and we check whether the target is inside the button.
+  const isOurButton = (target) => {
+    if (!target) return false;
+    if (target === btn) return true;
+    if (target.closest && target.closest("#wallet-btn")) return true;
+    return false;
+  };
+  const onOurEvent = (e) => {
+    if (!isOurButton(e.target)) return;
+    // Stop other listeners (extensions) from interfering
+    try { e.stopImmediatePropagation(); } catch (err) {}
+    try { e.stopPropagation(); } catch (err) {}
+    try { e.preventDefault(); } catch (err) {}
+    console.log("[ubotpay] event received:", e.type);
+    // Visual confirmation toast
     try {
       const t = document.createElement("div");
-      t.textContent = "✓ " + (e && e.type) + " received";
-      t.style.cssText = "position:fixed;top:60px;right:24px;background:#13B37A;color:#000;padding:6px 12px;border-radius:6px;font:600 12px/1 ui-monospace,monospace;z-index:99999;box-shadow:0 4px 12px rgba(19,179,122,.4)";
+      t.textContent = "✓ " + e.type + " received";
+      t.style.cssText = "position:fixed;top:60px;right:24px;background:#13B37A;color:#000;padding:6px 12px;border-radius:6px;font:600 12px/1 ui-monospace,monospace;z-index:99999";
       t.id = "ubotpay-event-toast";
       const old = document.getElementById("ubotpay-event-toast");
       if (old) old.remove();
@@ -419,27 +430,23 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
       setTimeout(() => { t.remove(); }, 1500);
     } catch (err) {}
     if (btn.classList.contains("connected")) disconnect();
-    else { openModal(); }
+    else openModal();
   };
-  // Capture-phase listeners run BEFORE any bubble-phase extension handlers.
-  // useCapture=true makes our handler fire first; even if an extension
-  // tries to stopImmediatePropagation in bubble phase, we've already
-  // handled it. We listen for mousedown (not just click) because some
-  // ad blockers strip "click" but let "mousedown" through.
-  btn.addEventListener("mousedown", (e) => { if (e.button === 0) handleOpen(e); }, true);
-  btn.addEventListener("click", handleOpen, true);
-  btn.addEventListener("pointerdown", (e) => { if (e.button === 0) handleOpen(e); }, true);
-  // Document-level delegation as a last resort, also in capture phase.
-  document.addEventListener("mousedown", (e) => {
-    if (e.target && e.target.closest && e.target.closest("#wallet-btn")) {
-      handleOpen(e);
-    }
-  }, true);
-  document.addEventListener("click", (e) => {
-    if (e.target === btn || (e.target && e.target.closest && e.target.closest("#wallet-btn"))) {
-      handleOpen(e);
-    }
-  }, true);
+  // Document-level capture-phase handlers. Run BEFORE any bubble-phase
+  // extension listener. Listen to many event types in case some are
+  // stripped by a particular extension.
+  ["mousedown", "mouseup", "click", "pointerdown", "pointerup"].forEach(t => {
+    document.addEventListener(t, onOurEvent, true);  // capture
+  });
+  // Direct button-level handlers as a final fallback (these run after
+  // document capture, but if document capture is intercepted they may
+  // still fire).
+  ["mousedown", "mouseup", "click", "pointerdown"].forEach(t => {
+    btn.addEventListener(t, onOurEvent, false);
+  });
+  // Also expose a global "open the modal now" function for debugging
+  // and emergency access from the console.
+  window.__ubotpayOpenModal = function() { openModal(); };
   if (closeBtn) closeBtn.addEventListener("click", closeModal);
   modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
