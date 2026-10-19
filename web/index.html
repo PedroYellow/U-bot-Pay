@@ -478,6 +478,18 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     if (typeof refreshHealth === "function") refreshHealth();
   }
   function openModal(){
+    console.log("[ubotpay] openModal() START");
+    // Add a visual indicator so we can see the modal even if CSS fails
+    try {
+      const t = document.createElement("div");
+      t.textContent = "✓ openModal() called";
+      t.style.cssText = "position:fixed;top:50px;left:50%;transform:translateX(-50%);background:#1F5AF0;color:#fff;padding:8px 16px;border-radius:8px;font:700 14px ui-monospace,monospace;z-index:999999";
+      const old = document.getElementById("ubotpay-open-toast");
+      if (old) old.remove();
+      t.id = "ubotpay-open-toast";
+      document.body.appendChild(t);
+      setTimeout(() => { t.remove(); }, 1500);
+    } catch (e) {}
     console.log("[ubotpay] openModal() called, adding .open class to modal");
     console.log("[ubotpay] modal element:", modal);
     console.log("[ubotpay] modal current classes:", modal.className);
@@ -720,18 +732,33 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
   };
   const onOurEvent = (e) => {
     if (!isOurButton(e.target)) return;
-    // Stop other listeners (extensions) from interfering
     try { e.stopImmediatePropagation(); } catch (err) {}
     try { e.stopPropagation(); } catch (err) {}
     try { e.preventDefault(); } catch (err) {}
-    console.log("[ubotpay] event received:", e.type);
+    console.log("[ubotpay] CLICK event:", e.type, "connected=", btn.classList.contains("connected"));
+    // Forced visual feedback so we can confirm the handler ran
+    try {
+      const t = document.createElement("div");
+      t.textContent = "✓ click " + e.type;
+      t.style.cssText = "position:fixed;top:8px;left:50%;transform:translateX(-50%);background:#13B37A;color:#000;padding:8px 16px;border-radius:8px;font:700 14px ui-monospace,monospace;z-index:999999";
+      const old = document.getElementById("ubotpay-click-toast");
+      if (old) old.remove();
+      t.id = "ubotpay-click-toast";
+      document.body.appendChild(t);
+      setTimeout(() => { t.remove(); }, 1500);
+    } catch (e) {}
     if (btn.classList.contains("connected")) {
-      // Open the wallet info popover instead of disconnecting.
-      // User can click "Disconnect" inside the popover.
       const pop = document.getElementById("ubotpay-wallet-info");
       if (pop) closeWalletInfo();
       else openWalletInfo();
-    } else openModal();
+    } else {
+      console.log("[ubotpay] calling openModal()");
+      openModal();
+      setTimeout(() => {
+        const m = document.getElementById("wallet-modal");
+        console.log("[ubotpay] modal after openModal:", m.className, "opacity:", getComputedStyle(m).opacity);
+      }, 100);
+    }
   };
   // Document-level capture-phase handlers. Run BEFORE any bubble-phase
   // extension listener. Listen to many event types in case some are
