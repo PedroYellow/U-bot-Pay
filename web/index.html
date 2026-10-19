@@ -349,6 +349,11 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     <button class="close" id="wallet-modal-close" aria-label="Close">×</button>
     <h3>Connect a wallet</h3>
     <p class="sub">Sign in with the wallet that holds your USDC. We never custody your funds.</p>
+    <div id="ubotpay-chain-selector" style="margin:0 0 14px;padding:10px 12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);border-radius:10px;display:flex;align-items:center;gap:10px">
+      <div style="opacity:.7;font-size:11px;text-transform:uppercase;letter-spacing:.05em;flex:0 0 70px">Source</div>
+      <select id="ubotpay-chain-select" style="flex:1;padding:8px 10px;border-radius:8px;background:#0B0D2A;border:1px solid #1F5AF0;color:#fff;font:600 13px Poppins;cursor:pointer"></select>
+      <div id="ubotpay-chain-balance" style="font:600 12px/1.2 ui-monospace,monospace;color:#9ec5ff;flex:0 0 auto;text-align:right">…</div>
+    </div>
     <div id="wallet-modal-list"></div>
     <div class="footer">
       New to wallets? <a href="https://metamask.io/download/" target="_blank" rel="noopener" style="color:#9ec5ff">Install MetaMask</a><br>
@@ -486,6 +491,7 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     if (typeof refreshHealth === "function") refreshHealth();
   }
   function openModal(){
+    populateChainSelector();
     console.log("[ubotpay] openModal() START");
     // Add a visual indicator so we can see the modal even if CSS fails
     try {
@@ -556,6 +562,54 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     if (!out.length)         out.push({id:"generic",    name:"Browser Wallet",   sub:"EIP-1193 detected",     icon:"🔌"});
     return out;
   }
+  // Populate the chain selector dropdown. Called every time the modal opens.
+  function populateChainSelector(){
+    const sel = document.getElementById("ubotpay-chain-select");
+    if (!sel) return;
+    sel.innerHTML = "";
+    Object.keys(CHAIN_PARAMS).forEach(id => {
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = CHAIN_PARAMS[id].chainName + " (" + CHAIN_PARAMS[id].nativeCurrency.symbol + ")";
+      if (parseInt(id) === selectedChainId) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    sel.onchange = () => {
+      selectedChainId = parseInt(sel.value);
+      // Clear any stale "balance" hint when changing chains
+      const bal = document.getElementById("ubotpay-chain-balance");
+      if (bal) bal.textContent = "switching…";
+      // Refresh the user's balance on the new chain (if wallet is connected)
+      refreshChainBalance();
+    };
+    refreshChainBalance();
+  }
+  // Read the currently-connected account's USDC balance on the selected
+  // chain and display it next to the dropdown so the user knows
+  // they have something to pay with.
+  async function refreshChainBalance(){
+    const bal = document.getElementById("ubotpay-chain-balance");
+    if (!bal) return;
+    // If the wallet is not connected yet, try to read eth_accounts
+    // (MetaMask can return already-authorized accounts without re-prompting)
+    if (!window.ethereum) { bal.textContent = ""; return; }
+    let accounts;
+    try { accounts = await window.ethereum.request({ method: "eth_accounts" }); }
+    catch (e) { bal.textContent = ""; return; }
+    if (!accounts || !accounts.length) { bal.textContent = ""; return; }
+    bal.textContent = "checking…";
+    try {
+      const r = await fetch(ROOT_API + "/balance/" + accounts[0] + "?chain_id=" + selectedChainId);
+      if (r.ok) {
+        const b = await r.json();
+        const usdc = b.usdc != null ? b.usdc.toFixed(2) : "0";
+        const native = b.native_balance != null ? b.native_balance.toFixed(4) : "0";
+        bal.textContent = usdc + " USDC · " + native + " " + (b.native || "");
+      } else {
+        bal.textContent = "—";
+      }
+    } catch (e) { bal.textContent = "—"; }
+  }
   function buildRows(){
     const wallets = detect();
     if (!wallets.length) {
@@ -575,40 +629,40 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
       list.appendChild(r);
     });
   }
-  // Chain configuration: Avalanche C-Chain (43114) is the primary one.
-  // We also accept Avalanche Fuji (43113) for testing. The rest are
-  // disabled in the backend registry (set `enabled=True` in chain.py
-  // to enable Base/Polygon/Arbitrum/ETH/OP).
-  const SUPPORTED_CHAINS = [43114, 43113];
+  // Chain configuration: all 7 enabled chains. The user picks
+  // which chain to pay from in the modal; we use wallet_switchEthereumChain
+  // to move their wallet to that chain before signing.
   const CHAIN_PARAMS = {
-    43114: {
-      chainId: "0xA86A",
-      chainName: "Avalanche C-Chain",
-      nativeCurrency: { name: "AVAX", symbol: "AVAX", decimals: 18 },
-      rpcUrls: ["https://api.avax.network/ext/bc/C/rpc"],
-      blockExplorerUrls: ["https://snowtrace.io"]
-    },
-    43113: {
-      chainId: "0xA869",
-      chainName: "Avalanche Fuji (testnet)",
-      nativeCurrency: { name: "AVAX", symbol: "AVAX", decimals: 18 },
-      rpcUrls: ["https://api.avax-test.network/ext/bc/C/rpc"],
-      blockExplorerUrls: ["https://testnet.snowtrace.io"]
-    }
+    1:      { chainId: "0x1",   chainName: "Ethereum",      nativeCurrency: { name: "ETH",  symbol: "ETH",  decimals: 18 }, rpcUrls: ["https://eth.merkle.io"],                            blockExplorerUrls: ["https://etherscan.io"] },
+    10:     { chainId: "0xA",   chainName: "Optimism",      nativeCurrency: { name: "ETH",  symbol: "ETH",  decimals: 18 }, rpcUrls: ["https://mainnet.optimism.io"],                    blockExplorerUrls: ["https://optimistic.etherscan.io"] },
+    137:    { chainId: "0x89",  chainName: "Polygon",       nativeCurrency: { name: "MATIC",symbol: "MATIC",decimals: 18 }, rpcUrls: ["https://polygon-rpc.com"],                          blockExplorerUrls: ["https://polygonscan.com"] },
+    8453:   { chainId: "0x2105",chainName: "Base",          nativeCurrency: { name: "ETH",  symbol: "ETH",  decimals: 18 }, rpcUrls: ["https://mainnet.base.org"],                         blockExplorerUrls: ["https://basescan.org"] },
+    42161:  { chainId: "0xA4B1",chainName: "Arbitrum One",  nativeCurrency: { name: "ETH",  symbol: "ETH",  decimals: 18 }, rpcUrls: ["https://arb1.arbitrum.io/rpc"],                     blockExplorerUrls: ["https://arbiscan.io"] },
+    43114:  { chainId: "0xA86A",chainName: "Avalanche C-Chain", nativeCurrency: { name: "AVAX", symbol: "AVAX", decimals: 18 }, rpcUrls: ["https://api.avax.network/ext/bc/C/rpc"],        blockExplorerUrls: ["https://snowtrace.io"] },
+    43113:  { chainId: "0xA869",chainName: "Avalanche Fuji (testnet)", nativeCurrency: { name: "AVAX", symbol: "AVAX", decimals: 18 }, rpcUrls: ["https://api.avax-test.network/ext/bc/C/rpc"], blockExplorerUrls: ["https://testnet.snowtrace.io"] },
   };
+  const SUPPORTED_CHAINS = Object.keys(CHAIN_PARAMS).map(Number);
+  // Default: Avalanche C-Chain (preserves previous UX)
+  let selectedChainId = 43114;
 
-  async function ensureAvalancheChain(provider) {
+  // Make sure the wallet is on the chain the user picked in the dropdown.
+  // If the chain is not yet added, prompts the user to add it.
+  async function ensureSelectedChain(provider, targetId) {
     let chainId;
     try {
       const hex = await provider.request({ method: "eth_chainId" });
       chainId = parseInt(hex, 16);
     } catch (e) { chainId = 0; }
-    if (SUPPORTED_CHAINS.includes(chainId)) return chainId;
-    // Try to switch to Avalanche
+    if (chainId === targetId) return chainId;
+    const params = CHAIN_PARAMS[targetId];
+    if (!params) {
+      alert("Chain " + targetId + " is not configured yet. Please pick another.");
+      throw new Error("unknown chain");
+    }
     try {
       await provider.request({
         method: "wallet_switchEthereumChain",
-        params: [{ chainId: "0xA86A" }]
+        params: [{ chainId: params.chainId }]
       });
     } catch (e) {
       // 4902 = chain not added to wallet. Add it.
@@ -616,14 +670,14 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
         try {
           await provider.request({
             method: "wallet_addEthereumChain",
-            params: [CHAIN_PARAMS[43114]]
+            params: [params]
           });
         } catch (e2) {
-          alert("Please switch your wallet to Avalanche C-Chain manually.");
+          alert("Please add " + params.chainName + " to your wallet and try again.");
           throw e2;
         }
       } else {
-        alert("Please switch your wallet to Avalanche C-Chain.");
+        alert("Please switch your wallet to " + params.chainName + ".");
         throw e;
       }
     }
@@ -693,14 +747,10 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     const address = await pickAccount(provider, accounts, label || "Wallet");
     if (!address) return;  // user cancelled the picker
 
-    // Make sure the wallet is on Avalanche C-Chain
+    // Make sure the wallet is on the chain the user selected in the modal.
     let chainId;
-    try { chainId = await ensureAvalancheChain(provider); }
+    try { chainId = await ensureSelectedChain(provider, selectedChainId); }
     catch (e) { return; }
-    if (!SUPPORTED_CHAINS.includes(chainId)) {
-      alert("Ubotpay only supports Avalanche C-Chain right now. Please switch your wallet to Avalanche and try again.");
-      return;
-    }
 
     let nonce;
     try {
