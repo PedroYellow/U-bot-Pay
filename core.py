@@ -408,3 +408,25 @@ def issue_session_jwt(user: dict, secret: str, ttl_s: int = 7 * 24 * 3600) -> st
 def verify_session_jwt(token: str, secret: str) -> dict | None:
     """Verify and return the JWT payload, or None."""
     return _jwt_verify(token, secret)
+
+
+def link_telegram_to_user(token: str, secret: str, telegram_id: int) -> dict | None:
+    """Verify a JWT and stamp the user's telegram_id onto the matching
+    user record. This is how a wallet-connected web user becomes
+    reachable by the Telegram bot — so bridge status notifications
+    can be sent to their Telegram chat.
+
+    Returns the user dict on success, or None on invalid/expired token.
+    If the user already had a telegram_id set, it's overwritten (the
+    user explicitly chose to link, so this is intentional).
+    """
+    payload = _jwt_verify(token, secret)
+    if not payload:
+        return None
+    user_id = payload.get("sub")
+    if not user_id:
+        return None
+    with conn() as c:
+        c.execute("UPDATE users SET telegram_id = ? WHERE id = ?", (int(telegram_id), int(user_id)))
+        row = c.execute("SELECT * FROM users WHERE id = ?", (int(user_id),)).fetchone()
+    return dict(row) if row else None

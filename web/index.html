@@ -401,6 +401,12 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
         </div>
         <select id="pay-to-chain" style="width:100%;padding:8px 10px;border-radius:8px;background:#0B0D2A;border:1px solid #1F5AF0;color:#fff;font:600 13px Poppins;cursor:pointer"></select>
       </div>
+      <div id="pay-telegram-banner" style="display:none;background:rgba(46,204,113,.08);border:1px solid rgba(46,204,113,.3);border-radius:10px;padding:10px 12px;font:500 12px ui-monospace,monospace;line-height:1.6">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <span>🔔 Get bridge updates on Telegram</span>
+          <button id="pay-telegram-link-btn" style="background:#2ECC71;color:#fff;border:0;border-radius:6px;padding:6px 12px;font:600 11px Poppins;cursor:pointer;white-space:nowrap">Link Telegram</button>
+        </div>
+      </div>
       <div id="pay-bridge-preview" style="display:none;background:rgba(31,90,240,.08);border:1px solid rgba(31,90,240,.3);border-radius:10px;padding:12px;font:500 12px ui-monospace,monospace;line-height:1.6">
         <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="opacity:.6">Bridge</span><b id="pay-bridge-tool" style="color:#9ec5ff">—</b></div>
         <div style="display:flex;justify-content:space-between"><span>You send</span><b id="pay-bridge-from">—</b></div>
@@ -551,6 +557,18 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
       } catch (e) { /* ignore */ }
     }
     modal.classList.add("open");
+    // Check if this user already has Telegram linked.
+    // We probe /auth/me and see if the response includes telegram_id.
+    try {
+      const me = await fetch(ROOT_API + "/auth/me", {
+        headers: window.__ubotpayAuth ? window.__ubotpayAuth() : {},
+      });
+      if (me.ok) {
+        const u = await me.json();
+        const banner = document.getElementById("pay-telegram-banner");
+        if (banner && !u.telegram_id) banner.style.display = "block";
+      }
+    } catch (e) { /* ignore */ }
   }
   function closePayModal(){
     const modal = document.getElementById("pay-modal");
@@ -729,6 +747,23 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
   window.__ubotpayClosePayModal = closePayModal;
   window.__ubotpaySubmitPay = submitPay;
   window.__ubotpayRefreshQuote = refreshPayQuote;
+  // Telegram link: copy the JWT to clipboard and open tg://
+  document.addEventListener("DOMContentLoaded", () => {
+    const linkBtn = document.getElementById("pay-telegram-link-btn");
+    if (linkBtn) linkBtn.addEventListener("click", async () => {
+      const sess = window.__ubotpaySession || localStorage.getItem("ubotpay_session");
+      let token = "";
+      try {
+        const parsed = JSON.parse(sess);
+        token = parsed.token || parsed.jwt || "";
+      } catch (e) { token = sess; }
+      if (!token) { alert("Connect your wallet first."); return; }
+      const link = "https://t.me/UbotpayBot?text=" + encodeURIComponent("/link " + token);
+      window.open(link, "_blank", "noopener");
+      linkBtn.textContent = "Copied!";
+      linkBtn.disabled = true;
+    });
+  });
 
   // Fetch AVAX + USDC balances for the connected address and update the popover
   async function fetchWalletInfo() {

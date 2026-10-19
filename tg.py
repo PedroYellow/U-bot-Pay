@@ -124,6 +124,44 @@ async def on_reject(update, ctx):
     await on_approve(update, ctx, approve=False)
 
 
+async def on_link(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Link this Telegram chat to a wallet-connected web session.
+
+    Usage: /link <jwt_token>
+    The token comes from ubotpay.com (read it from localStorage after
+    connecting the wallet). After linking, bridge status notifications
+    will be sent to this chat.
+    """
+    parts = (update.message.text or "").split()
+    if len(parts) < 2:
+        msg = "🔗 *Link this chat to your ubotpay wallet*\n\n"
+        msg += "1. Open https://ubotpay.com and connect your wallet\n"
+        msg += "2. In the JS console, run:  `localStorage.getItem('ubotpay_session')`\n"
+        msg += "3. Copy the token\n"
+        msg += "4. Come back here and send:  `/link <paste-the-token-here>`\n\n"
+        msg += "Then bridge status updates will arrive in this chat."
+        await update.message.reply_text(msg, parse_mode="Markdown")
+        return
+    token = parts[1].strip()
+    if token.startswith("`") and token.endswith("`"):
+        token = token[1:-1]
+    if token.lower().startswith("bearer "):
+        token = token[7:].strip()
+    try:
+        async with httpx.AsyncClient(timeout=10) as cli:
+            r = await cli.post(f"{API_URL}/auth/link-telegram",
+                               headers={"Authorization": f"Bearer {token}", "x-api-key": API_KEY},
+                               json={"telegram_id": update.effective_user.id})
+        if r.status_code != 200:
+            await update.message.reply_text(f"⚠️ Could not link: {r.text[:200]}"); return
+        d = r.json()
+        reply = f"✅ Linked! Wallet session `{d['user_id']}` is now connected to this chat.\n"
+        reply += "You'll get a Telegram message every time you do a cross-chain bridge."
+        await update.message.reply_text(reply, parse_mode="Markdown")
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Linking error: {str(e)[:120]}")
+
+
 async def on_cosigner(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """/cosigner <telegram_id>  — set who approves big payments."""
     parts = (update.message.text or "").split()
@@ -151,6 +189,7 @@ def build() -> Application:
     _app.add_handler(CommandHandler("approve", on_approve))
     _app.add_handler(CommandHandler("reject", on_reject))
     _app.add_handler(CommandHandler("cosigner", on_cosigner))
+    _app.add_handler(CommandHandler("link", on_link))
     _app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, on_voice))
     _app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     api.NOTIFY = notify

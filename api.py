@@ -31,6 +31,101 @@ if not API_KEY:
     raise RuntimeError("UBOT_API_KEY must be configured (security: fail-closed)")
 NOTIFY = None   # set by telegram bot at import time: async fn(telegram_id, text)
 
+# Track which status transitions we've already notified for, so we
+# don't spam the user. Key = (bridge_id, status). Value = True.
+# Lives in-memory; resets on process restart (acceptable since the
+# status is also stored in the DB).
+_BRIDGE_NOTIFIED = set()
+
+
+def _chain_name(chain_id: int) -> str:
+    """Resolve a chain_id to its display name using chain.chains()."""
+    try:
+        for c in chain.chains() + [
+            {"id": k, "name": v.name} for k, v in getattr(chain, "_BUILTIN_CHAINS", {}).items()
+        ]:
+            if c["id"] == chain_id:
+                return c["name"]
+    except Exception:
+        pass
+    return f"chain {chain_id}"
+
+
+async def _notify_bridge(bridge: dict, event: str, user: dict | None = None):
+    """Fire a Telegram notification for a bridge status change. Safe to
+    call from sync endpoints: if a user is missing telegram_id or NOTIFY
+    isn't set (no bot running), this is a no-op. Idempotent within a
+    single process via _BRIDGE_NOTIFIED.
+
+    Events:
+      - started   → "🌉 Bridge started: X USDC …"
+      - submitted → "📝 Bridge submitted on chain A: tx_hash"
+      - confirming → "🔄 Bridge confirming on chain B…"
+      - done      → "✅ Bridge done! Recipient received Y USDC on B"
+      - failed    → "❌ Bridge failed: <error>"
+    """
+    if not NOTIFY or not bridge:
+        return
+    key = (bridge["id"], event)
+    if key in _BRIDGE_NOTIFIED:
+        return
+    _BRIDGE_NOTIFIED.add(key)
+    # Resolve telegram_id from the bridge's user if not passed in
+    tg_id = None
+    if user and user.get("telegram_id"):
+        tg_id = int(user["telegram_id"])
+    else:
+        owner = core.get_user(user_id=bridge.get("user_id"))
+        if owner and owner.get("telegram_id"):
+            tg_id = int(owner["telegram_id"])
+    if not tg_id:
+        return
+    bridge_id = bridge["id"]
+    short_id = bridge_id[:10] + "…" if len(bridge_id) > 10 else bridge_id
+    amt = bridge.get("amount_usdc", 0)
+    from_c = _chain_name(bridge.get("from_chain"))
+    to_c = _chain_name(bridge.get("to_chain"))
+    to_addr = (bridge.get("to_address") or "")[:10] + "…" if bridge.get("to_address") else "—"
+    if event == "started":
+        text = (f"🌉 <b>Bridge started</b>\n"
+                f"  {amt} USDC · {from_c} → {to_c}\n"
+                f"  Tool: {bridge.get('tool') or 'partner'}\n"
+                f"  To: {to_addr}\n"
+                f"  Bridge ID: <code>{short_id}</code>")
+    elif event == "submitted":
+        tx = (bridge.get("tx_hash") or "")[:14] + "…" if bridge.get("tx_hash") else "—"
+        text = (f"📝 <b>Bridge submitted</b> on {from_c}\n"
+                f"  Tx: <code>{tx}</code>\n"
+                f"  {amt} USDC → {to_c}\n"
+                f"  Bridge ID: <code>{short_id}</code>")
+    elif event == "confirming":
+        text = (f"🔄 <b>Bridge confirming</b> on {to_c}…\n"
+                f"  {amt} USDC in flight\n"
+                f"  Bridge ID: <code>{short_id}</code>")
+    elif event == "done":
+        try:
+            delivered = int(bridge.get("to_amount_min") or 0) / 1e6
+        except Exception:
+            delivered = amt
+        text = (f"✅ <b>Bridge done!</b>\n"
+                f"  Recipient received <b>{delivered:.2f} USDC</b> on {to_c}\n"
+                f"  From: {amt} USDC on {from_c}\n"
+                f"  Bridge ID: <code>{short_id}</code>")
+    elif event == "failed":
+        err = (bridge.get("error") or "unknown")[:200]
+        text = (f"❌ <b>Bridge failed</b>\n"
+                f"  {amt} USDC · {from_c} → {to_c}\n"
+                f"  Reason: {err}\n"
+                f"  Bridge ID: <code>{short_id}</code>")
+    else:
+        return
+    try:
+        # NOTIFY is sync from the bot's POV but the function is async.
+        # We schedule it as a task so it doesn't block the request.
+        asyncio.create_task(NOTIFY(tg_id, text))
+    except Exception as e:
+        log.warning("notify bridge failed: %s", e)
+
 # in-memory conversation state per user: pending quote awaiting "confirm"
 _pending: dict[int, dict] = {}
 
@@ -646,6 +741,12 @@ def bridge_start(body: dict, request: Request):
         to_amount_min=str(quote_obj["to_amount_min"]),
         raw_quote=_json.dumps(quote_obj.get("raw", {})),
     )
+    # Fire the "started" notification (asynchronous, non-blocking)
+    if NOTIFY:
+        try:
+            asyncio.create_task(_notify_bridge(br, "started", user))
+        except Exception as e:
+            log.warning("could not schedule started notification: %s", e)
     return {"ok": True, "bridge_id": br["id"], "quote": {
         "tool": quote_obj["tool"],
         "to_amount": str(quote_obj["to_amount"]),
@@ -672,6 +773,12 @@ def bridge_confirm(bridge_id: str, body: dict, request: Request):
     if not tx_hash:
         raise HTTPException(400, "tx_hash required")
     core.update_bridge(bridge_id, tx_hash=tx_hash, status="submitted")
+    if NOTIFY:
+        try:
+            br_after = core.get_bridge(bridge_id)
+            asyncio.create_task(_notify_bridge(br_after, "submitted", user))
+        except Exception as e:
+            log.warning("could not schedule submitted notification: %s", e)
     return {"ok": True, "bridge_id": bridge_id, "tx_hash": tx_hash}
 
 
@@ -699,13 +806,27 @@ def bridge_status(bridge_id: str, request: Request):
         done_hash = receiving.get("txHash") if isinstance(receiving, dict) else None
         if lifi_status in ("done", "completed", "success") or done_hash:
             core.update_bridge(bridge_id, status="done", confirmed_at=int(time.time()))
-            return core.get_bridge(bridge_id)
+            br_done = core.get_bridge(bridge_id)
+            if NOTIFY:
+                try: asyncio.create_task(_notify_bridge(br_done, "done", user))
+                except Exception as e: log.warning("done notify failed: %s", e)
+            return br_done
         if lifi_status in ("failed", "error"):
             core.update_bridge(bridge_id, status="failed", error=str(s)[:300])
-            return core.get_bridge(bridge_id)
+            br_fail = core.get_bridge(bridge_id)
+            if NOTIFY:
+                try: asyncio.create_task(_notify_bridge(br_fail, "failed", user))
+                except Exception as e: log.warning("failed notify failed: %s", e)
+            return br_fail
         if lifi_status in ("pending",):
+            # Only notify when first entering "confirming" from another state.
+            # _notify_bridge is idempotent within a process, so this is fine.
             core.update_bridge(bridge_id, status="confirming")
-            return core.get_bridge(bridge_id)
+            br_c = core.get_bridge(bridge_id)
+            if NOTIFY:
+                try: asyncio.create_task(_notify_bridge(br_c, "confirming", user))
+                except Exception as e: log.warning("confirming notify failed: %s", e)
+            return br_c
         return br
     except Exception as e:
         log.warning("bridge status check failed: %s", e)
@@ -725,3 +846,23 @@ def bridge_history(request: Request, limit: int = 20):
 async def auth_me(request: Request):
     """Return the current user from the Bearer token. 401 if no/invalid session."""
     return _require_session(request)
+
+
+class LinkTelegramRequest(BaseModel):
+    telegram_id: int
+
+
+@app.post("/auth/link-telegram")
+async def auth_link_telegram(body: LinkTelegramRequest, request: Request):
+    """Link a wallet-connected web session to a Telegram chat so the
+    user gets bridge notifications in their Telegram DM. The JWT must
+    be in the Authorization header. Telegram bot calls this internally
+    after the user sends /link <token>."""
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(401, "missing bearer token")
+    token = auth[7:].strip()
+    u = core.link_telegram_to_user(token, JWT_SECRET, int(body.telegram_id))
+    if not u:
+        raise HTTPException(401, "invalid or expired session")
+    return {"ok": True, "user_id": u["id"], "telegram_id": u["telegram_id"]}
