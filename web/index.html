@@ -797,11 +797,11 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
   } catch (e) {
     console.error("[ubotpay] IIFE crashed:", e.message, e.stack);
   }
-})();  } catch (e) {
-    console.error("[ubotpay] IIFE crashed:", e.message, e.stack);
-  }
 })();
 // Debug helper: open modal automatically if ?open=1
 if (location.search.indexOf("open=1") >= 0) {
   setTimeout(() => { try { openModal(); } catch(e) { console.error("auto-open failed", e); } }, 1000);
 }
+</script>
+</body>
+</html>
