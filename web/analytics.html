@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Bridge analytics · Ubotpay</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root {
+    --bg: #06071a; --panel: #0B0D2A; --panel-2: #11143A; --border: rgba(255,255,255,.06);
+    --text: #fff; --muted: rgba(255,255,255,.55); --accent: #1F5AF0; --accent-2: #6C5CE7; --good: #13B37A; --warn: #E5B022; --bad: #E54D4D;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--text);
+    font: 14px Poppins, system-ui, sans-serif;
+    background-image: radial-gradient(ellipse at top, rgba(31,90,240,.18), transparent 60%),
+                      radial-gradient(ellipse at bottom right, rgba(108,92,231,.10), transparent 60%);
+    min-height: 100vh;
+  }
+  .header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 20px 32px; border-bottom: 1px solid var(--border);
+  }
+  .brand {
+    display: flex; align-items: center; gap: 12px;
+    font: 700 18px Poppins; color: var(--text); text-decoration: none;
+  }
+  .brand img { width: 32px; height: 32px; }
+  .back { color: var(--muted); text-decoration: none; font: 500 13px Poppins; }
+  .back:hover { color: var(--text); }
+  .container { max-width: 1200px; margin: 0 auto; padding: 32px; }
+  h1 { font: 700 28px Poppins; margin: 0 0 6px 0; }
+  .subtitle { color: var(--muted); font: 500 13px Poppins; margin-bottom: 28px; }
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 32px; }
+  @media (max-width: 700px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+  .kpi {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 18px 20px;
+  }
+  .kpi-label { color: var(--muted); font: 500 11px Poppins; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+  .kpi-value { font: 700 28px Poppins; line-height: 1; }
+  .kpi-sub { color: var(--muted); font: 500 12px Poppins; margin-top: 6px; }
+  .kpi.accent .kpi-value { background: linear-gradient(135deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .row { display: grid; grid-template-columns: 1fr 2fr; gap: 16px; margin-bottom: 32px; }
+  @media (max-width: 900px) { .row { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 22px;
+  }
+  .card h2 { margin: 0 0 16px 0; font: 600 16px Poppins; }
+  .donut-wrap { display: flex; align-items: center; gap: 24px; }
+  .donut { width: 160px; height: 160px; }
+  .donut path { transition: opacity .2s; }
+  .donut path:hover { opacity: .7; }
+  .legend { flex: 1; }
+  .legend-item { display: flex; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .legend-item:last-child { border: 0; }
+  .legend-swatch { width: 12px; height: 12px; border-radius: 3px; margin-right: 10px; flex-shrink: 0; }
+  .legend-name { flex: 1; font: 500 13px Poppins; }
+  .legend-count { color: var(--muted); font: 600 13px ui-monospace, monospace; margin-left: 10px; }
+  .legend-pct { color: var(--muted); font: 500 11px ui-monospace, monospace; margin-left: 6px; min-width: 32px; text-align: right; }
+  .bars { width: 100%; height: 200px; display: flex; align-items: flex-end; gap: 2px; }
+  .bar {
+    flex: 1; min-width: 6px; background: linear-gradient(180deg, var(--accent), var(--accent-2));
+    border-radius: 3px 3px 0 0; min-height: 1px; transition: opacity .15s;
+    position: relative;
+  }
+  .bar:hover { opacity: .7; }
+  .bar:hover .tooltip { opacity: 1; }
+  .tooltip {
+    position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 4px 8px; font: 600 11px ui-monospace, monospace; white-space: nowrap;
+    opacity: 0; transition: opacity .15s; pointer-events: none;
+  }
+  .bar-labels { display: flex; gap: 2px; margin-top: 6px; }
+  .bar-label { flex: 1; min-width: 6px; text-align: center; color: var(--muted); font: 500 9px ui-monospace, monospace; }
+  table { width: 100%; border-collapse: collapse; font: 500 13px Poppins; }
+  th { color: var(--muted); font: 600 11px Poppins; text-transform: uppercase; letter-spacing: .05em; padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+  td { padding: 12px; border-bottom: 1px solid var(--border); }
+  td:last-child { color: var(--muted); }
+  td.amount { font: 600 13px ui-monospace, monospace; }
+  .status {
+    display: inline-block; padding: 3px 10px; border-radius: 6px;
+    font: 600 11px Poppins; text-transform: uppercase; letter-spacing: .04em;
+  }
+  .status.done { background: rgba(19,179,122,.18); color: #7ED4A3; }
+  .status.failed { background: rgba(229,77,77,.18); color: #FF8888; }
+  .status.confirming, .status.submitted, .status.pending { background: rgba(229,176,34,.18); color: #FFD25C; }
+  .empty { color: var(--muted); font: 500 13px Poppins; padding: 24px; text-align: center; }
+  .err { background: rgba(229,77,77,.18); border: 1px solid rgba(229,77,77,.4); border-radius: 10px; padding: 14px 18px; color: #FF8888; margin-bottom: 24px; font: 500 13px Poppins; }
+  .footer {
+    text-align: center; padding: 32px; color: var(--muted); font: 500 12px Poppins;
+  }
+  .loading { opacity: .5; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <a class="brand" href="/"><img src="/icon.png" alt="U"> Ubotpay · Analytics</a>
+    <a class="back" href="/">← Back to home</a>
+  </div>
+  <div class="container">
+    <h1>Bridge Analytics</h1>
+    <p class="subtitle">Your cross-chain payment activity. Connect your wallet to see live data.</p>
+    <div id="root">
+      <div class="empty" id="loading">Loading…</div>
+    </div>
+  </div>
+  <div class="footer">
+    Bridging powered by LI.FI & Across Protocol · All times in your local timezone
+  </div>
+
+<script>
+const ROOT_API = (location.hostname === "localhost" || location.hostname.startsWith("127.")) ? "http://localhost:8090" : "https://ubotpay.com";
+const COLOR_PARTNERS = ["#1F5AF0", "#6C5CE7", "#13B37A", "#E5B022", "#E54D4D", "#9EC5FF", "#F178B6"];
+
+function getSession() {
+  try { return JSON.parse(localStorage.getItem("ubotpay_session") || "{}"); }
+  catch (e) { return {}; }
+}
+
+async function fetchAnalytics() {
+  const sess = getSession();
+  const headers = {};
+  if (sess.token) headers["Authorization"] = "Bearer " + sess.token;
+  const r = await fetch(ROOT_API + "/bridge/analytics", { headers });
+  if (r.status === 401) {
+    return { error: "no_session" };
+  }
+  if (!r.ok) {
+    return { error: "http_" + r.status, message: await r.text() };
+  }
+  return await r.json();
+}
+
+function formatUSD(v) {
+  if (v == null) return "—";
+  if (v < 1) return "$" + v.toFixed(3);
+  return "$" + v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatTime(s) {
+  if (s == null) return "—";
+  if (s < 60) return s.toFixed(1) + "s";
+  if (s < 3600) return (s / 60).toFixed(1) + "m";
+  return (s / 3600).toFixed(1) + "h";
+}
+
+function statusBadge(status) {
+  const cls = ["done", "failed", "confirming"].includes(status) ? status : "pending";
+  return `<span class="status ${cls}">${status || "pending"}</span>`;
+}
+
+function partnerColor(idx) {
+  return COLOR_PARTNERS[idx % COLOR_PARTNERS.length];
+}
+
+function renderDonut(partners) {
+  if (!partners || !partners.length) return '<div class="empty">No bridges yet</div>';
+  const total = partners.reduce((a, p) => a + p.count, 0);
+  const radius = 60, cx = 80, cy = 80, stroke = 22;
+  let cumulative = 0;
+  const paths = partners.map((p, idx) => {
+    const fraction = p.count / total;
+    const dashArray = 2 * Math.PI * radius;
+    const dashOffset = dashArray * (1 - fraction);
+    const rotation = (cumulative / total) * 360 - 90;
+    cumulative += p.count;
+    const color = partnerColor(idx);
+    return `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="${color}" stroke-width="${stroke}"
+      stroke-dasharray="${dashArray} ${dashArray}" stroke-dashoffset="${dashOffset}"
+      transform="rotate(${rotation} ${cx} ${cy})" stroke-linecap="butt" />`;
+  }).join("");
+  const legend = partners.map((p, idx) => {
+    const color = partnerColor(idx);
+    return `<div class="legend-item">
+      <span class="legend-swatch" style="background:${color}"></span>
+      <span class="legend-name">${p.tool}</span>
+      <span class="legend-count">${p.count}</span>
+      <span class="legend-pct">${(p.share * 100).toFixed(0)}%</span>
+    </div>`;
+  }).join("");
+  return `<div class="donut-wrap">
+    <svg class="donut" viewBox="0 0 160 160">${paths}</svg>
+    <div class="legend">${legend}</div>
+  </div>`;
+}
+
+function renderBars(daily) {
+  if (!daily || !daily.length) return '<div class="empty">No data</div>';
+  const max = Math.max(1, ...daily.map(d => d.count));
+  const bars = daily.map(d => {
+    const h = Math.max(1, (d.count / max) * 180);
+    const date = new Date(d.date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    return `<div class="bar" style="height:${h}px">
+      <span class="tooltip">${d.count} bridge${d.count === 1 ? "" : "s"} · ${formatUSD(d.volume)}<br>${date}</span>
+    </div>`;
+  }).join("");
+  const labels = daily.map((d, i) => {
+    if (i % 7 !== 0 && i !== daily.length - 1) return `<div class="bar-label"></div>`;
+    const dt = new Date(d.date);
+    return `<div class="bar-label">${dt.getDate()}/${dt.getMonth() + 1}</div>`;
+  }).join("");
+  return `<div class="bars">${bars}</div><div class="bar-labels">${labels}</div>`;
+}
+
+function renderTable(recent) {
+  if (!recent || !recent.length) return '<div class="empty">No bridges yet</div>';
+  const rows = recent.map(b => {
+    const date = new Date((b.confirmed_at || b.created_at) * 1000).toLocaleString("en-US", {
+      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
+    });
+    const shortTx = b.tx_hash ? b.tx_hash.slice(0, 10) + "…" : "—";
+    const dur = b.duration_s != null ? formatTime(b.duration_s) : "—";
+    const fromShort = (b.from_address || "").slice(0, 6) + "…" + (b.from_address || "").slice(-4);
+    const toShort = (b.to_address || "").slice(0, 6) + "…" + (b.to_address || "").slice(-4);
+    return `<tr>
+      <td>${date}</td>
+      <td class="amount">${b.amount_usdc} USDC</td>
+      <td>${b.from_chain} → ${b.to_chain}</td>
+      <td>${b.tool || "—"}</td>
+      <td>${statusBadge(b.status)}</td>
+      <td>${dur}</td>
+      <td title="${b.tx_hash || ""}">${shortTx}</td>
+    </tr>`;
+  }).join("");
+  return `<table>
+    <thead><tr><th>Date</th><th>Amount</th><th>Chains</th><th>Tool</th><th>Status</th><th>Time</th><th>Tx</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function render(data) {
+  if (data.error === "no_session") {
+    document.getElementById("root").innerHTML = `
+      <div class="err">
+        🔒 Connect your wallet on <a href="/" style="color:#9EC5FF">ubotpay.com</a> first.
+        Then come back here to see your bridge analytics.
+      </div>`;
+    return;
+  }
+  if (data.error) {
+    document.getElementById("root").innerHTML = `<div class="err">Failed to load analytics: ${data.error}</div>`;
+    return;
+  }
+  const t = data.totals;
+  const sr = t.success_rate != null ? (t.success_rate * 100).toFixed(1) + "%" : "—";
+  document.getElementById("root").innerHTML = `
+    <div class="kpis">
+      <div class="kpi">
+        <div class="kpi-label">Bridges</div>
+        <div class="kpi-value">${t.count}</div>
+        <div class="kpi-sub">life</div>
+      </div>
+      <div class="kpi accent">
+        <div class="kpi-label">Volume</div>
+        <div class="kpi-value">${formatUSD(t.volume_usdc)}</div>
+        <div class="kpi-sub">USDC bridged</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Fees</div>
+        <div class="kpi-value">${formatUSD(t.fees_usd)}</div>
+        <div class="kpi-sub">total spent</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Success rate</div>
+        <div class="kpi-value">${sr}</div>
+        <div class="kpi-sub">${t.avg_time_s != null ? "avg " + formatTime(t.avg_time_s) : "no data"}</div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="card">
+        <h2>Partner mix</h2>
+        ${renderDonut(data.partners)}
+      </div>
+      <div class="card">
+        <h2>Bridges per day · last 30</h2>
+        ${renderBars(data.daily)}
+      </div>
+    </div>
+    <div class="card">
+      <h2>Recent bridges</h2>
+      ${renderTable(data.recent)}
+    </div>
+  `;
+}
+
+(async function() {
+  try {
+    const data = await fetchAnalytics();
+    render(data);
+  } catch (e) {
+    document.getElementById("root").innerHTML = `<div class="err">Network error: ${e.message || e}</div>`;
+  }
+})();
+</script>
+</body>
+</html>

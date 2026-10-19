@@ -842,6 +842,96 @@ def bridge_history(request: Request, limit: int = 20):
     return core.list_bridges(user_id=user["id"], limit=limit)
 
 
+@app.get("/bridge/analytics")
+def bridge_analytics(request: Request, days: int = 30):
+    """Aggregated analytics for the authenticated user. Used by the
+    /analytics dashboard. Returns lifetime totals, partner mix, daily
+    series, and a recent bridges table."""
+    user, err = _user_from_request(request)
+    if err or user is None:
+        raise HTTPException(401, err or "auth required")
+    bridges = core.list_bridges(user_id=user["id"], limit=1000)
+    if not bridges:
+        return {
+            "ok": True,
+            "totals": {"count": 0, "volume_usdc": 0.0, "fees_usd": 0.0, "success_rate": None, "avg_time_s": None},
+            "partners": [],
+            "statuses": {},
+            "daily": [],
+            "recent": [],
+        }
+    # Totals
+    total_count = len(bridges)
+    volume = sum(float(b.get("amount_usdc") or 0) for b in bridges)
+    fees = sum(float(b.get("total_fee_usd") or 0) for b in bridges)
+    # Status breakdown
+    statuses = {}
+    for b in bridges:
+        s = b.get("status") or "unknown"
+        statuses[s] = statuses.get(s, 0) + 1
+    # Success rate (done / total)
+    completed = statuses.get("done", 0)
+    failed = statuses.get("failed", 0)
+    finished_total = completed + failed
+    success_rate = (completed / finished_total) if finished_total > 0 else None
+    # Avg time to completion (confirmed_at - created_at, in seconds)
+    times = []
+    for b in bridges:
+        if b.get("status") == "done" and b.get("confirmed_at") and b.get("created_at"):
+            try:
+                t = int(b["confirmed_at"]) - int(b["created_at"])
+                if t > 0 and t < 86400 * 7:  # cap at a week
+                    times.append(t)
+            except (TypeError, ValueError):
+                pass
+    avg_time_s = (sum(times) / len(times)) if times else None
+    # Partner mix
+    partner_totals = {}
+    for b in bridges:
+        p = (b.get("tool") or "unknown").strip()
+        if not p: p = "unknown"
+        partner_totals[p] = partner_totals.get(p, 0) + 1
+    partners = [{"tool": k, "count": v, "share": round(v / total_count, 3)} for k, v in sorted(partner_totals.items(), key=lambda x: -x[1])]
+    # Daily series (last N days). Use confirmed_at when available, else created_at.
+    import datetime as _dt
+    today = _dt.datetime.utcnow().date()
+    day_keys = [(today - _dt.timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
+    day_counts = {k: 0 for k in day_keys}
+    day_volume = {k: 0.0 for k in day_keys}
+    for b in bridges:
+        ts = int(b.get("confirmed_at") or b.get("created_at") or 0)
+        if ts:
+            d = _dt.datetime.utcfromtimestamp(ts).date().isoformat()
+            if d in day_counts:
+                day_counts[d] += 1
+                day_volume[d] += float(b.get("amount_usdc") or 0)
+    daily = [{"date": k, "count": day_counts[k], "volume": round(day_volume[k], 2)} for k in day_keys]
+    # Recent (last 10) — for the table
+    recent = bridges[:10]
+    for r in recent:
+        if r.get("confirmed_at") and r.get("created_at"):
+            try:
+                r["duration_s"] = int(r["confirmed_at"]) - int(r["created_at"])
+            except (TypeError, ValueError):
+                r["duration_s"] = None
+        else:
+            r["duration_s"] = None
+    return {
+        "ok": True,
+        "totals": {
+            "count": total_count,
+            "volume_usdc": round(volume, 2),
+            "fees_usd": round(fees, 4),
+            "success_rate": round(success_rate, 3) if success_rate is not None else None,
+            "avg_time_s": round(avg_time_s, 1) if avg_time_s is not None else None,
+        },
+        "partners": partners,
+        "statuses": statuses,
+        "daily": daily,
+        "recent": recent,
+    }
+
+
 @app.get("/auth/me")
 async def auth_me(request: Request):
     """Return the current user from the Bearer token. 401 if no/invalid session."""
