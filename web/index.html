@@ -141,6 +141,8 @@
 </div>
 
 <script type="module">
+try{
+console.log("[ubotpay] main module loading…");
 const API = "https://api.ubotpay.com";
 // API key removed from browser for security — see api.py to enable session-based auth
 const log = document.getElementById("log"), inp = document.getElementById("inp"), orb = document.getElementById("orb"), orbstate = document.getElementById("orbstate");
@@ -168,7 +170,7 @@ async function send(text){
 }
 document.getElementById("send").onclick = () => send(inp.value);
 inp.addEventListener("keydown", e => { if (e.key === "Enter") send(inp.value); });
-const // Public /health returns minimal JSON. Operational data (chain name, status) come
+// Public /health returns minimal JSON. Operational data (chain name, status) come
 // from response headers X-Chain and X-Status, so the public endpoint never leaks
 // treasury / revenue details (security audit #5).
 // Fetch operator dashboard (treasury + revenue + status) and, if the user
@@ -281,7 +283,9 @@ window.fetch = function(...args) {
   });
 };
 
-refreshHealth(); setInterval(refreshHealth, 10000);
+try{refreshHealth();}catch(e){console.error("[ubotpay] initial refresh failed:",e);}
+setInterval(() => { try { refreshHealth(); } catch(e) { console.error("[ubotpay] interval refresh failed:", e); } }, 10000);
+console.log("[ubotpay] refreshHealth scheduled");
 
 // ── ElevenLabs voice ──
 let conv = null; const mic = document.getElementById("mic");
@@ -768,5 +772,6 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     console.error("[ubotpay] IIFE crashed:", e.message, e.stack);
   }
 })();
+}catch(e){console.error("[ubotpay] main module error:",e);}
 </script></body>
 </html>
