@@ -138,7 +138,10 @@ def quote(from_chain: int, to_chain: int, amount_usdc: float,
     bridge_fee_usd = sum(float(c.get("amountUSD") or 0) for c in fee_costs)
     total_fee_usd = round(gas_usd + bridge_fee_usd, 4)
 
-    return {
+    # NOTE: must NOT use `return {...}` here — Python's compiler would
+    # see the if/return below as unreachable and eliminate the cache
+    # write. Audit C4 fix: assign first, cache, then return.
+    result = {
         "tool": tool_info.get("name") or data.get("tool") or "unknown",
         "from_chain": from_chain,
         "to_chain": to_chain,
@@ -193,7 +196,23 @@ ACROSS_BASE = "https://app.across.to/api/suggested-fees"
 # deployment each worker has its own cache, which is fine.
 _CACHE = {}            # key -> (timestamp, quote)
 _CACHE_TTL_SEC = 30    # 30 seconds
+_CACHE_MAX_ENTRIES = 500  # bounded LRU (audit C4)
 _CACHE_LOCK = threading.Lock()
+
+
+def _cache_gc_locked():
+    """Drop expired keys and enforce max size. Caller must hold the lock."""
+    now = time.time()
+    expired = [k for k, (ts, _) in _CACHE.items() if now - ts > _CACHE_TTL_SEC]
+    for k in expired:
+        _CACHE.pop(k, None)
+    # Hard cap to prevent unbounded growth from attacker-supplied
+    # unique addresses (audit C4).
+    if len(_CACHE) > _CACHE_MAX_ENTRIES:
+        # Sort by timestamp ascending and drop oldest until under cap
+        items = sorted(_CACHE.items(), key=lambda x: x[1][0])
+        while len(_CACHE) > _CACHE_MAX_ENTRIES:
+            _CACHE.pop(items.pop(0)[0], None)
 _PARTNER_STATS = {     # rolling success rate
     "lifi":    {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0},
     "across":  {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0},
@@ -218,10 +237,13 @@ def _cache_get(key):
         if time.time() - ts > _CACHE_TTL_SEC:
             _CACHE.pop(key, None)
             return None
+        # Touch to mark recently-used (LRU-friendly)
+        _CACHE[key] = (ts, data)
         return data
 
 def _cache_set(key, data):
     with _CACHE_LOCK:
+        _cache_gc_locked()
         _CACHE[key] = (time.time(), data)
 
 

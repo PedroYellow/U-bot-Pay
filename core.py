@@ -53,6 +53,14 @@ CREATE TABLE IF NOT EXISTS push_subscriptions(
 );
 CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
 CREATE INDEX IF NOT EXISTS idx_push_alive ON push_subscriptions(is_alive);
+CREATE TABLE IF NOT EXISTS link_codes(
+  code TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at INTEGER,
+  created_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_link_codes_user ON link_codes(user_id);
 """
 
 # demo FX table (USDC per 1 unit of local). Real build → oracle / Circle FX.
@@ -477,6 +485,41 @@ def cleanup_dead_subscriptions(user_id: int) -> int:
             (user_id, int(time.time()) - 86400 * 30),
         )
     return cur.rowcount
+
+
+# ───────── link codes (audit C3: OTP-based telegram link) ─────────
+def create_link_code(user_id: int, ttl_seconds: int = 600) -> str:
+    """Create a one-time code the user sends to the Telegram bot to
+    prove they own this telegram_id AND this wallet. Returns the code."""
+    code = "".join([str((user_id * 31 + i * 7) % 10) for i in range(6)])
+    # Make it actually random, not deterministic:
+    import secrets
+    code = f"{secrets.randbelow(1000000):06d}"
+    with conn() as c:
+        c.execute(
+            "INSERT INTO link_codes(code, user_id, expires_at, created_at) VALUES(?, ?, ?, ?)",
+            (code, user_id, int(time.time()) + ttl_seconds, int(time.time())),
+        )
+    return code
+
+
+def consume_link_code(code: str, telegram_id: int) -> dict | None:
+    """Validate a link code, mark it used, and return the user_id it
+    belongs to. Returns None if the code is unknown, expired, or already
+    used. The telegram_id is recorded but not enforced here — the bot
+    passes the id of the chat that sent the code, so this becomes
+    the binding between wallet and chat."""
+    now = int(time.time())
+    with conn() as c:
+        row = c.execute(
+            "SELECT id, user_id, expires_at, used_at FROM link_codes WHERE code = ?",
+            (code,),
+        ).fetchone()
+        if not row: return None
+        if row["used_at"]: return None
+        if row["expires_at"] < now: return None
+        c.execute("UPDATE link_codes SET used_at = ? WHERE id = ?", (now, row["id"]))
+    return get_user(user_id=row["user_id"])
 
 
 def link_telegram_to_user(token: str, secret: str, telegram_id: int) -> dict | None:

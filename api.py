@@ -38,6 +38,21 @@ NOTIFY = None   # set by telegram bot at import time: async fn(telegram_id, text
 _BRIDGE_NOTIFIED = set()
 
 
+def _esc(s) -> str:
+    """HTML-escape a string for safe interpolation into HTML / Markdown
+    messages. Used by _notify_bridge to defend against tool names and
+    error messages that come from third-party bridge partners (LI.FI,
+    Across) and could contain HTML/Markdown control characters (audit C2)."""
+    if s is None:
+        return ""
+    return (str(s)
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+            .replace("'", "&#x27;"))
+
+
 def _chain_name(chain_id: int) -> str:
     """Resolve a chain_id to its display name using chain.chains()."""
     try:
@@ -85,17 +100,17 @@ async def _notify_bridge(bridge: dict, event: str, user: dict | None = None):
     amt = bridge.get("amount_usdc", 0)
     from_c = _chain_name(bridge.get("from_chain"))
     to_c = _chain_name(bridge.get("to_chain"))
-    to_addr = (bridge.get("to_address") or "")[:10] + "…" if bridge.get("to_address") else "—"
+    to_addr = (_esc((bridge.get("to_address") or "")[:10]) + "…") if bridge.get("to_address") else "—"
     if event == "started":
         text = (f"🌉 <b>Bridge started</b>\n"
                 f"  {amt} USDC · {from_c} → {to_c}\n"
-                f"  Tool: {bridge.get('tool') or 'partner'}\n"
-                f"  To: {to_addr}\n"
+                f"  Tool: {_esc(bridge.get('tool')) or 'partner'}\n"
+                f"  To: {_esc(to_addr)}\n"
                 f"  Bridge ID: <code>{short_id}</code>")
     elif event == "submitted":
         tx = (bridge.get("tx_hash") or "")[:14] + "…" if bridge.get("tx_hash") else "—"
         text = (f"📝 <b>Bridge submitted</b> on {from_c}\n"
-                f"  Tx: <code>{tx}</code>\n"
+                f"  Tx: <code>{_esc(tx)}</code>\n"
                 f"  {amt} USDC → {to_c}\n"
                 f"  Bridge ID: <code>{short_id}</code>")
     elif event == "confirming":
@@ -115,7 +130,7 @@ async def _notify_bridge(bridge: dict, event: str, user: dict | None = None):
         err = (bridge.get("error") or "unknown")[:200]
         text = (f"❌ <b>Bridge failed</b>\n"
                 f"  {amt} USDC · {from_c} → {to_c}\n"
-                f"  Reason: {err}\n"
+                f"  Reason: {_esc(err)}\n"
                 f"  Bridge ID: <code>{short_id}</code>")
     else:
         return
@@ -1034,21 +1049,61 @@ async def auth_me(request: Request):
     return _require_session(request)
 
 
-class LinkTelegramRequest(BaseModel):
+# ───────── Audit C3: OTP-based link, no JWT exposure ─────────
+# Old flow was /link <jwt_token> which leaked the JWT (audit C3).
+# New flow:
+#   1. User with wallet + JWT calls POST /auth/link-telegram/start
+#      → backend issues a 6-digit code tied to their user_id, TTL 10 min
+#   2. User sends that code to the bot: /code 123456
+#   3. Bot calls POST /auth/link-telegram/confirm with {telegram_id, code}
+#      → backend validates, marks used, stamps telegram_id on the user
+# Even if the JWT leaks, the attacker still needs to also control the
+# Telegram chat that sends the matching code (and the code expires in 10 min).
+
+
+class LinkTelegramStartRequest(BaseModel):
+    """Empty body — the JWT in Authorization identifies the user."""
+
+
+@app.post("/auth/link-telegram/start")
+async def auth_link_telegram_start(body: LinkTelegramStartRequest, request: Request):
+    """Issue a one-time 6-digit code the user sends to the Telegram
+    bot (/code 123456) to link their wallet to their Telegram chat."""
+    user, err = _user_from_request(request)
+    if err or user is None:
+        raise HTTPException(401, err or "auth required")
+    code = core.create_link_code(user["id"], ttl_seconds=600)
+    return {
+        "ok": True,
+        "code": code,
+        "expires_in": 600,
+        "instructions": (
+            "Send this code to @UbotpayBot on Telegram:  /code " + code
+        ),
+    }
+
+
+class LinkTelegramConfirmRequest(BaseModel):
+    code: str
     telegram_id: int
 
 
-@app.post("/auth/link-telegram")
-async def auth_link_telegram(body: LinkTelegramRequest, request: Request):
-    """Link a wallet-connected web session to a Telegram chat so the
-    user gets bridge notifications in their Telegram DM. The JWT must
-    be in the Authorization header. Telegram bot calls this internally
-    after the user sends /link <token>."""
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        raise HTTPException(401, "missing bearer token")
-    token = auth[7:].strip()
-    u = core.link_telegram_to_user(token, JWT_SECRET, int(body.telegram_id))
+@app.post("/auth/link-telegram/confirm")
+async def auth_link_telegram_confirm(body: LinkTelegramConfirmRequest, request: Request):
+    """Bot calls this after the user sends /code <6-digit>. The 6-digit
+    code ties this Telegram chat to a specific wallet user, so even if
+    the user's JWT leaks elsewhere, the attacker can't link a different
+    chat to the user's wallet (audit C3)."""
+    # Bot auth: requires x-api-key header (same as other server-to-server
+    # routes in this codebase, e.g. /approve).
+    auth(x_api_key := request.headers.get("x-api-key"))
+    code = str(body.code or "").strip()
+    if len(code) != 6 or not code.isdigit():
+        raise HTTPException(400, "code must be 6 digits")
+    u = core.consume_link_code(code, body.telegram_id)
     if not u:
-        raise HTTPException(401, "invalid or expired session")
-    return {"ok": True, "user_id": u["id"], "telegram_id": u["telegram_id"]}
+        raise HTTPException(400, "code expired or already used")
+    # Stamp telegram_id on the user
+    with core.conn() as cc:
+        cc.execute("UPDATE users SET telegram_id = ? WHERE id = ?", (int(body.telegram_id), int(u["id"])))
+    return {"ok": True, "user_id": u["id"], "telegram_id": body.telegram_id}

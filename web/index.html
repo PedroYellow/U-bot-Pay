@@ -678,18 +678,39 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
       if (!r.ok) { preview.style.display = "none"; return; }
       const q = await r.json();
       payCurrentQuote = q;
-      // Show alternatives
+      // Show alternatives (audit C1: never innerHTML with third-party
+      // data. Partner/tool names come from LI.FI/Across and could
+      // contain HTML/JS injection payloads).
       const list = document.getElementById("pay-partner-list");
-      list.innerHTML = "<div style=\"margin-bottom:6px;opacity:.6\">Other partners:</div>" + (q.all_partner_quotes || [])
+      list.replaceChildren();
+      const _hdr = document.createElement("div");
+      _hdr.style.cssText = "margin-bottom:6px;opacity:.6";
+      _hdr.textContent = "Other partners:";
+      list.appendChild(_hdr);
+      (q.all_partner_quotes || [])
         .filter(p => p.partner !== q.partner)
-        .map(p =>
-          "<div style=\"display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dotted rgba(255,255,255,.06)\" data-partner=\"" + p.partner + "\">" +
-            "<span style=\"opacity:.7\">" + p.partner + " · " + p.tool + "</span>" +
-            "<span>" + p.to_amount_human + " USDC · $" + p.total_fee_usd + " · " + p.execution_duration + "s</span>" +
-            "<span style=\"opacity:.5;cursor:pointer\" onclick=\"document.getElementById(\'pay-to-chain\').dispatchEvent(new Event('input'))\">→</span>" +
-          "</div>"
-        ).join("");
-      document.getElementById("pay-scan-time").textContent = "Scanned " + (q.all_partner_quotes || []).length + " partners in " + dt + "ms";
+        .forEach(p => {
+          const row = document.createElement("div");
+          row.style.cssText = "display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dotted rgba(255,255,255,.06)";
+          row.dataset.partner = String(p.partner || "");
+          const left = document.createElement("span");
+          left.style.opacity = ".7";
+          left.textContent = (p.partner || "") + " · " + (p.tool || "");
+          const middle = document.createElement("span");
+          middle.textContent = p.to_amount_human + " USDC · $" + p.total_fee_usd + " · " + p.execution_duration + "s";
+          const arrow = document.createElement("span");
+          arrow.style.cssText = "opacity:.5;cursor:pointer";
+          arrow.textContent = "\u2192";
+          arrow.addEventListener("click", () => {
+            const sel = document.getElementById("pay-to-chain");
+            if (sel) sel.dispatchEvent(new Event("input"));
+          });
+          row.appendChild(left);
+          row.appendChild(middle);
+          row.appendChild(arrow);
+          list.appendChild(row);
+        });
+      document.getElementById("pay-scan-time").textContent = "Scanned " + (q.all_partner_quotes || []).length + " partners in " + dt + "ms";dt + "ms";
       // Show preview
       document.getElementById("pay-bridge-tool").textContent = q.tool;
       document.getElementById("pay-bridge-from").textContent = amount + " USDC on " + chainNameOf(fromChain);
