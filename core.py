@@ -34,6 +34,11 @@ CREATE TABLE IF NOT EXISTS bridges(
   tx_hash TEXT,
   status TEXT DEFAULT 'pending',  -- pending | submitted | confirming | done | failed
   error TEXT,
+  -- Amount actually credited on the destination chain, as reported by the
+  -- bridge partner. Distinct from amount_usdc (sent) and to_amount_min
+  -- (guaranteed floor) — audit 20 Oct round 4, the "done" notification used to
+  -- print to_amount_min as if it were what arrived.
+  delivered_usdc REAL,
   raw_quote TEXT,                  -- JSON blob of the full LI.FI quote for replay/debug
   created_at INTEGER,
   confirmed_at INTEGER);
@@ -127,6 +132,8 @@ def init():
             "ALTER TABLE contacts ADD COLUMN chain_id  INTEGER DEFAULT 43114",
             "ALTER TABLE payments ADD COLUMN chain_id  INTEGER DEFAULT 43114",
             "ALTER TABLE invoices ADD COLUMN chain_id  INTEGER DEFAULT 43114",
+            # Audit 20 Oct round 4: real delivered amount per bridge.
+            "ALTER TABLE bridges  ADD COLUMN delivered_usdc REAL",
         ]:
             try: c.execute(ddl)
             except Exception: pass
@@ -250,12 +257,20 @@ def list_bridges(user_id: int | None = None, status: str | None = None, limit: i
     return [dict(r) for r in rows]
 
 def update_bridge(bridge_id: str, **fields) -> bool:
+    """Update a bridge row. Returns True if a row was actually changed.
+
+    Audit 20 Oct (round 4): this read `cc.rowcount` off the *connection* after
+    the `with` block had already closed it. sqlite3.Connection has no
+    rowcount, so every call raised AttributeError — the UPDATE itself had been
+    committed, but the caller never got a truthful return value and every
+    `except` around it swallowed the failure. The rowcount lives on the cursor.
+    """
     if not fields: return False
     sets = ", ".join(f"{k} = ?" for k in fields.keys())
     vals = list(fields.values()) + [bridge_id]
     with conn() as cc:
-        cc.execute(f"UPDATE bridges SET {sets} WHERE id = ?", tuple(vals))
-    return cc.rowcount > 0
+        cur = cc.execute(f"UPDATE bridges SET {sets} WHERE id = ?", tuple(vals))
+        return cur.rowcount > 0
 
 def get_user_by_wallet(address: str, chain_id: int = 43114) -> dict | None:
     """Look up user by (chain_id, address). Lowercased address. Returns row or None."""

@@ -199,12 +199,25 @@ async def _notify_bridge(bridge: dict, event: str, user: dict | None = None):
                 f"  {amt} USDC in flight\n"
                 f"  Bridge ID: <code>{short_id}</code>")
     elif event == "done":
+        # Audit 20 Oct (round 4): this used to be to_amount_min — the
+        # guaranteed floor — so a 10 USDC bridge reported "received 0.50 USDC"
+        # when 9.99 had actually arrived. Prefer the recorded delivery, fall
+        # back to the quote's expected output, and never to the floor.
+        delivered = bridge.get("delivered_usdc")
+        if delivered is None:
+            delivered = _expected_amount(bridge)
+        floor = None
         try:
-            delivered = int(bridge.get("to_amount_min") or 0) / 1e6
+            floor = float(int(bridge.get("to_amount_min") or 0) / 1e6)
         except Exception:
-            delivered = amt
+            floor = None
+        line = f"  Recipient received <b>{delivered:.2f} USDC</b> on {to_c}\n"
+        # If we delivered meaningfully less than the guaranteed minimum, say so
+        # rather than quietly reporting a success.
+        if floor and delivered < floor * 0.999:
+            line += f"  ⚠️ Below the {floor:.2f} USDC guaranteed minimum\n"
         text = (f"✅ <b>Bridge done!</b>\n"
-                f"  Recipient received <b>{delivered:.2f} USDC</b> on {to_c}\n"
+                f"{line}"
                 f"  From: {amt} USDC on {from_c}\n"
                 f"  Bridge ID: <code>{short_id}</code>")
     elif event == "failed":
@@ -994,7 +1007,15 @@ def bridge_start(body: BridgeStartBody, request: Request):
 @app.post("/bridge/{bridge_id}/confirm")
 def bridge_confirm(bridge_id: str, body: dict, request: Request):
     """Called by the frontend after the user signs and broadcasts the
-    bridge transaction. Stores the tx_hash and starts the polling loop."""
+    bridge transaction. Stores the tx_hash and starts the polling loop.
+
+    Audit 20 Oct (round 4): this used to store whatever string arrived. A bogus
+    hash marked the bridge "submitted", LI.FI never recognised it, the error
+    was swallowed and the bridge sat there forever while the UI said the money
+    was on its way. Now the hash is checked against the chain before we claim
+    the payment is in flight: right shape, actually mined, and sent by the
+    address the bridge belongs to.
+    """
     user, err = _user_from_request(request)
     if err or user is None:
         raise HTTPException(401, err or "auth required")
@@ -1006,6 +1027,35 @@ def bridge_confirm(bridge_id: str, body: dict, request: Request):
     tx_hash = str(body.get("tx_hash") or "").strip()
     if not tx_hash:
         raise HTTPException(400, "tx_hash required")
+
+    # A bridge that is already done or failed must not be flipped back to
+    # "submitted" by a late or replayed call.
+    if br["status"] in ("done", "failed"):
+        raise HTTPException(409, f"bridge already {br['status']}")
+
+    # Cheap syntax check first, then the real RPC lookup.
+    if not chain.is_tx_hash(tx_hash):
+        raise HTTPException(400, "tx_hash must be 0x followed by 64 hex characters")
+
+    check = chain.verify_bridge_tx(tx_hash, br["from_address"], br["from_chain"])
+    if not check["ok"]:
+        # rpc_error is our own node failing, not evidence the tx is fake —
+        # don't tell the user their transaction is invalid in that case.
+        if check["error"] == "rpc_error":
+            log.warning("bridge %s: RPC unavailable while verifying tx: %s",
+                        bridge_id, check.get("detail"))
+            raise HTTPException(503, "could not verify the transaction right now, try again in a moment")
+        reason = check["error"]
+        detail = {
+            "tx_not_found": "no transaction with that hash on the source chain yet — "
+                            "it may still be propagating",
+            "sender_mismatch": "that transaction was sent by a different address than this bridge",
+            "malformed_tx_hash": "tx_hash must be 0x followed by 64 hex characters",
+            "bad_address": "the stored bridge address is invalid",
+        }.get(reason, "transaction could not be verified")
+        log.warning("bridge %s: rejecting tx (%s)", bridge_id, reason)
+        raise HTTPException(400, detail)
+
     core.update_bridge(bridge_id, tx_hash=tx_hash, status="submitted")
     if NOTIFY:
         try:
@@ -1013,7 +1063,63 @@ def bridge_confirm(bridge_id: str, body: dict, request: Request):
             asyncio.create_task(_notify_bridge(br_after, "submitted", user))
         except Exception as e:
             log.warning("could not schedule submitted notification: %s", e)
-    return {"ok": True, "bridge_id": bridge_id, "tx_hash": tx_hash}
+    return {"ok": True, "bridge_id": bridge_id, "tx_hash": tx_hash,
+            "verified": True, "sender": check.get("from")}
+
+
+def _expected_amount(br: dict) -> float:
+    """What the recipient should have got, from the stored quote.
+
+    Deliberately NOT to_amount_min: that is the worst case the bridge guarantees,
+    not the expected outcome. Using it made every success message look like a
+    loss (audit 20 Oct, round 4).
+    """
+    try:
+        raw = json.loads(br.get("raw_quote") or "{}")
+        to_amount = raw.get("to_amount")
+        if to_amount is not None:
+            return float(int(to_amount) / 1e6)
+    except Exception:
+        pass
+    return float(br.get("amount_usdc") or 0.0)
+
+
+def _delivered_amount(receiving) -> float | None:
+    """Amount LI.FI says actually arrived, or None if it didn't say.
+
+    LI.FI and Across report amounts as integer base units (USDC has 6 decimals)
+    — the rest of bridge.py already divides those by 1e6, consistently.
+
+    The partner's JSON gives us ints for base units. When the value arrives as
+    an int or as a numeric string with no fractional part, we treat it as base
+    units. A value that already carries a decimal point is taken as human units,
+    since no partner sends "9.99 USDC" as a base-unit integer.
+
+    An earlier version guessed by magnitude (> 1e8 => base units), which turned a
+    legitimate 9.994914 USDC delivery reported as 9994914 into 9994914.0 USDC.
+    """
+    if not isinstance(receiving, dict):
+        return None
+    for key in ("toAmount", "to_amount", "amount", "value"):
+        v = receiving.get(key)
+        if v in (None, ""):
+            continue
+        if isinstance(v, bool):
+            continue
+        if isinstance(v, int):
+            return v / 1e6
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            continue
+        # A numeric string with no fractional part came from an int upstream.
+        if isinstance(v, str) and "." not in v and "e" not in v.lower():
+            return f / 1e6
+        # A real float: if it has a fractional part it is already human units;
+        # a whole-number float is ambiguous, and base units is the safer read
+        # for this API.
+        return f if f % 1 else f / 1e6
+    return None
 
 
 @app.get("/bridge/{bridge_id}/status")
@@ -1039,7 +1145,16 @@ def bridge_status(bridge_id: str, request: Request):
         receiving = s.get("receiving") or {}
         done_hash = receiving.get("txHash") if isinstance(receiving, dict) else None
         if lifi_status in ("done", "completed", "success") or done_hash:
-            core.update_bridge(bridge_id, status="done", confirmed_at=int(time.time()))
+            # Audit 20 Oct (round 4): the "done" notification used to print
+            # to_amount_min — the guaranteed *worst case* — as "recipient
+            # received X USDC". A live 10 USDC quote to Base has
+            # to_amount_min_human 0.500076, so the message said 0.50 when 9.99
+            # arrived. Prefer the amount LI.FI reports as actually delivered.
+            delivered = _delivered_amount(receiving)
+            if delivered is None:
+                delivered = _expected_amount(br)
+            core.update_bridge(bridge_id, status="done", confirmed_at=int(time.time()),
+                               delivered_usdc=delivered)
             br_done = core.get_bridge(bridge_id)
             if NOTIFY:
                 try: asyncio.create_task(_notify_bridge(br_done, "done", user))

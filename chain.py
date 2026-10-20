@@ -4,7 +4,7 @@ U-bot Pay — chain layer (Avalanche Fuji C-Chain, USDC).
 - balance(address)                → AVAX + USDC
 - transfer_with_authorization()   → EIP-3009 (x402 style) for agent-to-agent payments
 """
-import os, time
+import os, time, re
 from decimal import Decimal
 from web3 import Web3
 from eth_account import Account
@@ -210,6 +210,92 @@ def balance_at(address: str, chain_id: int = 43114) -> dict:
     return {"address": a, "chain": c.name, "chain_id": chain_id,
             "native": c.native, "native_balance": float(Web3.from_wei(w3l.eth.get_balance(a), "ether")),
             "usdc": float(_balance_usdc(w3l, c, a))}
+
+
+# 32-byte hex, optionally 0x-prefixed. Anything else is not a transaction hash.
+_TX_HASH_RE = re.compile(r"^(0x)?[0-9a-fA-F]{64}$")
+
+
+def is_tx_hash(value: str) -> bool:
+    """Cheap syntactic check before we spend an RPC round-trip."""
+    return bool(value) and bool(_TX_HASH_RE.match(value.strip()))
+
+
+def verify_bridge_tx(tx_hash: str, from_address: str, chain_id: int,
+                     expected_to: str | None = None) -> dict:
+    """Confirm a bridge transaction really exists and really came from the user.
+
+    Audit 20 Oct (round 4): /bridge/{id}/confirm used to accept any string as a
+    tx_hash. A bogus hash moved the bridge to "submitted", LI.FI never saw it,
+    the error was swallowed, and the bridge sat in "submitted" forever while the
+    UI claimed the money was on its way.
+
+    Returns a dict with:
+        ok       — bool, safe to mark the bridge submitted
+        error    — machine-readable reason when ok is False
+        value    — the native value sent, in ether units
+        to       — the destination of the transaction
+    Never raises: an RPC failure returns ok=False with error='rpc', so a flaky
+    node can't be mistaken for a fake transaction.
+    """
+    out = {"ok": False, "error": None, "value": None, "to": None,
+           "exists": False, "from": None}
+    h = (tx_hash or "").strip()
+    if not _TX_HASH_RE.match(h):
+        out["error"] = "malformed_tx_hash"
+        return out
+    if not h.startswith("0x"):
+        h = "0x" + h
+
+    try:
+        _, w3l, _ = _runtime(chain_id)
+    except Exception as e:
+        out["error"] = f"unknown_chain:{e}"[:80]
+        return out
+
+    try:
+        tx = w3l.eth.get_transaction(h)
+    except Exception as e:
+        # Node unreachable or errored. NOT the same as "tx does not exist".
+        out["error"] = "rpc_error"
+        out["detail"] = str(e)[:120]
+        return out
+
+    if tx is None:
+        out["error"] = "tx_not_found"
+        return out
+
+    out["exists"] = True
+    out["from"] = tx.get("from")
+    out["to"] = tx.get("to")
+    out["value"] = float(Web3.from_wei(tx.get("value", 0), "ether"))
+
+    # The sender must be the address the bridge was created for, otherwise
+    # someone is reporting a transaction that isn't their bridge.
+    try:
+        expected_from = Web3.to_checksum_address(from_address)
+        actual_from = Web3.to_checksum_address(tx.get("from") or "")
+    except Exception:
+        out["error"] = "bad_address"
+        return out
+
+    if actual_from != expected_from:
+        out["error"] = "sender_mismatch"
+        return out
+
+    # If we know where the USDC is supposed to go, and the tx is a plain ERC-20
+    # transfer, the recipient should match too. (Approve-and-bridge flows send
+    # to an allowance contract instead, so this is only checked when they differ
+    # from the bridge contract we already know about.)
+    if expected_to and out["to"]:
+        try:
+            if Web3.to_checksum_address(out["to"]) != Web3.to_checksum_address(expected_to):
+                out["to_mismatch"] = True
+        except Exception:
+            pass
+
+    out["ok"] = True
+    return out
 
 def _balance_usdc(w3l, c, a) -> Decimal:
     global _DEC

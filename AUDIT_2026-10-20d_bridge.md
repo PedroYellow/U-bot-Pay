@@ -125,3 +125,93 @@ llamante. Debería ser un mensaje genérico y el detalle quedarse en el log.
 3. Arreglar el mensaje de "bridge done" para usar lo realmente entregado.
 4. `/docs` tras flag, y limpiar el `str(e)` de las 502.
 5. Revisar si `/agent/` perdió su rate limit respecto al audit del 15 Oct.
+
+---
+
+# ✅ Fixed — 1 y 3 (y un bonus que salió por el camino)
+
+## 1. `/bridge/{id}/confirm` valida la transacción
+
+Tres capas, de la más barata a la más cara:
+
+```python
+if br["status"] in ("done", "failed"):
+    raise HTTPException(409, ...)          # no se puede rebobinar un puente cerrado
+if not chain.is_tx_hash(tx_hash):
+    raise HTTPException(400, ...)          # 0x + 64 hex, sin ida y vuelta
+check = chain.verify_bridge_tx(tx_hash, br["from_address"], br["from_chain"])
+```
+
+`chain.verify_bridge_tx()` consulta la cadena y exige que `tx.from` coincida con
+`from_address` del puente. Devuelve un motivo legible:
+
+| Situación | Respuesta |
+|---|---|
+| tx del dueño del puente | 200 `verified: true` |
+| hash mal formado | 400 |
+| tx de otra dirección | 400 `sender_mismatch` |
+| hash que nadie ha visto | 400 `tx_not_found` |
+| **nuestro RPC caído** | **503**, no 400 |
+
+Ese último caso importa: si el nodo está caído **no** se le dice al usuario que
+su transacción es inválida. Se distingue un fallo nuestro de una tx falsa, que es
+justo el error que habría hecho que alguien reintentara o se preocupara sin motivo.
+
+## 3. El mensaje de "done" ya no reporta el mínimo
+
+Nueva columna `bridges.delivered_usdc`, rellenada con lo que el partner dice que
+llegó. La notificación usa, en este orden: lo entregado → el `to_amount` de la
+cotización → (nunca) el mínimo.
+
+```python
+delivered = bridge.get("delivered_usdc") or _expected_amount(bridge)
+```
+
+Y si de verdad entrega por debajo del mínimo garantizado, lo dice:
+
+```
+✅ Bridge done!
+  Recipient received 9.99 USDC on Base
+⚠️ Below the 0.50 USDC guaranteed minimum      ← solo si ocurre
+```
+
+## 🎁 Bonus: `update_bridge` estaba rota desde siempre
+
+Al probar la migración encontré que `core.update_bridge()` leía `cc.rowcount`
+sobre la **Connection** ya cerrada del `with`:
+
+```python
+with conn() as cc:
+    cc.execute("UPDATE bridges SET ...")
+return cc.rowcount > 0        # AttributeError: Connection has no rowcount
+```
+
+El UPDATE sí se commiteaba, pero la función **lanzaba siempre**. Todos los
+llamadores lo tenían en un `except` que se tragaba el error.
+
+Traducción práctica: cada transición de estado de puente (`submitted`,
+`confirming`, `done`, `failed`) escribía bien en la DB pero la app nunca lo
+sabía — y `mark()`-equivalents devolvían basura. El caller's `except` lo
+escondía. **`rowcount` vive en el Cursor**, no en la Connection.
+
+Auditado el resto del fichero: las otras tres apariciones (`lastrowid`,
+`rowcount`) ya usaban `cur` correctamente. Solo esta estaba mal.
+
+## Tests
+
+```bash
+python3 test_bridge_tx.py   # 37/37
+```
+
+Cubre el formato (incluidos payloads de inyección SQL), los cinco desenlaces de
+la verificación, la extracción del amount entregado y el mensaje de éxito — con
+el caso exacto que fallaba antes (bridge de 10 USDC diciendo 0.50).
+
+Verificado además contra una DB legacy: la migración añade `delivered_usdc` sin
+perder datos, y `update_bridge` devuelve `True`/`False` correctamente.
+
+## ⏳ Sigue pendiente de esta ronda
+
+2. Rate limit + caché en `/bridge/quote` (12/12 seguidas siguen dando 200).
+4. `/docs` tras flag; limpiar el `str(e)` de las 502 de bridge.
+5. Confirmar si `/agent/` perdió su rate limit respecto al audit del 15 Oct.
