@@ -150,12 +150,15 @@ def t_impossible_request_is_not_a_502():
     # caller sees 502 instead of 400.
     bq = bridge_src[bridge_src.index("def get_best_quote"):]
     bq = bq[:bq.index("\ndef ")]
+    # The map it validates against is now the one for the requested token, so a
+    # USDT route for a chain USDC supports (but USDT does not) is rejected up
+    # front. Assert the token-aware form, not the older USDC-only literal.
     check("get_best_quote validates both chains before fanning out",
-          "if cid not in USDC_BY_CHAIN:" in bq, True)
+          "if cid not in _tmap:" in bq, True)
     check("and raises the unsupported-chain type",
-          'raise _UnsupportedChain(f"unsupported {label} chain: {cid}")' in bq, True)
+          "raise _UnsupportedChain(" in bq and "unsupported {label} chain" in bq, True)
     check("check precedes the thread pool",
-          bq.index("if cid not in USDC_BY_CHAIN:") < bq.index("ThreadPoolExecutor"), True)
+          bq.index("if cid not in _tmap:") < bq.index("ThreadPoolExecutor"), True)
     check("plain ValueError becomes a 400",
           "except ValueError as e:" in api_src and "HTTPException(400, str(e)[:200])" in api_src, True)
 

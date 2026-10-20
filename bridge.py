@@ -67,6 +67,45 @@ USDC_BY_CHAIN = {
     146:    "0x29219dd400f2Bf60E5a23d13Be72B486D4038894",   # Sonic (native USDC)
 }
 
+# USDT, one canonical address per chain. Every one of these was checked against
+# LI.FI's own token list for that chain (each chain returns exactly one USDT,
+# which is the canonical one) and then confirmed to produce a quote in both
+# directions — Avalanche->X and X->Avalanche. Measured loss 0.15%-1.40%, versus
+# 23% for the USDC route on Tron, which is why USDT routes are viable here and
+# those are not.
+#
+# Tron is deliberately absent: the only route to it loses 42% even USDT-to-USDT.
+# See TRON_BLOCKERS.md.
+USDT_BY_CHAIN = {
+    1:     "0xdAC17F958D2ee523a2206206994597C13D831ec7",   # Ethereum (Tether)
+    137:   "0xc2132D05D31c914a87C6611C10748AEb04B58e8F",   # Polygon (Po bridged)
+    146:   "0x6047828dc181963ba44974801FF68e538dA5eaF9",   # Sonic (bridged)
+    8453:  "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",   # Base (bridged)
+    43114: "0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7",   # Avalanche (Po bridged)
+    59144: "0xA219439258ca9da29E9Cc4cE5596924745e12B93",   # Linea (bridged)
+}
+
+# Stablecoins the bridge can move, and the map that holds each one. Kept as one
+# table so a new chain has to be added in a single place: this function used to
+# read USDC_BY_CHAIN directly, and adding a second token is what makes that
+# pattern a bug waiting to happen (see test_chain_registry.py).
+TOKENS_BY_SYMBOL = {"USDC": USDC_BY_CHAIN, "USDT": USDT_BY_CHAIN}
+
+
+def _token_map(token: str) -> dict:
+    """Map for a stablecoin symbol, rejecting anything we do not quote.
+
+    Case-insensitive because the API and the UI spell it both ways. An unknown
+    symbol must fail rather than fall back to USDC — that would move the user
+    into a different token without saying so.
+    """
+    key = (token or "").strip().upper()
+    if key not in TOKENS_BY_SYMBOL:
+        raise _UnsupportedChain(
+            f"unsupported token: {token!r} "
+            f"(available: {', '.join(sorted(TOKENS_BY_SYMBOL))})")
+    return TOKENS_BY_SYMBOL[key]
+
 # Chains that work as a bridge destination but not as a source, because the
 # outgoing transaction would live on a non-EVM chain. Quoting them from our side
 # succeeds at LI.FI and then fails at signing, which is the worst place to fail.
@@ -105,7 +144,15 @@ def _http_get_json(url: str, timeout: int = 12) -> dict:
 
 
 def quote(from_chain: int, to_chain: int, amount_usdc: float,
-          from_address: str, to_address: str, use_cache: bool = True) -> dict:
+          from_address: str, to_address: str, use_cache: bool = True,
+          token: str = "USDC") -> dict:
+    """Quote a stablecoin bridge route.
+
+    `token` selects which stablecoin moves on both sides ("USDC" or "USDT") and
+    defaults to USDC, so every existing caller is unaffected. `amount_usdc` keeps
+    its old name for the same reason, but it now means "amount of `token`". The
+    returned dict carries `token` so a caller never has to assume which it got.
+    """
     """Get a LI.FI bridge quote from one EVM chain to another.
 
     Args:
@@ -128,8 +175,9 @@ def quote(from_chain: int, to_chain: int, amount_usdc: float,
         - transaction: dict with to, data, value, from (for eth_sendTransaction)
         - estimate: raw LI.FI estimate
     """
-    if from_chain not in USDC_BY_CHAIN:
-        raise _UnsupportedChain(f"unsupported source chain: {from_chain}")
+    _tmap = _token_map(token)
+    if from_chain not in _tmap:
+        raise _UnsupportedChain(f"unsupported source chain: {from_chain} for {token}")
     if from_chain in _DESTINATION_ONLY_CHAINS:
         # LI.FI quotes Solana -> EVM, but the response carries no
         # eth_sendTransaction payload (from and chainId are null) because the leg
@@ -139,15 +187,15 @@ def quote(from_chain: int, to_chain: int, amount_usdc: float,
         raise ValueError(
             f"chain {from_chain} can only be a destination, not a source: "
             "the outgoing leg would be a Solana transaction this app cannot sign")
-    if to_chain not in USDC_BY_CHAIN:
-        raise _UnsupportedChain(f"unsupported target chain: {to_chain}")
+    if to_chain not in _tmap:
+        raise _UnsupportedChain(f"unsupported target chain: {to_chain} for {token}")
     if from_chain == to_chain:
         raise ValueError("source and target chains must differ")
     if amount_usdc <= 0:
         raise ValueError("amount must be positive")
 
-    from_token = USDC_BY_CHAIN[from_chain]
-    to_token = USDC_BY_CHAIN[to_chain]
+    from_token = _tmap[from_chain]
+    to_token = _tmap[to_chain]
     # USDC has 6 decimals
     from_amount_int = int(amount_usdc * 1_000_000)
 
@@ -162,7 +210,9 @@ def quote(from_chain: int, to_chain: int, amount_usdc: float,
     }
     url = f"{LIFI_BASE}/quote?{urllib.parse.urlencode(params)}"
     log.info("LI.FI quote: %s", url)
-    cache_key = _cache_key("lifi", from_chain, to_chain, amount_usdc, from_address, to_address)
+    # The token must be part of the cache key: without it a cached USDC route is
+    # returned for a USDT request and the user signs a swap into the wrong token.
+    cache_key = _cache_key("lifi", from_chain, to_chain, amount_usdc, from_address, to_address) + ":" + token
     if use_cache:
         cached = _cache_get(cache_key)
         if cached is not None:
@@ -191,6 +241,11 @@ def quote(from_chain: int, to_chain: int, amount_usdc: float,
     result = {
         "tool": tool_info.get("name") or data.get("tool") or "unknown",
         "from_chain": from_chain,
+        # Explicit, so a caller displaying "you will receive X" never assumes
+        # USDC when the user actually asked for USDT.
+        "token": token.strip().upper(),
+        "from_token_address": from_token,
+        "to_token_address": to_token,
         "to_chain": to_chain,
         "from_amount": int(action.get("fromAmount") or from_amount_int),
         "from_amount_human": (int(action.get("fromAmount") or from_amount_int) / 1e6),
@@ -295,11 +350,20 @@ def _cache_set(key, data):
 
 
 def quote_across(from_chain: int, to_chain: int, amount_usdc: float,
-                 from_address: str, to_address: str) -> Optional[dict]:
+                 from_address: str, to_address: str,
+                 token: str = "USDC") -> Optional[dict]:
     """Get an Across Protocol quote. Returns None if Across cannot
     route this pair (e.g. unsupported chain pair) or if the API is
     unavailable. Same dict shape as quote() so callers can pick the
-    best one."""
+    best one.
+
+    Across moves USDC only. It must return None for any other token rather than
+    quote its USDC route anyway: the caller merges partner results by output
+    amount, so a USDC route offered in response to a USDT request would win on
+    price and the user would sign a swap into the wrong token.
+    """
+    if (token or "USDC").strip().upper() != "USDC":
+        return None
     if from_chain == to_chain:
         return None  # Across only does cross-chain
     if from_chain not in USDC_BY_CHAIN or to_chain not in USDC_BY_CHAIN:
@@ -370,14 +434,16 @@ def quote_across(from_chain: int, to_chain: int, amount_usdc: float,
 
 
 def get_best_quote(from_chain: int, to_chain: int, amount_usdc: float,
-                   from_address: str, to_address: str) -> dict:
+                   from_address: str, to_address: str,
+                   token: str = "USDC") -> dict:
     """Query all enabled bridge partners in parallel and return the
     best quote (highest to_amount, with ties broken by lowest fee and
     shortest time). If all partners fail, raise a ValueError.
     """
     if from_chain == to_chain:
         # Same-chain: just use LI.FI for the canonical fee estimate
-        q = quote(from_chain, to_chain, amount_usdc, from_address, to_address)
+        q = quote(from_chain, to_chain, amount_usdc, from_address, to_address,
+                  True, token)
         return q
 
     # A chain that cannot be a source (Solana: the leg to sign would not be an
@@ -393,25 +459,45 @@ def get_best_quote(from_chain: int, to_chain: int, amount_usdc: float,
     # unknown chain id is caught twice, logged as "partner failed", and reported
     # as a transient upstream failure (502) — telling the caller to retry a
     # request that can never succeed.
+    # Validate against the map for *this* token, not USDC's. Validating only the
+    # chains is not enough now that USDT covers fewer of them: USDT -> Solana has
+    # both chains present in USDC_BY_CHAIN but neither in USDT_BY_CHAIN, and it
+    # would otherwise reach the fan-out and come back as a 502.
+    _tmap = _token_map(token)
     for cid, label in ((from_chain, "source"), (to_chain, "target")):
-        if cid not in USDC_BY_CHAIN:
-            raise _UnsupportedChain(f"unsupported {label} chain: {cid}")
+        if cid not in _tmap:
+            raise _UnsupportedChain(
+                f"unsupported {label} chain: {cid} for {token.strip().upper()}")
 
     import concurrent.futures
     results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
         futures = {
-            "lifi":   ex.submit(quote, from_chain, to_chain, amount_usdc, from_address, to_address),
-            "across": ex.submit(quote_across, from_chain, to_chain, amount_usdc, from_address, to_address),
+            "lifi":   ex.submit(quote, from_chain, to_chain, amount_usdc,
+                                from_address, to_address, True, token),
+            "across": ex.submit(quote_across, from_chain, to_chain, amount_usdc,
+                                from_address, to_address, token),
         }
+        errors = []
         for name, fut in futures.items():
             try:
                 q = fut.result(timeout=15)
                 if q is not None:
                     results.append(q)
+            except _UnsupportedChain as e:
+                # This chain/token pair is simply not quotable. Every partner
+                # will say the same, so record it and surface it as a 400 rather
+                # than letting it fall through to the generic "partners failed"
+                # 502, which tells the caller to retry something that cannot work.
+                errors.append(str(e))
             except Exception as e:
                 log.warning("Partner %s failed: %s", name, e)
     if not results:
+        # If every partner refused for the same reason, that reason is the answer.
+        # Across abstains silently on USDT (it only routes USDC), so at least one
+        # _UnsupportedChain from lifi means the pair itself is not supported.
+        if errors and len(errors) == len(futures):
+            raise _UnsupportedChain(errors[0])
         # Distinguish "the upstream providers are unhappy" from "this request is
         # impossible" — the caller maps the first to a retryable 502.
         raise _BridgeUpstreamError("all bridge partners failed; try again in a moment")

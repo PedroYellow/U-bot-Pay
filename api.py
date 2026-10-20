@@ -1034,7 +1034,10 @@ def bridge_quote(
     # pattern, so the rule is "hex 0x address, or a Solana address" instead of
     # accepting anything non-hex.
     to_chain: int = Query(..., ge=1, le=2**62, description="destination chain id"),
-    amount_usdc: float = Query(..., gt=0.01, le=1_000_000, description="USDC amount, 0.01 to 1,000,000"),
+    amount_usdc: float = Query(..., gt=0.01, le=1_000_000,
+                               description="amount of `token`, 0.01 to 1,000,000"),
+    token: str = Query("USDC", pattern=r"^(?i:USDC|USDT)$",
+                       description="stablecoin to move on both sides; USDC or USDT"),
     from_address: str = Query(..., min_length=42, max_length=42, pattern=r"^0x[a-fA-F0-9]{40}$"),
     to_address: str = Query(..., min_length=32, max_length=64),
     request: Request = None,
@@ -1063,13 +1066,16 @@ def bridge_quote(
         # partner=lifi|across|best. best tries all partners and picks the highest output.
         partner = request.query_params.get("partner", "best")
         if partner == "lifi":
-            q = _bridge.quote(from_chain, to_chain, amount_usdc, from_address, to_address)
+            q = _bridge.quote(from_chain, to_chain, amount_usdc, from_address,
+                              to_address, True, token)
         elif partner == "across":
-            q = _bridge.quote_across(from_chain, to_chain, amount_usdc, from_address, to_address)
+            q = _bridge.quote_across(from_chain, to_chain, amount_usdc, from_address,
+                                     to_address, token)
             if q is None:
                 raise HTTPException(502, "across did not return a quote")
         else:  # best
-            q = _bridge.get_best_quote(from_chain, to_chain, amount_usdc, from_address, to_address)
+            q = _bridge.get_best_quote(from_chain, to_chain, amount_usdc, from_address,
+                                       to_address, token)
     except HTTPException:
         raise
     except _bridge._UnsupportedChain as e:
@@ -1104,6 +1110,7 @@ def bridge_quote(
     return {
         "ok": True,
         "tool": q["tool"],
+        "token": q.get("token", token.strip().upper()),
         "from_chain": q["from_chain"],
         "to_chain": q["to_chain"],
         "from_amount": str(q["from_amount"]),
