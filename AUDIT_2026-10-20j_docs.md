@@ -62,7 +62,7 @@ avisos, completo → limpio.
 - "Nothing moves without a spoken *yes*" → ahora además el co-signer **nunca**
   puede ser el pagador (ronda 6). La promesa original era más débil de lo que
   creíamos.
-- "Avalanche C-Chain (Fuji)" comochainsaugmentation → es mainnet, Fuji es para
+- "Avalanche C-Chain (Fuji)" en la tabla de features → es mainnet,
   tests.
 
 ## ✅ Revisado y OK
