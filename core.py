@@ -61,6 +61,38 @@ CREATE TABLE IF NOT EXISTS link_codes(
   created_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_link_codes_user ON link_codes(user_id);
+
+-- payments
+-- This table was previously absent from SCHEMA: it only ever existed in the
+-- production DB, created by hand. A fresh deployment would fail with
+-- "no such table: payments" on the first quote. Audit 20 Oct surfaced this
+-- while testing the policy limits. Columns mirror what core.py and api.py read
+-- and write, including the ones the ALTER migrations below add.
+CREATE TABLE IF NOT EXISTS payments(
+  id TEXT PRIMARY KEY,
+  user_id INTEGER,
+  contact_alias TEXT,
+  to_address TEXT,
+  amount_usdc REAL,
+  amount_local REAL,
+  local_ccy TEXT,
+  fx_rate REAL,
+  fee_usdc REAL DEFAULT 0,
+  memo TEXT,
+  memo_hash TEXT,
+  status TEXT DEFAULT 'pending',   -- pending | pending_approval | settled | failed | rejected | expired_policy
+  channel TEXT,
+  needs_approval INTEGER DEFAULT 0,
+  chain_id INTEGER DEFAULT 43114,
+  tx TEXT,
+  latency_s REAL,
+  approved_by INTEGER,
+  created_at INTEGER,
+  settled_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_payments_user   ON payments(user_id);
+CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
+CREATE INDEX IF NOT EXISTS idx_payments_daily  ON payments(user_id, status, created_at);
 """
 
 # demo FX table (USDC per 1 unit of local). Real build → oracle / Circle FX.
@@ -282,19 +314,118 @@ def list_contacts(user_id) -> list[dict]:
 
 
 # ───────── policy ─────────
-def spent_today(user_id) -> float:
-    day0 = int(time.time()) - (int(time.time()) % 86400)
+# Payment states that still reserve budget. A payment that is only quoted must
+# not be spendable twice: audit 20 Oct found that spent_today counted only
+# 'settled', so several payments could all be quoted while the total looked
+# like zero and then all be approved together.
+_RESERVED_STATUSES = ("pending", "pending_approval")
+
+
+def _day_start(tz_offset_hours: int | None = None) -> int:
+    """Start of the current local day, as a unix timestamp.
+
+    The previous version used `time.time() % 86400`, i.e. UTC midnight. For a
+    Bangkok deployment that resets the 'daily limit' at 07:00 local, which is
+    not what a user means by 'today'. Set UBOT_DAY_TZ_OFFSET (hours from UTC,
+    e.g. 7 for Bangkok) to align it with the user's day.
+    """
+    now = int(time.time())
+    off = tz_offset_hours
+    if off is None:
+        try:
+            off = int(os.environ.get("UBOT_DAY_TZ_OFFSET", "7"))
+        except ValueError:
+            off = 7
+    local = now + off * 3600
+    return local - (local % 86400) - off * 3600
+
+
+def spent_today(user_id, include_reserved: bool = True) -> float:
+    """Amount already committed today.
+
+    Counts settled payments plus anything still in flight (pending /
+    pending_approval) unless `include_reserved` is False. Reserving the
+    in-flight amount is what stops N payments being quoted against a limit of
+    one.
+    """
+    day0 = _day_start()
+    statuses = ("settled",) + _RESERVED_STATUSES if include_reserved else ("settled",)
+    marks = ",".join("?" * len(statuses))
     with conn() as c:
-        r = c.execute("SELECT COALESCE(SUM(amount_usdc),0) s FROM payments WHERE user_id=? AND status='settled' AND created_at>=?", (user_id, day0)).fetchone()
+        r = c.execute(
+            f"SELECT COALESCE(SUM(amount_usdc),0) s FROM payments "
+            f"WHERE user_id=? AND status IN ({marks}) AND created_at>=?",
+            (user_id, *statuses, day0),
+        ).fetchone()
         return float(r["s"])
 
 
-def check_policy(user: dict, amount_usdc: float) -> dict:
-    out = {"allowed": True, "needs_approval": False, "reason": ""}
-    if spent_today(user["id"]) + amount_usdc > (user.get("daily_limit") or 1e12):
-        out.update(allowed=False, reason=f"daily limit {user['daily_limit']} USDC exceeded")
-    elif amount_usdc >= (user.get("dual_threshold") or 1e12):
-        out.update(needs_approval=True, reason=f"amount ≥ {user['dual_threshold']} USDC requires a second approval")
+def _daily_limit(user: dict) -> float | None:
+    """The user's daily cap, or None when no policy is set.
+
+    Audit 20 Oct: this used to be `user.get('daily_limit') or 1e12`, which turned
+    an explicit 0 — the most restrictive setting there is — into a trillion
+    USDC. None (no policy configured) and 0 (nothing allowed) are different
+    states and must not collapse into the same branch.
+    """
+    v = user.get("daily_limit")
+    if v is None:
+        try:
+            return float(os.environ.get("UBOT_DEFAULT_DAILY_LIMIT", "40"))
+        except ValueError:
+            return 40.0
+    return float(v)
+
+
+def _dual_threshold(user: dict) -> float:
+    """Amount at or above which a co-signer is required.
+
+    `or 1e12` here would mean a configured 0 disables dual control entirely —
+    the opposite of what the user asked for and the product's headline promise.
+    A missing threshold falls back to the operator default.
+    """
+    v = user.get("dual_threshold")
+    if v is None:
+        try:
+            return float(os.environ.get("UBOT_DEFAULT_DUAL_THRESHOLD", "10"))
+        except ValueError:
+            return 10.0
+    return float(v)
+
+
+def check_policy(user: dict, amount_usdc: float, exclude_payment_id: str | None = None) -> dict:
+    """May `user` commit `amount_usdc` more right now?
+
+    `exclude_payment_id` drops one already-created payment from the committed
+    total. It exists for callers that re-check a payment they are about to
+    settle, where the amount is already included in the committed sum.
+
+    /approve deliberately does NOT use it: since in-flight payments now reserve
+    budget, the pending payment is already counted, and subtracting it would
+    let N pending payments each clear the cap in turn. /approve re-checks with
+    exclude=None and amount 0, i.e. "does anything else already committed today
+    leave room for this one?".
+    """
+    out = {"allowed": True, "needs_approval": False, "reason": "", "daily_limit": None}
+    uid = user["id"]
+    committed = spent_today(uid)
+    if exclude_payment_id:
+        with conn() as c:
+            row = c.execute("SELECT amount_usdc FROM payments WHERE id=? AND user_id=?",
+                            (exclude_payment_id, uid)).fetchone()
+        if row:
+            committed -= float(row["amount_usdc"] or 0.0)
+
+    limit = _daily_limit(user)
+    out["daily_limit"] = limit
+    total = committed + amount_usdc
+    if total > limit:
+        out.update(allowed=False,
+                   reason=f"daily limit {limit:g} USDC exceeded "
+                          f"({committed:g} USDC already committed today)")
+    elif amount_usdc >= _dual_threshold(user):
+        out.update(needs_approval=True,
+                   reason=f"amount ≥ {user.get('dual_threshold')} USDC requires a second approval")
     return out
 
 

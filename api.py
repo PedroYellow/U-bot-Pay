@@ -588,12 +588,27 @@ async def approve(a: Approve, x_api_key: str | None = Header(default=None)):
     if not pay or pay["status"] != "pending_approval":
         raise HTTPException(404, "no such pending payment")
     user = core.get_user(user_id=pay["user_id"])
+    if not user:
+        raise HTTPException(404, "payment owner not found")
     if str(user.get("approver_telegram_id")) != str(a.approver_key):
         raise HTTPException(403, "not the approver")
     if not a.approve:
         core.mark(pay["id"], "rejected", approved_by=int(a.approver_key))
         if NOTIFY: asyncio.create_task(NOTIFY(user["telegram_id"], f"❌ Payment {pay['id']} rejected by co-signer."))
         return {"ok": True, "status": "rejected"}
+    # Audit 20 Oct: the policy used to be checked only when the payment was
+    # quoted. A payment could sit in pending_approval for hours while the user
+    # spent the daily limit elsewhere, and approving it then bypassed the cap.
+    # Re-check at settlement time. In-flight payments reserve budget, so this
+    # payment is already inside spent_today(); asking with amount 0 answers
+    # "is there still room for it?" without double counting.
+    pol = core.check_policy(user, 0.0)
+    if not pol["allowed"]:
+        core.mark(pay["id"], "expired_policy")
+        if NOTIFY:
+            asyncio.create_task(NOTIFY(user["telegram_id"],
+                f"⚠️ Payment {pay['id']} was not sent: {pol['reason']}. Re-quote it."))
+        raise HTTPException(409, pol["reason"])
     r = await asyncio.to_thread(chain.send_usdc, pay["to_address"], pay["amount_usdc"], pay["memo_hash"], pay.get("fee_usdc") or 0.0)
     core.mark(pay["id"], "settled" if r["ok"] else "failed", r["tx"], r["latency_s"], approved_by=int(a.approver_key))
     if NOTIFY: asyncio.create_task(NOTIFY(user["telegram_id"], f"✅ Approved & sent {pay['amount_usdc']} USDC to {pay['contact_alias']} in {r['latency_s']}s\n{r['explorer']}"))

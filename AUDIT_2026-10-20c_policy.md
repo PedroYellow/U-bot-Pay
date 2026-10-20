@@ -107,3 +107,81 @@ que se vende por "nada se mueve sin un sí", es el fallo más serio de los dos.
 2. Re-evaluar `check_policy` en `/approve` + contar pendientes en `spent_today`.
 3. `dual_threshold = 0` debe exigir co-signer, no omitirlo.
 4. Día local en vez de UTC midnight (cosmético pero confuso).
+
+---
+
+# ✅ Fixed — los 4 puntos
+
+## 1. `daily_limit = 0` ahora bloquea
+
+`x or 1e12` eliminado. Ahora `_daily_limit()` distingue los tres estados:
+
+```python
+v = user.get("daily_limit")
+if v is None:      return float(os.environ.get("UBOT_DEFAULT_DAILY_LIMIT", "40"))  # sin política
+return float(v)                                                                     # 0 = no gastes nada
+```
+
+`dual_threshold` tiene el mismo tratamiento: `0` ahora significa "co-firma todo",
+no "no co-firmes nada".
+
+## 2. Los pagos en vuelo reservan presupuesto
+
+`spent_today()` ahora cuenta `settled` **más** `pending` y `pending_approval`:
+
+```sql
+WHERE user_id=? AND status IN ('settled','pending','pending_approval') AND created_at>=?
+```
+
+Con `daily_limit=40`, tres pagos de 12 quedan cotizados contra un total de 36, y
+un cuarto de 12 se rechaza en la cotización. Antes los tres se cotizaban
+"gratis" porque ninguno estaba `settled`.
+
+`failed`, `rejected` y el nuevo `expired_policy` **no** reservan.
+
+## 3. `/approve` re-evalúa la política antes de firmar
+
+```python
+pol = core.check_policy(user, 0.0)
+if not pol["allowed"]:
+    core.mark(pay["id"], "expired_policy")
+    raise HTTPException(409, pol["reason"])
+```
+
+Amount 0 a propósito: como el pendiente ya está dentro de `spent_today()`, la
+pregunta es "¿queda hueco hoy?", sin contar dos veces. Si no queda, el pago se
+marca `expired_policy` y se avisa por Telegram para que se vuelva a cotizar.
+
+**Detalle importante**: la primera versión pasaba `exclude_payment_id`, que
+restaba el importe del pago pendiente de la suma. Eso reabriba el bypass: N
+pagos pendientes podrían pasar el cap uno a uno. Por eso `/approve` usa
+`exclude=None` y amount 0 — es correcto por construcción, no por fotografía.
+
+## 4. El día es local
+
+`_day_start()` usa `UBOT_DAY_TZ_OFFSET` (default 7 = Bangkok). El cap se
+reinicia a medianoche local, no a las 07:00. Test: "Bangkok day rolls over at
+17:00 UTC".
+
+## 🎁 Bonus: la tabla `payments` no estaba en el SCHEMA
+
+Al escribir los tests contra una DB nueva salió `no such table: payments`. La
+tabla solo existía en la DB de producción, creada a mano. Un despliegue limpio
+fallaría en la primera cotización.
+
+Añadida al `SCHEMA` con sus índices. **Verificado que no rompe la DB real**: sobre
+una DB legacy, `CREATE TABLE IF NOT EXISTS` no toca la tabla existente, el
+`ALTER` ya existente añade `chain_id`, los índices se crean, los datos se
+preservan y `create_payment` sigue funcionando. Sin migración destructiva.
+
+## Tests
+
+```bash
+python3 test_policy.py           # 27/27
+python3 test_brain_fallback.py   # 26/26
+python3 test_turn_authz.py       # 9/9
+```
+
+`test_policy.py` corre contra un SQLite de verdad, sin red ni cadena. Cubre:
+límite 0 bloquea, umbral 0 co-firma todo, pendientes reservan, el bypass de
+tres pagos de 12, exclude no reabre el hole, y el día local.
