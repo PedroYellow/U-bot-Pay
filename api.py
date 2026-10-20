@@ -23,6 +23,37 @@ log = logging.getLogger("ubotpay")
 logging.basicConfig(level=logging.INFO)
 core.init()
 
+# ───────── startup checks ───────────────────────────────────────────────────
+# Audit 20 Oct round 10: several secrets are documented but empty in
+# .env.example, and the service used to start anyway with only a log.warning.
+# The worst case is UBOT_JWT_SECRET: if it is unset, api.py generates a fresh
+# random one on every boot, so every restart silently invalidates every session
+# and every issued JWT. Nothing tells the operator, and nothing fails.
+#
+# Fail loudly at startup instead, but keep the hard-fatal set small so a local
+# checkout still boots for development.
+_HARD_REQUIRED = {
+    "UBOT_API_KEY": "server-to-server auth; /turn, /approve and the read models are unusable without it",
+}
+_WARN_IF_MISSING = {
+    "UBOT_JWT_SECRET": "generates a random secret PER BOOT — every restart invalidates all sessions and JWTs. Generate with: openssl rand -hex 32",
+    "UBOT_VOICE_SECRET": "the ElevenLabs voice webhook fails closed (401) until set; generate with: openssl rand -hex 32",
+}
+
+for _name, _why in _HARD_REQUIRED.items():
+    if not os.environ.get(_name):
+        raise RuntimeError(f"{_name} must be set: {_why}")
+
+for _name, _why in _WARN_IF_MISSING.items():
+    if not os.environ.get(_name):
+        log.warning(
+            "%s is not set — %s. Set it in /opt/ubotpay/.env.", _name, _why)
+
+# If the private key is absent the treasury cannot sign, which is a
+# configuration error rather than a reason to boot.
+if not os.environ.get("UBOT_PRIVATE_KEY"):
+    log.warning("UBOT_PRIVATE_KEY is not set — payments cannot be signed. Check /opt/ubotpay/.env.")
+
 app = FastAPI(
     title="U-bot Pay",
     version="0.1",
