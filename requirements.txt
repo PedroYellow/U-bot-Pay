@@ -1,4 +1,15 @@
-web3>=7
+# Runtime dependencies.
+#
+# Audit 20 Oct round 9: almost nothing here was pinned. A redeploy is
+# `git pull && pip install -r requirements.txt && systemctl restart`, so an
+# upstream major release lands in production without anyone choosing it.
+# web3 is bounded now; the rest still needs pinning — needs shell access to the
+# running host to read what is actually installed:
+#   /opt/ubotpay/venv/bin/pip freeze \
+#     | grep -iE '^(fastapi|uvicorn|httpx|anthropic|apscheduler|pyyaml|python-multipart|eth-account)='
+# Until then, keep the service venv as-is and prefer targeted upgrades over a
+# full re-resolve.
+web3>=7,<8
 fastapi
 uvicorn
 httpx
