@@ -7,7 +7,7 @@ Flow:
   GET /report?company=X  X-PAYMENT: <b64>   → verifies EIP-3009 authorization, settles it on-chain via the
                                               relayer (U-bot treasury pays gas), returns the report + tx.
 """
-import os, json, base64, time, hashlib, logging, asyncio
+import os, json, base64, time, hashlib, logging, asyncio, sqlite3, threading
 from fastapi import FastAPI, Request, Header
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,7 +25,75 @@ AGENT_ID_8004 = os.environ.get("DATAAGENT_ERC8004_ID", "unregistered")
 
 app = FastAPI(title="DataAgent (x402)", version="0.1")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# ── nonce store ────────────────────────────────────────────────────────────
+# Audit 20 Oct round 8: nonces used to live in a module-level set, so every
+# restart wiped the replay protection. An EIP-3009 authorization stays valid
+# until validBefore, so any authorization captured in that window could be
+# replayed after a deploy or a crash. The set is now backed by SQLite, with the
+# in-memory set kept as a hot cache in front of it.
+#
+# The nonce is recorded AFTER settlement on purpose: if settlement fails the
+# authorization is not burned, so the payer can retry with a fresh one. The
+# chain's own ERC-20 nonce is what actually prevents a double settle.
+_NONCE_DB = os.environ.get("DATAAGENT_NONCE_DB",
+                           os.path.join(os.path.dirname(os.path.abspath(__file__)), "dataagent_nonces.db"))
 _seen_nonces: set[str] = set()
+_nonce_lock = threading.Lock()
+
+
+def _init_nonce_store() -> None:
+    with sqlite3.connect(_NONCE_DB) as c:
+        c.execute("""CREATE TABLE IF NOT EXISTS seen_nonces(
+                        nonce TEXT PRIMARY KEY,
+                        seen_at INTEGER NOT NULL)""")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_nonce_seen ON seen_nonces(seen_at)")
+
+
+def _nonce_seen(nonce: str) -> bool:
+    with _nonce_lock:
+        if nonce in _seen_nonces:
+            return True
+    with sqlite3.connect(_NONCE_DB) as c:
+        row = c.execute("SELECT 1 FROM seen_nonces WHERE nonce = ?", (nonce,)).fetchone()
+    if row:
+        with _nonce_lock:
+            _seen_nonces.add(nonce)
+        return True
+    return False
+
+
+def _remember_nonce(nonce: str) -> None:
+    """Persist a nonce. Returns False if another worker got there first, which
+    means the authorization was replayed and must not be settled."""
+    now = int(time.time())
+    with _nonce_lock:
+        _seen_nonces.add(nonce)
+    with sqlite3.connect(_NONCE_DB) as c:
+        cur = c.execute("INSERT OR IGNORE INTO seen_nonces(nonce, seen_at) VALUES(?, ?)", (nonce, now))
+        first_come = cur.rowcount == 1
+    # Nonces older than the longest authorization we issue are dead weight.
+    try:
+        with sqlite3.connect(_NONCE_DB) as c:
+            c.execute("DELETE FROM seen_nonces WHERE seen_at < ?", (now - 7 * 86400,))
+    except Exception:
+        pass
+    return first_come
+
+
+def _forget_nonce(nonce: str) -> None:
+    """Release a claimed nonce after settlement failed, so the payer can retry
+    with the same authorization instead of it being burned."""
+    with _nonce_lock:
+        _seen_nonces.discard(nonce)
+    try:
+        with sqlite3.connect(_NONCE_DB) as c:
+            c.execute("DELETE FROM seen_nonces WHERE nonce = ?", (nonce,))
+    except Exception as e:
+        log.warning("could not release nonce: %s", e)
+
+
+_init_nonce_store()
 
 
 def requirements(resource: str) -> dict:
@@ -44,7 +112,7 @@ def verify(auth: dict) -> tuple[bool, str]:
         if Web3.to_checksum_address(auth["to"]) != PAYEE: return False, "wrong payee"
         if int(auth["value"]) < chain.to_units(PRICE_USDC): return False, "amount too low"
         if int(auth["validBefore"]) < time.time(): return False, "expired"
-        if auth["nonce"] in _seen_nonces: return False, "nonce reused"
+        if _nonce_seen(auth["nonce"]): return False, "nonce reused"
         msg = {"types": {"EIP712Domain": [{"name": "name", "type": "string"}, {"name": "version", "type": "string"},
                                           {"name": "chainId", "type": "uint256"}, {"name": "verifyingContract", "type": "address"}],
                          "TransferWithAuthorization": [{"name": "from", "type": "address"}, {"name": "to", "type": "address"},
@@ -57,10 +125,14 @@ def verify(auth: dict) -> tuple[bool, str]:
                            "validBefore": int(auth["validBefore"]), "nonce": bytes.fromhex(auth["nonce"][2:])}}
         sig = bytes.fromhex(auth["r"][2:]) + bytes.fromhex(auth["s"][2:]) + bytes([int(auth["v"])])
         signer = Account.recover_message(encode_typed_data(full_message=msg), signature=sig)
-        if signer.lower() != auth["from"].lower(): return False, f"bad signature (recovered {signer})"
+        if signer.lower() != auth["from"].lower(): return False, "bad signature"
         return True, signer
     except Exception as e:
-        return False, f"verify error: {e}"
+        # Audit 20 Oct round 8: the message used to interpolate the recovered
+        # address, telling an attacker which address a forged signature
+        # actually belonged to. Keep the reason generic; the detail is in the log.
+        log.warning("verify failed: %s: %s", type(e).__name__, str(e)[:160])
+        return False, "verify error"
 
 
 async def make_report(company: str) -> dict:
@@ -99,12 +171,20 @@ async def report(request: Request, company: str = "Unknown", x_payment: str | No
     ok, why = verify(auth)
     if not ok:
         return JSONResponse(status_code=402, content={"error": why, **requirements(resource)})
-    # settle on-chain (relayer pays gas). In production this can be batched / async.
+    # Claim the nonce BEFORE touching the chain, atomically. Audit 20 Oct round 8:
+    # the old code added the nonce to an in-memory set only after settle() returned,
+    # so two concurrent requests with the same authorization both passed verify()
+    # and both settled. INSERT OR IGNORE makes exactly one of them the winner.
+    # If settlement then fails we roll the claim back, so the payer is not charged
+    # for a report they never got.
+    if not _remember_nonce(auth["nonce"]):
+        return JSONResponse(status_code=402, content={"error": "nonce reused", **requirements(resource)})
     try:
         settle = await asyncio.to_thread(chain.settle_authorization, auth)
     except Exception as e:
-        return JSONResponse(status_code=502, content={"error": f"settlement failed: {str(e)[:160]}"})
-    _seen_nonces.add(auth["nonce"])
+        _forget_nonce(auth["nonce"])
+        log.warning("settlement failed, nonce released: %s: %s", type(e).__name__, str(e)[:160])
+        return JSONResponse(status_code=502, content={"error": "settlement failed, please retry"})
     rep = await make_report(company)
     receipt = {"payer": auth["from"], "payee": PAYEE, "amount_usdc": PRICE_USDC, **settle}
     return JSONResponse(content={"report": rep, "payment": receipt},
@@ -112,5 +192,18 @@ async def report(request: Request, company: str = "Unknown", x_payment: str | No
 
 
 @app.get("/health")
-def health():
-    return {"ok": True, "network": chain.NETWORK_NAME, "payee": PAYEE, "payee_usdc": chain.balance(PAYEE)["usdc"], "price_usdc": PRICE_USDC}
+def health(x_api_key: str | None = Header(default=None)):
+    """Liveness plus the public pricing info.
+
+    Audit 20 Oct round 8: this used to return payee_usdc — the exact live
+    balance of the wallet that receives payments — with no auth at all. That is
+    the same class of leak as the treasury exposure fixed in /dashboard, and it
+    contradicted it. The balance now requires the key.
+    """
+    out = {"ok": True, "network": chain.NETWORK_NAME, "payee": PAYEE, "price_usdc": PRICE_USDC}
+    if x_api_key and x_api_key == os.environ.get("DATAAGENT_API_KEY", ""):
+        try:
+            out["payee_usdc"] = chain.balance(PAYEE)["usdc"]
+        except Exception:
+            out["payee_usdc"] = None
+    return out
