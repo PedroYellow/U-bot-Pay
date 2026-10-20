@@ -67,7 +67,34 @@ app = FastAPI(
     redoc_url=None,
     openapi_url="/openapi.json" if os.environ.get("UBOT_DOCS_PUBLIC", "") == "1" else None,
 )
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+# CORS (audit 20 Oct round 11).
+#
+# This was allow_origins=["*"], which made the careful allowlist in nginx
+# decorative: FastAPI's middleware answers first and emits its own
+# Access-Control-Allow-Origin: *, so every response carried BOTH that and the
+# nginx value. Any site could therefore read /health, /pricing and /turn from the
+# browser. nginx alone cannot fix it — the wildcard is added here, upstream.
+#
+# The list must stay in sync with the $cors_origin map in nginx. Overridable via
+# UBOT_CORS_ORIGINS so a new deploy surface does not need a code change.
+_ALLOWED_ORIGINS = [
+    o.strip().rstrip("/")
+    for o in os.environ.get(
+        "UBOT_CORS_ORIGINS",
+        "https://ubotpay.com,https://www.ubotpay.com,https://agent.ubotpay.com",
+    ).split(",")
+    if o.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_ALLOWED_ORIGINS,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "x-api-key", "X-Payment"],
+    # No allow_credentials: the API authenticates with a bearer/x-api-key header,
+    # never a cookie, so there is nothing to gain and it would forbid "*" anyway.
+    allow_credentials=False,
+    max_age=86400,
+)
 
 API_KEY = os.environ.get("UBOT_API_KEY")
 if not API_KEY:

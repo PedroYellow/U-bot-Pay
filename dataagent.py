@@ -24,7 +24,26 @@ PAYEE = Web3.to_checksum_address(os.environ.get("DATAAGENT_ADDRESS", "0x00000000
 AGENT_ID_8004 = os.environ.get("DATAAGENT_ERC8004_ID", "unregistered")
 
 app = FastAPI(title="DataAgent (x402)", version="0.1")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+# Same wildcard problem as api.py (audit 20 Oct round 11): the nginx allowlist for
+# agent.ubotpay.com was decorative because this middleware answered first with
+# Access-Control-Allow-Origin: *. Restrict to the real first-party origins.
+# No credentials: x402 authenticates with the X-Payment header, never a cookie.
+_DATAAGENT_ORIGINS = [
+    o.strip().rstrip("/")
+    for o in os.environ.get(
+        "UBOT_CORS_ORIGINS",
+        "https://ubotpay.com,https://www.ubotpay.com,https://agent.ubotpay.com",
+    ).split(",")
+    if o.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_DATAAGENT_ORIGINS,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "x-api-key", "X-Payment"],
+    allow_credentials=False,
+    max_age=86400,
+)
 
 # ── nonce store ────────────────────────────────────────────────────────────
 # Audit 20 Oct round 8: nonces used to live in a module-level set, so every
