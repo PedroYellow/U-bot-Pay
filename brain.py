@@ -219,7 +219,14 @@ def _local_parse(text: str, context: dict | None = None) -> dict:
         base["intent"] = "confirm"
         base["reply"] = {"en": "On it.", "es": "Voy.", "th": "ได้เลย"}[lang]
         return base
-    if re.search(r"\b(cancel|stop|no|nope|nada|cancela|cancelar|หยุด|ยกเลิก)\b", low):
+    # Cancellation. Audit 20 Oct round 11: this used to be a bare word list
+    # including "no" and "nada", so "qwerty zzz nada" was classified as cancel —
+    # a nonsense utterance silently cancelled whatever the user was doing. A
+    # bare "no"/"nada" is far too weak a signal on its own: it only counts when
+    # it is the whole message, or when it follows the money words we just quoted.
+    if re.search(r"\b(cancel|stop|nope|cancela|cancelar|หยุด|ยกเลิก)\b", low) \
+       or re.fullmatch(r"(no|nada|nah|nope|ไม่|ไม่เอ็น)\s*[.!]?", low) \
+       or re.search(r"\b(no|nada)\b[^.!?]{0,24}\b(send|send it|env[ií]a|envia|do it|go ahead|it|pagar|paga)\b", low):
         base["intent"] = "cancel"
         base["reply"] = {"en": "Cancelled.", "es": "Cancelado.", "th": "ยกเลิกแล้ว"}[lang]
         return base

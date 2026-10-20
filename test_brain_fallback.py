@@ -40,11 +40,21 @@ LOCAL_CASES = [
     ("cancel",                     "cancel",     None,    None),
     ("yes",                        "confirm",    None,    None),
     ("no",                         "cancel",     None,    None),
+    ("nada",                       "cancel",     None,    None),
+    ("no, don't send it",          "cancel",     None,    None),
+    ("nope",                       "cancel",     None,    None),
+    ("stop",                       "cancel",     None,    None),
     ("help",                       "help",       None,    None),
     ("who are you",               "smalltalk",  None,    None),
     ("research Sequoia",           "agent_query", None,   None),
     ("",                           "unknown",    None,    None),
     ("asdkjfh random gibberish",   "unknown",    None,    None),
+    # Round 11: a bare "no"/"nada" anywhere in a sentence used to cancel, so
+    # nonsense input silently cancelled whatever the user was doing.
+    ("qwerty zzz nada",            "unknown",    None,    None),
+    ("asdkjfh nada zzz",           "unknown",    None,    None),
+    ("no idea what this is",       "unknown",    None,    None),
+    ("nothing to report here",     "unknown",    None,    None),
     ("คุณมีเงินเท่าไหร่",            "balance",    None,    None),   # Thai
     ("ส่งเงิน 2000 บาท ให้แม่",          "pay",        2000.0, None),    # Thai
 ]
