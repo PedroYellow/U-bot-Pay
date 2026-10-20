@@ -29,6 +29,11 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 API_KEY = os.environ.get("UBOT_API_KEY")
 if not API_KEY:
     raise RuntimeError("UBOT_API_KEY must be configured (security: fail-closed)")
+# Separate secret for the ElevenLabs agent webhook (audit 20 Oct, IDOR fix).
+# Lets the voice integration be rotated or revoked independently of the
+# Telegram bot's key, and gates it to read-only intents. Empty = disabled, in
+# which case the ElevenLabs tool must authenticate another way (session JWT).
+VOICE_SECRET = os.environ.get("UBOT_VOICE_SECRET", "")
 # Audit M5: allowlist of canonical bridge contract addresses.
 # transactionRequest.to from a partner must be in here; otherwise reject
 # the quote (defense in depth against a compromised partner redirecting
@@ -264,10 +269,16 @@ def _pending_gc():
             _pending.pop(items.pop(0)[0], None)
 
 
+def hmac_compare(a: str | None, b: str | None) -> bool:
+    """Constant-time string compare. Shared by auth() and the /turn
+    server-to-server path so both use the same timing-safe check."""
+    import hmac
+    return hmac.compare_digest((a or "").encode(), (b or "").encode())
+
+
 def auth(x_api_key: str | None):
     """Bearer API key auth. The browser never holds this key; it's reserved for server-to-server calls."""
-    import hmac
-    if not hmac.compare_digest(x_api_key or "", API_KEY):
+    if not hmac_compare(x_api_key, API_KEY):
         raise HTTPException(401, "Unauthorized")
 
 
@@ -347,13 +358,51 @@ def health_full(x_api_key: str | None = Header(default=None)):
 
 
 @app.post("/turn")
-async def turn(t: Turn):
-    """Public endpoint for voice/text conversational quotes. /turn does NOT sign or send
-    any on-chain transaction — it returns a quote/balance/history/contacts response only.
-    The actual on-chain send happens out-of-band via the Telegram bot signer or a future
-    user-authenticated path. Rate-limited per user_key in production (audit #1)."""
-    # Public — no auth required. See audit finding #1: /turn must not hold a server API key.
-    user = resolve_user(t.user_key)
+async def turn(t: Turn, request: Request,
+               x_api_key: str | None = Header(default=None),
+               x_ubot_channel: str | None = Header(default=None)):
+    """Conversational turn: {text, channel} → {say, action, data}.
+
+    IDENTITY (audit 20 Oct, IDOR fix): the user is resolved from the caller's
+    credentials, NEVER from a user_key in the body. Previously `user_key` was
+    caller-controlled on a public endpoint, so anyone could read another
+    user's balance/invoices/history by passing their telegram_id or 0x address,
+    and `agent_query` would spend UBOT_PRIVATE_KEY for whoever they named.
+
+    Accepted identities, in order:
+      1. `Authorization: Bearer <JWT>` — the web wallet flow. The user comes
+         from the token. If the body names a different user, 403.
+      2. `x-api-key: <UBOT_API_KEY>` — server-to-server (Telegram bot, internal
+         workers). The body's user_key is honoured because the caller is
+         trusted and its key is not exposed to browsers.
+      3. `x-ubot-channel: <UBOT_VOICE_SECRET>` — the ElevenLabs agent webhook.
+         Also server-to-server, but with a *separate* secret so the voice
+         integration can be rotated or revoked without touching the Telegram
+         bot's key. Restricted to read-only intents: it may look things up but
+         may not spend the treasury key (see the agent_query block).
+      4. none of the above → 401. The demo user is reachable through the demo
+         API key, not by guessing `{"user_key":"demo"}` from the open web.
+    """
+    user, err = _user_from_request(request)
+    trusted = False          # may spend money / act as the named user
+    voice_svc = False        # ElevenLabs webhook: read-only
+    if user is None:
+        if x_api_key and hmac_compare(x_api_key, API_KEY):
+            user = resolve_user(t.user_key)
+            trusted = True
+        elif VOICE_SECRET and x_ubot_channel and hmac_compare(x_ubot_channel, VOICE_SECRET):
+            # The ElevenLabs agent is configured against the demo wallet. It is
+            # a shared demo surface, so we pin it to the demo user rather than
+            # let a caller-supplied key pick whose balance gets read out loud.
+            user = resolve_user("demo")
+            voice_svc = True
+        else:
+            raise HTTPException(401, "auth required: sign in with a wallet, "
+                                     "or send x-api-key for server calls")
+    elif t.user_key not in ("", None, "demo"):
+        # Authenticated session, but it asked for a different user. Refuse:
+        # a session may only ever act as itself.
+        raise HTTPException(403, "session cannot act as another user")
     uid = user["id"]
     contacts = core.list_contacts(uid)
     invoices = core.open_invoices(uid)
@@ -437,9 +486,24 @@ async def turn(t: Turn):
         q = (it.get("query") or it.get("recipient") or "").strip()
         if not q:
             return {"say": it.get("reply") or "Which company should I research?", "action": "ask", "data": {}}
+        # Audit 20 Oct (IDOR): this spends UBOT_PRIVATE_KEY, so it must not be
+        # reachable by an unauthenticated caller (401 above), nor by the
+        # read-only voice webhook — and the per-turn spend must be capped by an
+        # operator-controlled ceiling, not only by the resolved user's own
+        # daily_limit, which an attacker could otherwise influence.
+        if not trusted:
+            reason = ("research is available on the Telegram bot" if voice_svc
+                      else "sign in to use research")
+            return {"say": say(lang, "agent_fail", err=reason),
+                    "action": "blocked", "data": {"error": f"agent_query restricted: {reason}"}}
+        ceiling = float(os.environ.get("UBOT_AGENT_MAX_USDC", "1"))
+        per_turn = max(0.0, min(float(user.get("daily_limit") or 5), ceiling))
+        if per_turn <= 0:
+            return {"say": say(lang, "agent_fail", err="research budget disabled"),
+                    "action": "blocked", "data": {"error": "agent_query budget disabled (UBOT_AGENT_MAX_USDC=0)"}}
         url = f"{os.environ.get('DATAAGENT_URL', 'http://127.0.0.1:8091')}/report?company={urllib.parse.quote(q)}"
         try:
-            r = await x402_client.pay_and_fetch(url, os.environ["UBOT_PRIVATE_KEY"], max_usdc=float(user.get("daily_limit") or 5))
+            r = await x402_client.pay_and_fetch(url, os.environ["UBOT_PRIVATE_KEY"], max_usdc=per_turn)
         except Exception as e:
             return {"say": say(lang, "agent_fail", err=str(e)[:80]), "action": "failed", "data": {"error": str(e)[:200]}}
         if not r.get("ok"):

@@ -184,11 +184,18 @@ function render(res){
   add("b", esc(res.say) + extra);
 }
 async function send(text){
+  // Auth: the session JWT from the wallet connect flow. /turn no longer
+  // accepts a caller-supplied user_key (IDOR fix, audit 20 Oct) — the server
+  // resolves the user from this token.
   const auth = window.__ubotpayAuth ? window.__ubotpayAuth() : {};
   if(!text.trim()) return;
   add("u", esc(text)); inp.value = "";
   const t = add("sys", I18N.t("thinking"));
-  try { const r = await fetch(API + "/turn", {method:"POST", headers:Object.assign({"Content-Type":"application/json"}, auth), body: JSON.stringify({text, channel:"web"})}); const res = await r.json(); t.remove(); render(res); }
+  try {
+    const r = await fetch(API + "/turn", {method:"POST", headers:Object.assign({"Content-Type":"application/json"}, auth), body: JSON.stringify({text, channel:"web"})});
+    if (r.status === 401) { t.remove(); add("sys", esc(I18N.t("connect_first") || "Connect your wallet to use ubotpay.")); return; }
+    const res = await r.json(); t.remove(); render(res);
+  }
   catch(e){ t.innerHTML = "⚠️ " + esc(e.message); }
 }
 document.getElementById("send").onclick = () => send(inp.value);
