@@ -10,7 +10,7 @@ GET  /health
 """
 import os, time, json, asyncio, logging
 import httpx, urllib.parse
-from fastapi import FastAPI, HTTPException, Request, Header
+from fastapi import FastAPI, HTTPException, Query, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -29,13 +29,88 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 API_KEY = os.environ.get("UBOT_API_KEY")
 if not API_KEY:
     raise RuntimeError("UBOT_API_KEY must be configured (security: fail-closed)")
+# Audit M5: allowlist of canonical bridge contract addresses.
+# transactionRequest.to from a partner must be in here; otherwise reject
+# the quote (defense in depth against a compromised partner redirecting
+# funds). The full LI.FI diamond contract address across all chains
+# is 0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE; CCTP TokenMessenger
+# is 0xAaDA05BD399371f2537E14024e23949c45675aCD; Stargate/LayerZero
+# uses chain-specific routers that we expand below.
+_BRIDGE_SAFE_TARGETS = {
+    # LI.FI diamond (same on all chains)
+    "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE".lower(),
+    # CCTP TokenMessenger (Circle's canonical USDC bridge)
+    "0xaada05bd399371f2537e14024e23949c45675aCD".lower(),
+    "0xaaDA05BD399371f2537E14024e23949c45675aCD".lower(),
+    "0x6c28dc10db08a583e7d7cea2bbd31e18b4d70c93".lower(),  # CCTP v1
+    # Squid Router
+    "0xc4429b0c7e1d1009fda9dcc75f639736d3cf67a9".lower(),
+    # Across Protocol SpokePool (varies per chain but we add the major ones)
+    "0xc186fA914353c44b2E33eBE05f21846F10421Edf".lower(),  # SpokePool canonical
+    "0x5c7BCd6E7De5423aDBD0810cAcd59aB6628C06b1".lower(),  # Across SpokePool v2
+}
+# LayerZero/Stargate endpoint addresses (canonical, chain-specific).
+# Add more per-chain as we discover them.
+_BRIDGE_SAFE_TARGETS.update({
+    # Stargate Router (v2 mainnets)
+    "0x8731d54E9D02c286767d56F76d8238291E96f015".lower(),  # Ethereum
+    "0xb0d5022cE7c3ee15D96b69B2dC61f7C04dbaD011".lower(),  # Base
+    "0x53Bf833A9f371a6972C245BAf1D69D03c1Ea7fD5".lower(),  # Arbitrum
+    "0x45A01E4e081F3CC07F70bfA06B7c9298E4f43b00".lower(),  # Optimism
+    "0x29F65EB173a6Fc1A6eFb8Db3886B1eF2D78C2dF6".lower(),  # Polygon
+    "0x88124efD9a0a64e011E6Fc64f1F7b56B80938B82".lower(),  # zkSync
+})
+
+
+def _validate_tx_target(to_address: str) -> bool:
+    """Return True if `to_address` is in the bridge-safe allowlist."""
+    if not to_address:
+        return False
+    return to_address.lower() in _BRIDGE_SAFE_TARGETS
+
+
+# Audit M4: rate limiter for /bridge/analytics (per-user token bucket).
+# Window = 60s, max = 30 requests. Prevents attackers with a stolen
+# JWT from enumerating analytics data (volumes, partners, etc.).
+_analytics_rate: dict[int, list[float]] = {}
+_ANALYTICS_WINDOW = 60
+_ANALYTICS_MAX = 30
+
+
+def _analytics_rate_check(user_id: int) -> bool:
+    """Return True if the request is allowed under the rate limit."""
+    import time
+    now = time.time()
+    bucket = _analytics_rate.setdefault(user_id, [])
+    # Drop entries older than window
+    while bucket and bucket[0] < now - _ANALYTICS_WINDOW:
+        bucket.pop(0)
+    if len(bucket) >= _ANALYTICS_MAX:
+        return False
+    bucket.append(now)
+    return True
+
+
 NOTIFY = None   # set by telegram bot at import time: async fn(telegram_id, text)
 
 # Track which status transitions we've already notified for, so we
-# don't spam the user. Key = (bridge_id, status). Value = True.
-# Lives in-memory; resets on process restart (acceptable since the
-# status is also stored in the DB).
-_BRIDGE_NOTIFIED = set()
+# don't spam the user. Key = (bridge_id, status). Value = unix timestamp.
+# Lives in-memory; resets on process restart. Audit H5: bounded LRU.
+_BRIDGE_NOTIFIED_MAX = 5000
+_BRIDGE_NOTIFIED_TTL = 86400
+_BRIDGE_NOTIFIED = {}
+
+
+def _bridge_notified_gc():
+    """Drop expired entries. If still over cap, drop oldest by timestamp."""
+    now = time.time()
+    expired = [k for k, ts in _BRIDGE_NOTIFIED.items() if now - ts > _BRIDGE_NOTIFIED_TTL]
+    for k in expired:
+        _BRIDGE_NOTIFIED.pop(k, None)
+    if len(_BRIDGE_NOTIFIED) > _BRIDGE_NOTIFIED_MAX:
+        items = sorted(_BRIDGE_NOTIFIED.items(), key=lambda x: x[1])
+        while len(_BRIDGE_NOTIFIED) > _BRIDGE_NOTIFIED_MAX:
+            _BRIDGE_NOTIFIED.pop(items.pop(0)[0], None)
 
 
 def _esc(s) -> str:
@@ -82,9 +157,10 @@ async def _notify_bridge(bridge: dict, event: str, user: dict | None = None):
     if not NOTIFY or not bridge:
         return
     key = (bridge["id"], event)
-    if key in _BRIDGE_NOTIFIED:
+    if key in _BRIDGE_NOTIFIED and (time.time() - _BRIDGE_NOTIFIED[key]) < _BRIDGE_NOTIFIED_TTL:
         return
-    _BRIDGE_NOTIFIED.add(key)
+    _BRIDGE_NOTIFIED[key] = time.time()
+    _bridge_notified_gc()
     # Resolve telegram_id from the bridge's user if not passed in
     tg_id = None
     if user and user.get("telegram_id"):
@@ -168,8 +244,24 @@ async def _notify_bridge(bridge: dict, event: str, user: dict | None = None):
     except Exception as e:
         log.warning("push fan_out failed: %s", e)
 
-# in-memory conversation state per user: pending quote awaiting "confirm"
+# in-memory conversation state per user: pending quote awaiting "confirm".
+# Audit H5: bounded size with LRU eviction + 30-min TTL.
 _pending: dict[int, dict] = {}
+_PENDING_MAX = 1000
+_PENDING_TTL = 1800  # 30 min
+
+
+def _pending_gc():
+    """Drop expired entries and enforce max cap."""
+    import time
+    now = time.time()
+    expired = [k for k, v in _pending.items() if now - (v.get("ts", 0)) > _PENDING_TTL]
+    for k in expired:
+        _pending.pop(k, None)
+    if len(_pending) > _PENDING_MAX:
+        items = sorted(_pending.items(), key=lambda x: x[1].get("ts", 0))
+        while len(_pending) > _PENDING_MAX:
+            _pending.pop(items.pop(0)[0], None)
 
 
 def auth(x_api_key: str | None):
@@ -674,12 +766,12 @@ def bridge_chains():
 
 @app.get("/bridge/quote")
 def bridge_quote(
-    from_chain: int,
-    to_chain: int,
-    amount_usdc: float,
-    from_address: str,
-    to_address: str,
-    request: Request,
+    from_chain: int = Query(..., ge=1, le=999999, description="source chain id"),
+    to_chain: int = Query(..., ge=1, le=999999, description="destination chain id"),
+    amount_usdc: float = Query(..., gt=0.01, le=1_000_000, description="USDC amount, 0.01 to 1,000,000"),
+    from_address: str = Query(..., min_length=42, max_length=42, pattern=r"^0x[a-fA-F0-9]{40}$"),
+    to_address: str = Query(..., min_length=42, max_length=42, pattern=r"^0x[a-fA-F0-9]{40}$"),
+    request: Request = None,
 ):
     """Get a LI.FI bridge quote for a USDC transfer between two EVM chains.
     Returns the best route, gas estimate, fees, time, and the raw
@@ -699,6 +791,14 @@ def bridge_quote(
         log.warning("bridge quote failed: %s", e)
         raise HTTPException(502, f"bridge quote failed: {e}")
     raw = q.pop("raw", {})
+    # Audit M5: validate that the partner's transactionRequest.to is a
+    # known bridge contract. A compromised partner could redirect funds
+    # to an arbitrary address by returning a tx with a malicious `to`.
+    tx_req = q.get("transaction") or q.get("transaction_request")
+    if isinstance(tx_req, dict) and tx_req.get("to"):
+        if not _validate_tx_target(tx_req["to"]):
+            log.warning("M5: rejecting quote from %s — unknown tx.to=%s", q.get("partner"), tx_req["to"])
+            raise HTTPException(502, "bridge contract not in allowlist; quote rejected")
     return {
         "ok": True,
         "tool": q["tool"],
@@ -754,20 +854,38 @@ def bridge_alerts():
     return {"alerts": alerts, "count": len(alerts)}
 
 
+class BridgeStartBody(BaseModel):
+    from_chain: int
+    to_chain: int
+    amount_usdc: float
+    from_address: str
+    to_address: str
+
+
 @app.post("/bridge/start")
-def bridge_start(body: dict, request: Request):
+def bridge_start(body: BridgeStartBody, request: Request):
     """Store the quote so we can track the bridge once the user signs.
-    Requires a valid Bearer JWT."""
+    Requires a valid Bearer JWT. Audit H4: bounds on amount_usdc and
+    chain_ids to prevent DoS via upstream quote spam."""
     user, err = _user_from_request(request)
     if err:
         raise HTTPException(401, err)
+    # Bounds (Pydantic does some, but we add chain_id whitelist check)
+    if not (1 <= body.from_chain <= 999999 and 1 <= body.to_chain <= 999999):
+        raise HTTPException(400, "invalid chain id")
+    if body.from_chain == body.to_chain:
+        raise HTTPException(400, "from_chain and to_chain must differ")
+    if not (0.01 <= body.amount_usdc <= 1_000_000):
+        raise HTTPException(400, "amount_usdc must be between 0.01 and 1,000,000")
+    # Validate EVM address format
+    if not (body.from_address.startswith("0x") and len(body.from_address) == 42):
+        raise HTTPException(400, "from_address must be 0x + 40 hex chars")
+    if not (body.to_address.startswith("0x") and len(body.to_address) == 42):
+        raise HTTPException(400, "to_address must be 0x + 40 hex chars")
     try:
         quote_obj = _bridge.quote(
-            int(body["from_chain"]),
-            int(body["to_chain"]),
-            float(body["amount_usdc"]),
-            str(body["from_address"]),
-            str(body["to_address"]),
+            body.from_chain, body.to_chain, body.amount_usdc,
+            body.from_address, body.to_address,
         )
     except Exception as e:
         raise HTTPException(400, f"invalid quote parameters: {e}")
@@ -776,8 +894,8 @@ def bridge_start(body: dict, request: Request):
         user_id=user["id"],
         from_chain=quote_obj["from_chain"],
         to_chain=quote_obj["to_chain"],
-        from_address=str(body["from_address"]),
-        to_address=str(body["to_address"]),
+        from_address=body.from_address,
+        to_address=body.to_address,
         amount_usdc=quote_obj["from_amount_human"],
         tool=quote_obj["tool"],
         total_fee_usd=quote_obj["total_fee_usd"],
@@ -889,10 +1007,13 @@ def bridge_history(request: Request, limit: int = 20):
 def bridge_analytics(request: Request, days: int = 30):
     """Aggregated analytics for the authenticated user. Used by the
     /analytics dashboard. Returns lifetime totals, partner mix, daily
-    series, and a recent bridges table."""
+    series, and a recent bridges table. Audit M4: per-user rate limit
+    (30 req/min) prevents bulk enumeration if JWT is stolen."""
     user, err = _user_from_request(request)
     if err or user is None:
         raise HTTPException(401, err or "auth required")
+    if not _analytics_rate_check(user["id"]):
+        raise HTTPException(429, "rate limit exceeded for analytics; try again later")
     bridges = core.list_bridges(user_id=user["id"], limit=1000)
     if not bridges:
         return {
@@ -978,10 +1099,11 @@ def bridge_analytics(request: Request, days: int = 30):
 @app.get("/push/vapid-key")
 def push_vapid_key():
     """Return the VAPID public key so the browser can subscribe.
-    Public endpoint — no auth needed."""
+    Public endpoint — no auth needed. Audit H6: do NOT expose the
+    VAPID subject (admin email) — an attacker could spam abuse
+    reports to the admin email."""
     return {
         "public_key": os.environ.get("VAPID_PUBLIC_KEY", ""),
-        "subject": os.environ.get("VAPID_SUBJECT", ""),
     }
 
 

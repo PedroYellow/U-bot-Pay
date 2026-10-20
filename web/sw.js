@@ -14,7 +14,7 @@
  * In particular we skip caching anything sent with an Authorization header.
  */
 
-const CACHE_NAME = "ubotpay-v4";
+const CACHE_NAME = "ubotpay-v5";
 const PRECACHE = [
   "/",
   "/manifest.json",
@@ -58,7 +58,7 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
 
   const url = new URL(req.url);
-  if (url.origin !== self.location.origin && !url.hostname.includes("ubotpay.com")) {
+  if (url.hostname !== self.location.hostname) {
     return;
   }
 
@@ -264,6 +264,12 @@ async function processOutbox() {
   const failed = [];
   for (const item of items) {
     try {
+      // Audit H8: validate URL is on our origin (no JWT leak)
+      const itemUrl = new URL(item.url, self.location.origin);
+      if (itemUrl.hostname !== self.location.hostname) {
+        await removeFromOutbox(item.id);
+        continue;
+      }
       // Replay the action by calling the same endpoint. The body
       // includes a token from the original action payload (it was
       // stored at queue time).

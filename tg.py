@@ -73,7 +73,19 @@ def _extra(res: dict) -> str | None:
     return None
 
 
+async def _require_private(update: Update) -> bool:
+    """Audit H1: reject all bot commands in groups. The bot's payment
+    flow leaks balances and personal info if used in a group chat.
+    Returns True if the message should be processed, False if it was
+    already replied to with an error."""
+    if update.effective_chat and update.effective_chat.type != "private":
+        # Silent in groups — don't spam the group with bot errors.
+        return False
+    return True
+
+
 async def on_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await _require_private(update): return
     u = update.effective_user
     user = core.upsert_user(u.id, u.full_name, (u.language_code or "en")[:2], os.environ.get("UBOT_WALLET_ADDRESS"))
     api._seed_for(user["id"])
@@ -84,6 +96,7 @@ async def on_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def on_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await _require_private(update): return
     f = await (update.message.voice or update.message.audio).get_file()
     buf = io.BytesIO(); await f.download_to_memory(buf)
     text = await stt(buf.getvalue())
@@ -94,6 +107,7 @@ async def on_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await _require_private(update): return
     await handle_text(update, update.message.text)
 
 
@@ -107,6 +121,7 @@ async def handle_text(update: Update, text: str):
 
 
 async def on_approve(update: Update, ctx: ContextTypes.DEFAULT_TYPE, approve=True):
+    if not await _require_private(update): return
     parts = (update.message.text or "").split()
     if len(parts) < 2:
         pend = core.pending_approvals(update.effective_user.id)
@@ -121,6 +136,7 @@ async def on_approve(update: Update, ctx: ContextTypes.DEFAULT_TYPE, approve=Tru
 
 
 async def on_reject(update, ctx):
+    if not await _require_private(update): return
     await on_approve(update, ctx, approve=False)
 
 
@@ -160,6 +176,7 @@ async def on_code(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 # Backward-compat: old /link command returns a friendly deprecation
 async def on_link(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await _require_private(update): return
     """Deprecated. Use /code <6-digit> instead."""
     await update.message.reply_text(
         "⚠️ The `/link <token>` command has been retired for security.\n\n"
@@ -171,6 +188,7 @@ async def on_link(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def on_cosigner(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not await _require_private(update): return
     """/cosigner <telegram_id>  — set who approves big payments."""
     parts = (update.message.text or "").split()
     user = core.get_user(telegram_id=update.effective_user.id)
