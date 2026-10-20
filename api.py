@@ -8,7 +8,7 @@ POST /x402/quote, POST /x402/settle               ← agent-to-agent (EIP-3009) 
 POST /demo/seed       create demo user + contacts + invoices
 GET  /health
 """
-import os, time, json, asyncio, logging
+import os, time, json, asyncio, logging, threading
 import httpx, urllib.parse
 from fastapi import FastAPI, HTTPException, Query, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,7 +23,19 @@ log = logging.getLogger("ubotpay")
 logging.basicConfig(level=logging.INFO)
 core.init()
 
-app = FastAPI(title="U-bot Pay", version="0.1")
+app = FastAPI(
+    title="U-bot Pay",
+    version="0.1",
+    # Audit 20 Oct round 4: /docs and /openapi.json enumerate all 33 endpoints
+    # with no authentication. Everything sensitive already requires a key, so
+    # this is not a hole on its own — but it is a free map of the surface, and
+    # the schema doesn't even document the auth (no securitySchemes).
+    # Set UBOT_DOCS_PUBLIC=1 to keep them reachable (useful for a hackathon
+    # demo where showing the API is a feature); otherwise they need the API key.
+    docs_url="/docs" if os.environ.get("UBOT_DOCS_PUBLIC", "") == "1" else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if os.environ.get("UBOT_DOCS_PUBLIC", "") == "1" else None,
+)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 API_KEY = os.environ.get("UBOT_API_KEY")
@@ -94,6 +106,51 @@ def _analytics_rate_check(user_id: int) -> bool:
         return False
     bucket.append(now)
     return True
+
+
+# ── public-endpoint rate limiting (audit 20 Oct round 4) ──────────────────
+# /bridge/quote is unauthenticated and every call spends quota on LI.FI *and*
+# Across (get_best_quote fans out to both). Production check: 12 unauthenticated
+# requests in a row all returned 200, i.e. 24 upstream calls paid for by us.
+#
+# Keyed by client IP so one noisy script can't spend everyone else's budget.
+# Behind nginx, request.client.host is the proxy unless we read X-Forwarded-For;
+# nginx is configured to set it, and the value is only used as a dict key (never
+# trusted for anything else), so a forged header can at worst pick a bucket.
+_quote_rate: dict[str, list[float]] = {}
+_QUOTE_WINDOW = 60
+_QUOTE_MAX = int(os.environ.get("UBOT_QUOTE_RATE_PER_MIN", "20"))
+_QUOTE_LOCK = threading.Lock()
+# Bounded so a spray of spoofed XFF values can't grow this without limit.
+_QUOTE_MAX_BUCKETS = 20_000
+
+
+def _client_ip(request: Request | None) -> str:
+    if request is None:
+        return "unknown"
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        # Left-most entry is the original client.
+        return fwd.split(",")[0].strip()[:64]
+    return (request.client.host if request.client else "unknown")[:64]
+
+
+def _quote_rate_check(ip: str) -> bool:
+    """Token bucket per IP. Returns False when the caller is over the limit."""
+    now = time.time()
+    with _QUOTE_LOCK:
+        bucket = _quote_rate.setdefault(ip, [])
+        while bucket and bucket[0] < now - _QUOTE_WINDOW:
+            bucket.pop(0)
+        if len(bucket) >= _QUOTE_MAX:
+            return False
+        bucket.append(now)
+        # Opportunistic GC: drop buckets that have gone quiet.
+        if len(_quote_rate) > _QUOTE_MAX_BUCKETS:
+            cutoff = now - _QUOTE_WINDOW
+            for k in [k for k, v in _quote_rate.items() if not v or v[-1] < cutoff]:
+                _quote_rate.pop(k, None)
+        return True
 
 
 NOTIFY = None   # set by telegram bot at import time: async fn(telegram_id, text)
@@ -861,7 +918,14 @@ def bridge_quote(
 ):
     """Get a LI.FI bridge quote for a USDC transfer between two EVM chains.
     Returns the best route, gas estimate, fees, time, and the raw
-    transactionRequest that the user will sign."""
+    transactionRequest that the user will sign.
+
+    Rate limited per IP (audit 20 Oct round 4): unauthenticated and each call
+    fans out to two paid upstream providers.
+    """
+    ip = _client_ip(request)
+    if not _quote_rate_check(ip):
+        raise HTTPException(429, "too many quote requests, wait a moment")
     try:
         # partner=lifi|across|best. best tries all partners and picks the highest output.
         partner = request.query_params.get("partner", "best")
@@ -873,9 +937,15 @@ def bridge_quote(
                 raise HTTPException(502, "across did not return a quote")
         else:  # best
             q = _bridge.get_best_quote(from_chain, to_chain, amount_usdc, from_address, to_address)
+    except HTTPException:
+        raise
     except Exception as e:
-        log.warning("bridge quote failed: %s", e)
-        raise HTTPException(502, f"bridge quote failed: {e}")
+        # Don't hand str(e) to the caller: httpx/lifi exceptions carry the full
+        # URL, sometimes headers, and occasionally host names we don't publish
+        # (audit 20 Oct round 4). The detail stays in the server log.
+        log.warning("bridge quote failed (%s→%s, %.2f USDC): %s: %s",
+                    from_chain, to_chain, amount_usdc, type(e).__name__, str(e)[:200])
+        raise HTTPException(502, "could not get a bridge quote right now, try again shortly")
     raw = q.pop("raw", {})
     # Audit M5: validate that the partner's transactionRequest.to is a
     # known bridge contract. A compromised partner could redirect funds

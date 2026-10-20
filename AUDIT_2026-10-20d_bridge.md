@@ -210,8 +210,73 @@ el caso exacto que fallaba antes (bridge de 10 USDC diciendo 0.50).
 Verificado además contra una DB legacy: la migración añade `delivered_usdc` sin
 perder datos, y `update_bridge` devuelve `True`/`False` correctamente.
 
-## ⏳ Sigue pendiente de esta ronda
+## ✅ 2. Rate limit en `/bridge/quote`, en dos capas
 
-2. Rate limit + caché en `/bridge/quote` (12/12 seguidas siguen dando 200).
-4. `/docs` tras flag; limpiar el `str(e)` de las 502 de bridge.
-5. Confirmar si `/agent/` perdió su rate limit respecto al audit del 15 Oct.
+**Edge (nginx)** — zona nueva `ubotquote`, mismo presupuesto 20r/m pero cubo
+separado para que un cotizador ruidoso no deja el endpoint de conversación
+sin presupuesto:
+
+```nginx
+location = /bridge/quote {
+    limit_req zone=ubotquote burst=10 nodelay;
+    limit_req_status 429;
+    ...
+}
+```
+
+Es `location =` exacto a propósito: el resto de `/bridge/` (history, analytics,
+start, confirm) es autenticado por usuario y no debe compartir ese presupuesto por
+IP.
+
+**Aplicación** — token bucket por IP en la API, `UBOT_QUOTE_RATE_PER_MIN=20`,
+devolviendo **429** (problema del cliente), no 5xx. Cubos acotados a 20.000 con GC
+oportunista para que un `X-Forwarded-For` falsificado no crezca el dict sin límite.
+
+### El detalle que hacía inútil el rate limit
+
+`api._client_ip()` lee `X-Forwarded-For` — y **`deploy/nginx.conf` no lo
+configuraba en ningún `proxy_pass`**. Sin él, `request.client.host` es siempre
+`127.0.0.1` detrás del proxy, o sea que **todos los visitantes habrían
+compartido un único cubo de 20/min**: el límite no protegía nada, sólo habría
+provocado un corte de servicio.
+
+Añadido `X-Forwarded-For $proxy_add_x_forwarded_for` y `X-Real-IP $remote_addr`
+a los 21 `proxy_pass` de la API. Verificado que quedan dentro de sus
+`location` y que las llaves siguen balanceadas.
+
+El XFF es controlable por el atacante, así que se usa **solo como clave de
+diccionario**: falsificarlo puede como mucho elegir un cubo vacío, nunca
+conceder presupuesto extra a su IP real. Cubierto por test.
+
+## ✅ 4. `/docs` tras flag, y 502 sin fuga de detalle
+
+`/docs`, `/redoc` y `/openapi.json` ahora dependen de `UBOT_DOCS_PUBLIC=1`. Por
+defecto **desactivados**. Para un hackathon donde enseñar la API es la gracia,
+se enciende con una variable.
+
+Las 502 de cotización ya no devuelven `str(e)` al llamante — esas excepciones de
+httpx cargan la URL completa y a veces cabeceras. El detalle se queda en el log
+del servidor; el cliente recibe un mensaje genérico.
+
+## Test
+
+```bash
+python3 test_quote_ratelimit.py   # 18/18
+```
+
+Cubre el límite por IP, que las IPs son independientes, que la ventana desliza,
+que un actor ruidoso no deja sin servicio a los demás, que un XFF falsificado sólo
+elige cubo, y que el exceso es 429 y no 5xx.
+
+## ⚠️ Pendiente: la pregunta del rate limit de `/agent/`
+
+El audit del 15 Oct anotó que el limit cubría "`/turn` **y** `/agent/`". La config
+del repo **sólo**Limitaba `/turn` antes de este cambio. No puedo confirmar si la
+config desplegada en el VPS difiere del repo — no hay acceso SSH. Si quieres,
+cuando despliegues:
+
+```bash
+sudo nginx -T | grep -A5 "agent/"
+```
+
+Si `/agent/` no tiene `limit_req`, es una regresión y hay que añadirlo.
