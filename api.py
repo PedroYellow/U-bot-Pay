@@ -571,6 +571,13 @@ async def turn(t: Turn, request: Request,
         if per_turn <= 0:
             return {"say": say(lang, "agent_fail", err="research budget disabled"),
                     "action": "blocked", "data": {"error": "agent_query budget disabled (UBOT_AGENT_MAX_USDC=0)"}}
+        # Audit 20 Oct round 7: the ceiling above is per call. Rate limit the
+        # intent too, or a caller can loop it and spend the treasury
+        # UBOT_AGENT_MAX_USDC at a time until it is empty.
+        if not _agent_rate_check(uid):
+            return {"say": say(lang, "agent_fail", err="research limit reached, try later"),
+                    "action": "blocked",
+                    "data": {"error": f"agent_query limited to {_AGENT_MAX} per hour"}}
         url = f"{os.environ.get('DATAAGENT_URL', 'http://127.0.0.1:8091')}/report?company={urllib.parse.quote(q)}"
         try:
             r = await x402_client.pay_and_fetch(url, os.environ["UBOT_PRIVATE_KEY"], max_usdc=per_turn)
@@ -1179,6 +1186,33 @@ def bridge_confirm(bridge_id: str, body: dict, request: Request):
             log.warning("could not schedule submitted notification: %s", e)
     return {"ok": True, "bridge_id": bridge_id, "tx_hash": tx_hash,
             "verified": True, "sender": check.get("from")}
+
+
+# ── agent_query rate limit (audit 20 Oct round 7) ──────────────────────────
+# UBOT_AGENT_MAX_USDC caps a single call, not the total. Without a limiter, a
+# caller could loop `agent_query` and drain the treasury 1 USDC at a time. The
+# limit is per user (this intent always runs as a trusted, authenticated caller).
+_agent_rate: dict[int, list[float]] = {}
+_AGENT_WINDOW = 3600                       # per hour
+_AGENT_MAX = int(os.environ.get("UBOT_AGENT_MAX_PER_HOUR", "5"))
+_AGENT_LOCK = threading.Lock()
+_AGENT_MAX_BUCKETS = 20_000
+
+
+def _agent_rate_check(user_id: int) -> bool:
+    now = time.time()
+    with _AGENT_LOCK:
+        bucket = _agent_rate.setdefault(user_id, [])
+        while bucket and bucket[0] < now - _AGENT_WINDOW:
+            bucket.pop(0)
+        if len(bucket) >= _AGENT_MAX:
+            return False
+        bucket.append(now)
+        if len(_agent_rate) > _AGENT_MAX_BUCKETS:
+            cutoff = now - _AGENT_WINDOW
+            for k in [k for k, v in _agent_rate.items() if not v or v[-1] < cutoff]:
+                _agent_rate.pop(k, None)
+        return True
 
 
 def _expected_amount(br: dict) -> float:

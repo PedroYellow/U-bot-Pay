@@ -7,6 +7,28 @@ x402 client — U-bot paying another agent.
 import os, json, base64, time, httpx
 import chain
 
+# Addresses we are willing to sign an EIP-3009 authorization for.
+#
+# Audit 20 Oct round 7: pay_and_fetch signed whatever `payTo` the remote 402
+# asked for. The per-call budget capped the damage at UBOT_AGENT_MAX_USDC, but
+# the client was still willing to authorise a transfer to any address a service
+# named. Defence in depth, mirroring the M5 bridge allowlist: if the expected
+# payee is configured, refuse to sign for anything else.
+#
+# Empty = no allowlist, only the per-call budget applies. That is the demo
+# default so a fresh checkout still works; set it before real funds are involved.
+_ALLOWED_PAYEES = {
+    a.lower().strip()
+    for a in os.environ.get("UBOT_X402_PAYEES", "").split(",")
+    if a.strip()
+}
+
+
+def _payee_allowed(pay_to: str) -> bool:
+    if not _ALLOWED_PAYEES:
+        return True                      # no allowlist configured
+    return (pay_to or "").lower().strip() in _ALLOWED_PAYEES
+
 
 async def pay_and_fetch(url: str, payer_key: str, max_usdc: float = 5.0) -> dict:
     t0 = time.time()
@@ -19,7 +41,14 @@ async def pay_and_fetch(url: str, payer_key: str, max_usdc: float = 5.0) -> dict
         amount = float(acc.get("amount_usdc") or int(acc["maxAmountRequired"]) / 10 ** chain.decimals())
         if amount > max_usdc:
             return {"ok": False, "paid": False, "error": f"price {amount} USDC exceeds agent budget {max_usdc}"}
-        auth = chain.sign_authorization(payer_key, acc["payTo"], amount, valid_seconds=acc.get("maxTimeoutSeconds", 60) + 540)
+        # Never sign for a payee the operator has not allowlisted.
+        if not _payee_allowed(acc.get("payTo")):
+            return {"ok": False, "paid": False,
+                    "error": f"refusing to pay unapproved payee {acc.get('payTo')}"}
+        # The authorization is only good for a short window; do not let a remote
+        # ask for a signature that stays valid for hours.
+        valid_for = min(int(acc.get("maxTimeoutSeconds", 60)) + 540, 1800)
+        auth = chain.sign_authorization(payer_key, acc["payTo"], amount, valid_seconds=valid_for)
         x_payment = base64.b64encode(json.dumps({"x402Version": 1, "scheme": acc["scheme"], "network": acc["network"],
                                                  "payload": {"authorization": auth}}).encode()).decode()
         r2 = await c.get(url, headers={"X-PAYMENT": x_payment})
