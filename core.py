@@ -332,8 +332,11 @@ def list_contacts(user_id) -> list[dict]:
 # Payment states that still reserve budget. A payment that is only quoted must
 # not be spendable twice: audit 20 Oct found that spent_today counted only
 # 'settled', so several payments could all be quoted while the total looked
-# like zero and then all be approved together.
-_RESERVED_STATUSES = ("pending", "pending_approval")
+# like zero and then all be approved together. Round 6 added 'settling', the
+# state a payment occupies while it is actually being signed and broadcast —
+# without it, a payment in flight frees its budget for the duration of the
+# network call.
+_RESERVED_STATUSES = ("pending", "pending_approval", "settling")
 
 
 def _day_start(tz_offset_hours: int | None = None) -> int:
@@ -461,6 +464,42 @@ def get_payment(pid) -> dict | None:
         r = c.execute("SELECT * FROM payments WHERE id=?", (pid,)).fetchone(); return dict(r) if r else None
 
 
+def claim_payment_for_settlement(pid: str) -> bool:
+    """Atomically move a payment out of pending_approval so only one caller can
+    settle it.
+
+    Audit 20 Oct round 6: api.approve() read the payment, checked the status, and
+    only wrote 'settled' *after* an `await` on the chain call. Two concurrent
+    /approve requests — which is easy to produce, and unavoidable with more than
+    one uvicorn worker — both passed the read-side check and both called
+    send_usdc. A double spend.
+
+    This is the compare-and-set: `UPDATE ... WHERE id=? AND status=?` is atomic in
+    SQLite, and rowcount tells us whether we were the one who won. Returns True
+    only for the caller that actually claimed it.
+    """
+    with conn() as c:
+        cur = c.execute(
+            "UPDATE payments SET status='settling' WHERE id=? AND status='pending_approval'",
+            (pid,),
+        )
+        return cur.rowcount == 1
+
+
+def release_payment_claim(pid: str) -> None:
+    """Undo claim_payment_for_settlement so the payment can be retried.
+
+    Used when we claimed successfully but then failed before settling (e.g. the
+    policy re-check refused). Without this the payment would be stuck in
+    'settling' forever and could never be approved again.
+    """
+    with conn() as c:
+        c.execute(
+            "UPDATE payments SET status='pending_approval' WHERE id=? AND status='settling'",
+            (pid,),
+        )
+
+
 def mark(pid, status, tx=None, latency=None, approved_by=None):
     with conn() as c:
         c.execute("UPDATE payments SET status=?, tx=COALESCE(?,tx), latency_s=COALESCE(?,latency_s), approved_by=COALESCE(?,approved_by), settled_at=CASE WHEN ?='settled' THEN ? ELSE settled_at END WHERE id=?",
@@ -580,26 +619,41 @@ def verify_session_jwt(token: str, secret: str) -> dict | None:
 
 # ───────── push subscriptions (Web Push) ─────────
 def save_push_subscription(user_id: int, endpoint: str, p256dh: str, auth: str, user_agent: str = "") -> int:
-    """Insert or update a Web Push subscription. Returns the row id."""
+    """Insert or update a Web Push subscription. Returns the row id.
+
+    Audit 20 Oct round 6: the UPDATE branch matched on `endpoint` alone. Since
+    that column is UNIQUE, any authenticated caller could post a *known* push
+    endpoint and silently take the row over — `user_id` was rewritten, so the
+    previous owner stopped getting notifications. A cross-user write. Now the
+    match is scoped to (endpoint, user_id): you can refresh your own
+    subscription, but you cannot claim someone else's.
+    """
     with conn() as c:
-        existing = c.execute(
-            "SELECT id FROM push_subscriptions WHERE endpoint = ?",
-            (endpoint,),
-        ).fetchone()
         now = int(time.time())
+        existing = c.execute(
+            "SELECT id FROM push_subscriptions WHERE endpoint = ? AND user_id = ?",
+            (endpoint, user_id),
+        ).fetchone()
         if existing:
             c.execute(
-                "UPDATE push_subscriptions SET user_id = ?, p256dh = ?, auth = ?, user_agent = ?, is_alive = 1, last_used_at = ? WHERE id = ?",
-                (user_id, p256dh, auth, user_agent, now, existing["id"]),
+                "UPDATE push_subscriptions SET p256dh = ?, auth = ?, user_agent = ?, "
+                "is_alive = 1, last_used_at = ? WHERE id = ?",
+                (p256dh, auth, user_agent, now, existing["id"]),
             )
             return existing["id"]
-        else:
-            cur = c.execute(
-                "INSERT INTO push_subscriptions(user_id, endpoint, p256dh, auth, user_agent, created_at, last_used_at) "
-                "VALUES(?, ?, ?, ?, ?, ?, ?)",
-                (user_id, endpoint, p256dh, auth, user_agent, now, now),
-            )
-            return cur.lastrowid
+        # Endpoint already held by someone else: refuse rather than steal it.
+        taken = c.execute(
+            "SELECT user_id FROM push_subscriptions WHERE endpoint = ?",
+            (endpoint,),
+        ).fetchone()
+        if taken:
+            raise ValueError("push endpoint already registered to another account")
+        cur = c.execute(
+            "INSERT INTO push_subscriptions(user_id, endpoint, p256dh, auth, user_agent, created_at, last_used_at) "
+            "VALUES(?, ?, ?, ?, ?, ?, ?)",
+            (user_id, endpoint, p256dh, auth, user_agent, now, now),
+        )
+        return cur.lastrowid
 
 
 def get_push_subscriptions_for_user(user_id: int) -> list[dict]:

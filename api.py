@@ -654,14 +654,42 @@ class Approve(BaseModel):
 @app.post("/approve")
 async def approve(a: Approve, x_api_key: str | None = Header(default=None)):
     auth(x_api_key)
+    # Atomic claim BEFORE any await. Audit 20 Oct round 6: the status was only
+    # written after `await send_usdc(...)`, so two concurrent /approve calls
+    # both passed the read-side check and both transferred funds. One UPDATE ...
+    # WHERE status='pending_approval' decides the winner; the loser gets a 409.
+    if not core.claim_payment_for_settlement(a.payment_id):
+        raise HTTPException(409, "this payment is already being approved or is no longer pending")
+    claimed = True
+    try:
+        return await _approve_claimed(a)
+    finally:
+        # If we bailed before mark() ran, hand the claim back so the payment
+        # isn't stranded in 'settling'.
+        if claimed:
+            try:
+                core.release_payment_claim(a.payment_id)
+            except Exception:
+                pass
+
+
+async def _approve_claimed(a: Approve) -> dict:
     pay = core.get_payment(a.payment_id)
-    if not pay or pay["status"] != "pending_approval":
+    if not pay:
         raise HTTPException(404, "no such pending payment")
     user = core.get_user(user_id=pay["user_id"])
     if not user:
         raise HTTPException(404, "payment owner not found")
     if str(user.get("approver_telegram_id")) != str(a.approver_key):
         raise HTTPException(403, "not the approver")
+    # Audit 20 Oct round 6: the check above passes when someone appointed
+    # themselves as their own co-signer, which /cosigner used to allow with a
+    # single command. A second approval has to come from a different person —
+    # that is the entire value of the dual-control gate. Enforced here too, so
+    # any row configured before the fix is still refused at settlement time.
+    if user.get("telegram_id") is not None and str(user["telegram_id"]) == str(a.approver_key):
+        raise HTTPException(403, "a payment cannot be approved by the person "
+                                 "making it — set a different co-signer with /cosigner")
     if not a.approve:
         core.mark(pay["id"], "rejected", approved_by=int(a.approver_key))
         if NOTIFY: asyncio.create_task(NOTIFY(user["telegram_id"], f"❌ Payment {pay['id']} rejected by co-signer."))
@@ -1406,13 +1434,18 @@ async def push_subscribe(body: PushSubscriptionBody, request: Request):
     if not (p256dh and auth):
         raise HTTPException(400, "keys.p256dh and keys.auth required")
     user_agent = request.headers.get("User-Agent", "")[:300]
-    sub_id = core.save_push_subscription(
-        user_id=user["id"],
-        endpoint=body.endpoint,
-        p256dh=p256dh,
-        auth=auth,
-        user_agent=user_agent,
-    )
+    try:
+        sub_id = core.save_push_subscription(
+            user_id=user["id"],
+            endpoint=body.endpoint,
+            p256dh=p256dh,
+            auth=auth,
+            user_agent=user_agent,
+        )
+    except ValueError as e:
+        # Audit 20 Oct round 6: this endpoint belonged to another account. 409,
+        # not a 500 — it is a conflict, not a server fault.
+        raise HTTPException(409, str(e))
     return {"ok": True, "id": sub_id, "subscribed": True}
 
 

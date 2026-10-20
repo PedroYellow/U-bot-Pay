@@ -188,14 +188,53 @@ async def on_link(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def on_cosigner(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """/cosigner <telegram_id>  — set who approves big payments.
+
+    Audit 20 Oct round 6: this accepted any integer with no validation, which
+    let a user appoint *themselves* as their own co-signer and then approve
+    their own high-value payments — defeating the one control the product is
+    sold on. Now it refuses self-appointment, rejects garbage, and verifies the
+    nominee actually exists as a user here.
+    """
     if not await _require_private(update): return
-    """/cosigner <telegram_id>  — set who approves big payments."""
     parts = (update.message.text or "").split()
-    user = core.get_user(telegram_id=update.effective_user.id)
+    me = update.effective_user.id
+    user = core.get_user(telegram_id=me)
     if len(parts) < 2 or not user:
         await update.message.reply_text("Usage: /cosigner <telegram_user_id>"); return
-    core.set_policy(user["id"], approver_telegram_id=int(parts[1]))
-    await update.message.reply_text(f"🔐 Co-signer set: {parts[1]}")
+
+    raw = parts[1].lstrip("@").strip()
+    if not raw.isdigit():
+        await update.message.reply_text("❌ The co-signer id must be numeric.\n"
+                                       "Get yours from @userinfobot in Telegram."); return
+    try:
+        approver_id = int(raw)
+    except ValueError:
+        await update.message.reply_text("❌ That is not a valid Telegram id."); return
+
+    # The whole point of a second signature is that it comes from someone else.
+    if approver_id == me:
+        await update.message.reply_text(
+            "❌ You can't be your own co-signer.\n"
+            "A second approval has to come from a different person — that's the "
+            "whole point of the check.\n"
+            "Ask whoever should authorise your payments to message @Ubotpaybot "
+            "first, then pass their Telegram id here."); return
+
+    nominee = core.get_user(telegram_id=approver_id)
+    if not nominee:
+        await update.message.reply_text(
+            f"⚠️ {approver_id} has never used this bot, so it can't be set as your "
+            "co-signer yet.\n"
+            "Ask them to send /start to @Ubotpaybot first, then try again."); return
+    if nominee["id"] == user["id"]:
+        await update.message.reply_text("❌ That account is you."); return
+
+    core.set_policy(user["id"], approver_telegram_id=approver_id)
+    name = (nominee.get("name") or "this person").strip()
+    await update.message.reply_text(
+        f"🔐 Co-signer set to {name} (id {approver_id}).\n"
+        f"They can approve with:  /approve <payment_id>")
 
 
 async def notify(telegram_id: int, text: str):

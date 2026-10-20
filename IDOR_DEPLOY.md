@@ -95,3 +95,32 @@ python3 test_brain_fallback.py  # 26/26 — el /turn nunca da 500
 ```
 
 Los dos corren sin dependencias ni red.
+
+---
+
+# Añadido en las rondas 5 y 6 (20 Oct)
+
+## `UBOT_JWT_SECRET` — ponlo ahora
+
+```bash
+openssl rand -hex 32     # → /opt/ubotpay/.env  como UBOT_JWT_SECRET=...
+```
+
+Sin esto, cada reinicio genera un secreto nuevo e invalida todas las sesiones.
+
+## `UBOT_DOCS_PUBLIC`
+
+Vacío = `/docs` y `/openapi.json` devuelven 404. Pon `1` si en la demo quieres
+enseñar la API.
+
+## El webhook de voz y el demo
+
+Recuerda: `x-ubot-channel: <UBOT_VOICE_SECRET>` en el tool de ElevenLabs. Sin
+ese header el widget de voz da 401. Está pineado al usuario demo y en read-only.
+
+## Co-signer
+
+El segundo firmante tiene que ser **otra persona**. Si el co-signer elegido
+nunca ha hablado con el bot, `/cosigner` lo rechaza con un mensaje que explica
+qué hacer. Tenlo en cuenta para la demo: que el co-signer mande `/start` al bot
+antes.
