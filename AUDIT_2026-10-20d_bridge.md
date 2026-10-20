@@ -1,0 +1,127 @@
+# Audit — 20 Oct 2026, cuarta ronda (bridge, rate limits, superficie)
+
+Ronda centrada en la superficie de **cross-chain** y en **qué pasa cuando alguien
+no es el usuario legítimo**. Sin acceso SSH, la config de nginx se leyó del repo
+(`deploy/nginx.conf`) y los endpoints se probaron en producción.
+
+## 🟠 ALTO — `/bridge/confirm` acepta cualquier `tx_hash` sin validar nada
+
+`POST /bridge/{bridge_id}/confirm` (api.py:994):
+
+```python
+tx_hash = str(body.get("tx_hash") or "").strip()
+if not tx_hash:
+    raise HTTPException(400, "tx_hash required")
+core.update_bridge(bridge_id, tx_hash=tx_hash, status="submitted")
+```
+
+Solo comprueba que el puente exista y sea tuyo. **No valida** que el hash tenga
+forma de hash, ni que la transacción exista en la cadena, ni que su `from` sea tu
+dirección. Cualquier cadena de texto sirve.
+
+Consecuencias:
+1. La DB queda con un `tx_hash` inventado y el puente pasa a `submitted`.
+2. `/bridge/{id}/status` consulta a LI.FI con ese hash. Si LI.FI no lo conoce, el
+   `except` (api.py:1068) se traga el error y devuelve el puente tal cual — se
+   queda en `submitted` para siempre, sin avisar al usuario de que su dinero
+   quizá no se movió.
+3. Un usuario confuso (o un front con un bug) puede marcar su puente como
+   enviado sin haber firmado nada, y la app miente sobre el estado.
+
+**Fix**: validar el formato (`0x` + 64 hex), comprobar que la tx existe vía
+`eth_getTransactionByHash`, y que `tx["from"]` coincide con
+`br["from_address"]`. Solo entonces `submitted`.
+
+## 🟠 ALTO — `/bridge/quote` es público, sin rate limit, y gasta cuota de terceros
+
+Probado en producción: **12/12 peticiones seguidas devolvieron 200**.
+
+Cada petición pega contra LI.FI o Across. Es un endpoint abierto para que un
+tercero consuma tu cuota y, de paso, descubra qué rutas y partners tienes
+configurados. El rate limit de nginx solo cubre `/turn` (ver más abajo).
+
+**Fix**: añadir `/bridge/quote` a la zona de `limit_req`, y cachear cotizaciones
+por `(from,to,amount)` unos segundos — la cotización no cambia en 30s.
+
+## 🟠 MEDIO — La notificación de "bridge done" reporta el mínimo como si fuera lo recibido
+
+api.py:201-209:
+
+```python
+delivered = int(bridge.get("to_amount_min") or 0) / 1e6
+text = f"✅ Bridge done!\n  Recipient received <b>{delivered:.2f} USDC</b>"
+```
+
+`to_amount_min` es el **peor caso garantizado**, no lo entregado. En producción,
+un bridge de 10 USDC a Base devuelve `to_amount_min_human: 0.500076` — así que el
+usuario recibe un Telegram diciendo "recibió 0.50 USDC" cuando lo real son 9.99.
+El mensaje es sistemáticamente pesimista y, si el bridge entrega de menos del
+mínimo, seguiría diciendo el mínimo en vez de la cifra real.
+
+**Fix**: leer el `to_amount` real del status de LI.FI y usar ese.
+
+## 🟡 MEDIO — `/docs` y `/openapi.json` públicos: mapa de 33 endpoints
+
+Ambos devuelven 200 sin auth. Describen los 33 endpoints, mencionan `x-api-key`
+y `Bearer`, pero **no definen `securitySchemes`**, así que ni siquiera documentan
+cómo autenticarse. Para quien explorase el servicio, es un índice completo.
+
+No es una vulnerabilidad por sí solo (todo lo sensible ya exige auth), pero
+facilita la enumeración. Decisión: mantenerlo tras flag `UBOT_DOCS_PUBLIC=1`, o
+protegerlo con la API key y desactivarlo en producción.
+
+## 🟡 MEDIO — Rate limit: solo `/turn`
+
+De `deploy/nginx.conf`, el único `limit_req` del sitio:
+
+```nginx
+location = /turn {
+    limit_req zone=ubotturn burst=8 nodelay;
+    limit_req_status 429;
+}
+```
+
+**Todo lo demás está abierto**, incluidos `/bridge/`, `/auth/wallet/nonce` (genera
+nonces), `/push/vapid-key` y los endpoints con API key. El audit del 15 Oct
+anotaba que el limit cubría "`/turn` y `/agent/`" — la config actual **solo**
+cubre `/turn`. Puede ser una regresión o una nota errónea del audit anterior.
+
+Lo que sí tiene límite a nivel de aplicación: `/bridge/analytics`, 30 req/min por
+usuario (para que un JWT robado no allows enumerar). Es el único.
+
+## 🟡 MEDIO — Error message de cotizaciones filtra detalle interno
+
+```python
+except Exception as e:
+    log.warning("bridge quote failed: %s", e)
+    raise HTTPException(502, f"bridge quote failed: {e}")
+```
+
+El `str(e)` de una excepción de httpx/lifi puede incluir la URL completa con
+query params, nombres de host internos y a veces cabeceras. Se devuelve al
+llamante. Debería ser un mensaje genérico y el detalle quedarse en el log.
+
+## ✅ Revisado y OK
+
+- **`bridge.py` no toca la private key.** El usuario firma desde su wallet
+  (MetaMask), el backend solo cotiza y sigue estados. El diseño correcto.
+- **Allowlist de contratos de bridge** (audit M5): 15 direcciones canónicas
+  (LI.FI diamond, CCTP, Stargate, Across, Squid). Si el `tx.to` del partner no
+  está en la lista, la cotización se rechaza con 502. Buena defensa.
+- **Ownership de puentes**: `bridge_start`, `confirm` y `status` comparan
+  `br["user_id"] != user["id"]` → 403. Y los cuatro tienen el guard
+  `if err or user is None` correcto (arreglado en ronda 2).
+- **Acotado a EVM**: los parámetros de chain_id y las direcciones pasan por
+  `Query(..., ge=1, le=999999)` y `pattern=r"^0x[a-fA-F0-9]{40}$"`.
+- **Límites en `/bridge/start`**: amount 0.01–1.000.000, from ≠ to, ambas
+  direcciones con formato válido.
+- **`/report` del DataAgent** sigue en 402 (paga por x402 antes de responder).
+
+## Orden de arreglo
+
+1. Validar `tx_hash` en `/bridge/{id}/confirm` (formato + existe en cadena +
+   `from` coincide). Sin esto la app puede mentir sobre el estado de un pago.
+2. Rate limit + caché en `/bridge/quote`.
+3. Arreglar el mensaje de "bridge done" para usar lo realmente entregado.
+4. `/docs` tras flag, y limpiar el `str(e)` de las 502.
+5. Revisar si `/agent/` perdió su rate limit respecto al audit del 15 Oct.
