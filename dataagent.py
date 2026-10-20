@@ -136,17 +136,35 @@ def verify(auth: dict) -> tuple[bool, str]:
 
 
 async def make_report(company: str) -> dict:
-    """The actual paid service: a short investor-style brief. LLM if key present, else canned."""
+    """The actual paid service: a short investor-style brief.
+
+    Audit 20 Oct round 11: the no-key path existed but a *broken* key did not.
+    An ANTHROPIC_API_KEY that is present but invalid (truncated, expired, wrong
+    account) raised straight out of `messages.create`, which propagated to a
+    500 — after settlement had already taken the 0.5 USDC. The payer got an
+    error and no report. Falling back to the canned brief keeps the contract:
+    if we took the money, we answer.
+    """
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         return {"company": company, "summary": f"{company}: demo report (set ANTHROPIC_API_KEY for a live one).", "risk": "n/a"}
-    c = AsyncAnthropic(api_key=key)
-    r = await c.messages.create(model=os.environ.get("UBOT_MODEL", "claude-sonnet-4-6"), max_tokens=350,
-        messages=[{"role": "user", "content": f"You are DataAgent, a paid due-diligence API. Give a 4-line investor brief on '{company}' as JSON with keys: summary (1 sentence), thesis_fit (1 sentence), red_flags (list of max 3 short strings), score_0_100 (int). Return ONLY JSON. If you don't know the company, say so honestly in summary and score 0."}])
-    txt = r.content[0].text.strip().strip("`")
-    if txt.startswith("json"): txt = txt[4:]
-    try: return {"company": company, **json.loads(txt)}
-    except Exception: return {"company": company, "summary": txt[:300]}
+    try:
+        c = AsyncAnthropic(api_key=key)
+        r = await c.messages.create(model=os.environ.get("UBOT_MODEL", "claude-sonnet-4-6"), max_tokens=350,
+            messages=[{"role": "user", "content": f"You are DataAgent, a paid due-diligence API. Give a 4-line investor brief on '{company}' as JSON with keys: summary (1 sentence), thesis_fit (1 sentence), red_flags (list of max 3 short strings), score_0_100 (int). Return ONLY JSON. If you don't know the company, say so honestly in summary and score 0."}])
+        txt = r.content[0].text.strip().strip("`")
+        if txt.startswith("json"): txt = txt[4:]
+        try:
+            return {"company": company, **json.loads(txt)}
+        except Exception:
+            return {"company": company, "summary": txt[:300]}
+    except Exception as e:
+        # Settled already. Answer anyway rather than 500 on a paid request.
+        log.warning("report generation failed (%s: %s); serving the canned brief",
+                    type(e).__name__, str(e)[:160])
+        return {"company": company,
+                "summary": f"{company}: live brief unavailable ({type(e).__name__}); demo report.",
+                "risk": "n/a", "degraded": True}
 
 
 @app.get("/")
