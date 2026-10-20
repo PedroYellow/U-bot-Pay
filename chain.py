@@ -173,6 +173,12 @@ _BUILTIN_CHAINS = {
     # bridge endpoint rather than just a name in a dropdown.
     146:   Chain(146, "Sonic", "https://rpc.soniclabs.com",
                  "0x29219dd400f2Bf60E5a23d13Be72B486D4038894", "https://sonicscan.org", "S"),
+    # Solana. Not EVM. The id is LI.FI's internal one, since there is no numeric
+    # CAIP-2 chain id for Solana and the RPC field is unused for a
+    # destination-only chain — reads of this chain's balances are not supported,
+    # only bridging into it. Listed so it appears as a destination in the UI.
+    1151111081099710: Chain(1151111081099710, "Solana", "",
+                 "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "https://solscan.io", "SOL"),
     59144: Chain(59144, "Linea", "https://rpc.linea.build",
                  "0x176211869cA2b568f2A7D4EE941E073a821EE1ff", "https://lineascan.build", "ETH"),
     534352: Chain(534352, "Scroll", "https://rpc.scroll.io",
@@ -215,8 +221,18 @@ def _runtime(chain_id: int) -> tuple:
     return _CHAIN_RUNTIME[chain_id]
 
 def balance_at(address: str, chain_id: int = 43114) -> dict:
-    """Balance on a specific chain. Returns address, native (AVAX/ETH), and USDC."""
+    """Balance on a specific chain. Returns address, native (AVAX/ETH), and USDC.
+
+    Destination-only chains (Solana) have no JSON-RPC here, so asking for their
+    balances would otherwise surface as a confusing web3 address-parsing error.
+    Say plainly what is and is not supported.
+    """
     c, w3l, _ = _runtime(chain_id)
+    if not c.rpc:
+        raise ValueError(
+            f"{c.name} is a bridge destination only — this app can send to it "
+            f"but cannot read balances from it (no JSON-RPC endpoint is "
+            f"configured for a non-EVM chain)")
     a = Web3.to_checksum_address(address)
     return {"address": a, "chain": c.name, "chain_id": chain_id,
             "native": c.native, "native_balance": float(Web3.from_wei(w3l.eth.get_balance(a), "ether")),

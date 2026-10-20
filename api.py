@@ -8,7 +8,7 @@ POST /x402/quote, POST /x402/settle               ← agent-to-agent (EIP-3009) 
 POST /demo/seed       create demo user + contacts + invoices
 GET  /health
 """
-import os, time, json, asyncio, logging, threading
+import os, re, time, json, asyncio, logging, threading
 import httpx, urllib.parse
 from fastapi import FastAPI, HTTPException, Query, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -148,6 +148,14 @@ def _analytics_rate_check(user_id: int) -> bool:
 # Behind nginx, request.client.host is the proxy unless we read X-Forwarded-For;
 # nginx is configured to set it, and the value is only used as a dict key (never
 # trusted for anything else), so a forged header can at worst pick a bucket.
+# Solana has no numeric CAIP-2 chain id; 1151111081099710 is LI.FI's internal id
+# for it. Kept in one place so api.py and bridge.py cannot drift on it.
+_SOLANA_CHAIN_ID = 1151111081099710
+_EVM_ADDR_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
+# Base58 excludes 0, O, I and l, which is what makes this a real check rather than
+# a length test: a 32-char string of zeros would otherwise pass.
+_SOLANA_ADDR_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+
 _quote_rate: dict[str, list[float]] = {}
 _QUOTE_WINDOW = 60
 _QUOTE_MAX = int(os.environ.get("UBOT_QUOTE_RATE_PER_MIN", "20"))
@@ -801,6 +809,16 @@ def balance_by_address(address: str, chain_id: int = 43114, x_api_key: str | Non
     No auth required (balances are public on-chain data)."""
     if not Web3.is_address(address):
         raise HTTPException(400, "bad address")
+    # A destination-only chain (Solana) has no RPC to read from. Say so with a
+    # 400 rather than answering 0.0, which would read as "this address is broke".
+    try:
+        target = chain.get_chain(chain_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not target.rpc:
+        raise HTTPException(
+            400, f"{target.name} is a bridge destination only — balances on that "
+                 f"chain are not available through this API")
     try:
         return chain.balance_at(Web3.to_checksum_address(address), chain_id)
     except Exception as e:
@@ -1007,11 +1025,18 @@ def bridge_chains():
 
 @app.get("/bridge/quote")
 def bridge_quote(
-    from_chain: int = Query(..., ge=1, le=999999, description="source chain id"),
-    to_chain: int = Query(..., ge=1, le=999999, description="destination chain id"),
+    # The source must stay EVM: the user signs an eth_sendTransaction payload on
+    # it. Solana's LI.FI id exceeds 999999, so the upper bound is raised rather
+    # than special-cased, but from_address below still enforces 0x + 40 hex.
+    from_chain: int = Query(..., ge=1, le=2**62, description="source chain id"),
+    # A destination may be non-EVM (Solana), where to_address is a base58 mint or
+    # account instead of a 0x address. Validated in the body rather than by
+    # pattern, so the rule is "hex 0x address, or a Solana address" instead of
+    # accepting anything non-hex.
+    to_chain: int = Query(..., ge=1, le=2**62, description="destination chain id"),
     amount_usdc: float = Query(..., gt=0.01, le=1_000_000, description="USDC amount, 0.01 to 1,000,000"),
     from_address: str = Query(..., min_length=42, max_length=42, pattern=r"^0x[a-fA-F0-9]{40}$"),
-    to_address: str = Query(..., min_length=42, max_length=42, pattern=r"^0x[a-fA-F0-9]{40}$"),
+    to_address: str = Query(..., min_length=32, max_length=64),
     request: Request = None,
 ):
     """Get a LI.FI bridge quote for a USDC transfer between two EVM chains.
@@ -1024,6 +1049,16 @@ def bridge_quote(
     ip = _client_ip(request)
     if not _quote_rate_check(ip):
         raise HTTPException(429, "too many quote requests, wait a moment")
+    # A non-EVM destination needs a base58 Solana address; an EVM one needs hex.
+    # Whichever the chain demands, the other form is rejected here so the address
+    # never reaches the bridge provider half-formed.
+    if to_chain == _SOLANA_CHAIN_ID:
+        if not _SOLANA_ADDR_RE.match(to_address):
+            raise HTTPException(
+                400, "Solana destinations need a base58 Solana address "
+                     "(32-44 characters), not a 0x address")
+    elif not _EVM_ADDR_RE.match(to_address):
+        raise HTTPException(400, "to_address must be a 0x-prefixed EVM address")
     try:
         # partner=lifi|across|best. best tries all partners and picks the highest output.
         partner = request.query_params.get("partner", "best")
@@ -1037,6 +1072,19 @@ def bridge_quote(
             q = _bridge.get_best_quote(from_chain, to_chain, amount_usdc, from_address, to_address)
     except HTTPException:
         raise
+    except _bridge._UnsupportedChain as e:
+        # Unknown chain id: a caller error. Must be converted here — a bare
+        # `raise` of a non-HTTPException escapes FastAPI as a 500, which is what
+        # happened before this branch existed.
+        raise HTTPException(400, str(e)[:200])
+    except _bridge._BridgeUpstreamError:
+        # Providers are unhappy — retrying may well work, so it stays a 502.
+        raise HTTPException(502, "could not get a bridge quote right now, try again shortly")
+    except ValueError as e:
+        # Any other request that can never succeed (Solana as a source, amount
+        # out of range). Answering 502 here would tell the caller to retry
+        # something that will fail identically forever.
+        raise HTTPException(400, str(e)[:200])
     except Exception as e:
         # Don't hand str(e) to the caller: httpx/lifi exceptions carry the full
         # URL, sometimes headers, and occasionally host names we don't publish

@@ -70,7 +70,10 @@ def parse_registry(path):
         cid = m.group(1)
         block = s[m.start():m.start() + 600]
         # skip the name string, take the address
-        addrs = re.findall(r'"(0x[0-9a-fA-F]{40})"', block)
+        # EVM chains use 0x...; Solana's SPL mint is base58, so accept both.
+        # Skip the RPC/explorer fields, which are URLs, by taking only strings
+        # that look like an address (0x+40 hex, or 32-44 base58 chars).
+        addrs = re.findall(r'"(0x[0-9a-fA-F]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})"', block)
         env = re.search(r'os\.environ\.get\("USDC_ADDRESS",\s*"(0x[0-9a-fA-F]{40})"\)', block)
         if addrs:
             out[cid] = addrs[0]
@@ -83,7 +86,8 @@ def parse_bridge(path):
     s = open(path, encoding="utf-8").read()
     blk = s[s.index("USDC_BY_CHAIN"):]
     blk = blk[:blk.index("}")]
-    return dict(re.findall(r'(\d+):\s*"(0x[0-9a-fA-F]{40})"', blk))
+    # Same: hex for EVM, base58 for Solana's SPL mint.
+    return dict(re.findall(r'(\d+):\s*"(0x[0-9a-fA-F]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})"', blk))
 
 
 def t_maps_agree():
@@ -109,6 +113,43 @@ def t_every_bridge_chain_is_registered():
     check("bridge has no chain missing from the registry", orphans, [])
 
 
+SOLANA_LIFI_ID = 1151111081099710
+SOLANA_USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+
+
+def t_solana_wired_as_destination_only():
+    reg = parse_registry(CHAIN_PY)
+    brg = parse_bridge(BRIDGE_PY)
+    chain_s = open(CHAIN_PY, encoding="utf-8").read()
+    bridge_s = open(BRIDGE_PY, encoding="utf-8").read()
+    check("Solana in the registry", str(SOLANA_LIFI_ID) in reg, True)
+    check("Solana USDC matches in both maps",
+          reg.get(str(SOLANA_LIFI_ID)) == brg.get(str(SOLANA_LIFI_ID)) == SOLANA_USDC, True)
+    check("Solana marked destination-only in bridge.py",
+          "_DESTINATION_ONLY_CHAINS" in bridge_s, True)
+    check("Solana has no RPC configured", 'Chain(1151111081099710, "Solana", ""' in chain_s, True)
+    check("Solana name mapping present", '"solana": 1151111081099710' in bridge_s, True)
+
+
+def t_solana_not_a_source():
+    """Quoting Solana -> EVM produces a response with no eth_sendTransaction
+    payload, because the leg to sign is a Solana transaction. It must be
+    refused rather than handed to an EVM wallet."""
+    bridge_s = open(BRIDGE_PY, encoding="utf-8").read()
+    i = bridge_s.index("_DESTINATION_ONLY_CHAINS")
+    j = bridge_s.index("def _http_get_json")
+    block = bridge_s[i:j]
+    check("guard set contains Solana", "1151111081099710" in block, True)
+    check("guard raises with a reason", "destination, not a source" in bridge_s, True)
+
+
+def t_solana_usdc_is_not_an_evm_address():
+    """Solana's USDC is an SPL mint (base58), not 0x... — anything that assumes
+    hex addresses must not try to checksum it."""
+    check("Solana USDC is base58, not 0x", SOLANA_USDC.startswith("EPj"), True)
+    check("length is a plausible Solana address", 32 <= len(SOLANA_USDC) <= 44, True)
+
+
 def t_sonic_wired_everywhere():
     reg = parse_registry(CHAIN_PY)
     brg = parse_bridge(BRIDGE_PY)
@@ -125,6 +166,9 @@ if __name__ == "__main__":
     t_maps_agree()
     t_every_bridge_chain_is_registered()
     t_sonic_wired_everywhere()
+    t_solana_wired_as_destination_only()
+    t_solana_not_a_source()
+    t_solana_usdc_is_not_an_evm_address()
     print("=" * 72)
     print(f"{sum(RESULTS)}/{len(RESULTS)} passed")
     print("ALL TESTS PASSED" if all(RESULTS) else "SOME TESTS FAILED")

@@ -31,6 +31,7 @@ CHAIN_NAME = {
     "avalanche": 43114, "avax": 43114, "avaxc": 43114,
     "fuji": 43113,
     "sonic": 146, "s": 146,
+    "solana": 1151111081099710, "sol": 1151111081099710,
 }
 
 # USDC contract address per chain (for the bridge quote)
@@ -51,6 +52,13 @@ USDC_BY_CHAIN = {
     42220:  "0xcebA9300f2b948710d2653dD7B07f33A8B32118C",   # Celo (native USDC)
     480:    "0x79A02482A880bCE3F13e09Da970dC34db4CD24d1",   # World Chain (native USDC)
     130:    "0x078D782b760474a361dDA0AF3839290b0EF57AD6",   # Unichain (native USDC)
+    # Solana. Not EVM — the chain id here is LI.FI's internal id, not the
+    # CAIP-2 numeric one (which is "solana:2y3yub" / a genesis-hash string).
+    # Only usable as a DESTINATION: the user signs an ordinary EVM transaction on
+    # the source chain and LI.FI handles the Solana leg. Solana -> EVM does not
+    # produce an eth_sendTransaction payload (from/chainId come back null), so it
+    # is rejected rather than handed to a wallet that cannot sign it.
+    1151111081099710: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",   # Solana USDC (SPL)
     # Sonic. Address verified on-chain 20 Oct 2026 — the USDC addresses that
     # circulate on the web are wrong (eth_getCode returns empty for those).
     # decimals()->6, symbol()=="USDC", 110.6M supply. Kept in sync with
@@ -58,6 +66,29 @@ USDC_BY_CHAIN = {
     # token while the bridge quotes another.
     146:    "0x29219dd400f2Bf60E5a23d13Be72B486D4038894",   # Sonic (native USDC)
 }
+
+# Chains that work as a bridge destination but not as a source, because the
+# outgoing transaction would live on a non-EVM chain. Quoting them from our side
+# succeeds at LI.FI and then fails at signing, which is the worst place to fail.
+_DESTINATION_ONLY_CHAINS = {1151111081099710}   # Solana
+
+
+class _UnsupportedChain(ValueError):
+    """The chain id is not in our map at all.
+
+    A caller error: no amount of retrying will make LI.FI know about it. Separate
+    from _BridgeUpstreamError so the API can answer 400 instead of 502 — and
+    from the generic ValueError so get_best_quote's per-partner `except` does not
+    swallow it and report a transient failure.
+    """
+
+
+class _BridgeUpstreamError(ValueError):
+    """The providers failed, as opposed to the request being impossible.
+
+    Subclasses ValueError so existing callers that catch ValueError keep
+    working, but api.py can tell the two apart and answer 502 only for this one.
+    """
 
 
 def _http_get_json(url: str, timeout: int = 12) -> dict:
@@ -98,9 +129,18 @@ def quote(from_chain: int, to_chain: int, amount_usdc: float,
         - estimate: raw LI.FI estimate
     """
     if from_chain not in USDC_BY_CHAIN:
-        raise ValueError(f"unsupported source chain: {from_chain}")
+        raise _UnsupportedChain(f"unsupported source chain: {from_chain}")
+    if from_chain in _DESTINATION_ONLY_CHAINS:
+        # LI.FI quotes Solana -> EVM, but the response carries no
+        # eth_sendTransaction payload (from and chainId are null) because the leg
+        # to be signed is a Solana transaction. Handing that to an EVM wallet
+        # would produce a confusing failure at signing time, so refuse here with
+        # the reason rather than after the user has picked an amount.
+        raise ValueError(
+            f"chain {from_chain} can only be a destination, not a source: "
+            "the outgoing leg would be a Solana transaction this app cannot sign")
     if to_chain not in USDC_BY_CHAIN:
-        raise ValueError(f"unsupported target chain: {to_chain}")
+        raise _UnsupportedChain(f"unsupported target chain: {to_chain}")
     if from_chain == to_chain:
         raise ValueError("source and target chains must differ")
     if amount_usdc <= 0:
@@ -340,6 +380,23 @@ def get_best_quote(from_chain: int, to_chain: int, amount_usdc: float,
         q = quote(from_chain, to_chain, amount_usdc, from_address, to_address)
         return q
 
+    # A chain that cannot be a source (Solana: the leg to sign would not be an
+    # EVM transaction) is rejected before fanning out, and that reason is
+    # preserved. Without this the per-partner `except` below would swallow it and
+    # the caller would see "all bridge partners failed", i.e. a 502 suggesting a
+    # transient outage rather than a request that can never work.
+    if from_chain in _DESTINATION_ONLY_CHAINS:
+        raise ValueError(
+            f"chain {from_chain} can only be a destination, not a source: "
+            "the outgoing leg would be a Solana transaction this app cannot sign")
+    # Check both chains here too. Left to the per-partner `except` below, an
+    # unknown chain id is caught twice, logged as "partner failed", and reported
+    # as a transient upstream failure (502) — telling the caller to retry a
+    # request that can never succeed.
+    for cid, label in ((from_chain, "source"), (to_chain, "target")):
+        if cid not in USDC_BY_CHAIN:
+            raise _UnsupportedChain(f"unsupported {label} chain: {cid}")
+
     import concurrent.futures
     results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
@@ -355,7 +412,9 @@ def get_best_quote(from_chain: int, to_chain: int, amount_usdc: float,
             except Exception as e:
                 log.warning("Partner %s failed: %s", name, e)
     if not results:
-        raise ValueError("all bridge partners failed; try again in a moment")
+        # Distinguish "the upstream providers are unhappy" from "this request is
+        # impossible" — the caller maps the first to a retryable 502.
+        raise _BridgeUpstreamError("all bridge partners failed; try again in a moment")
     # Pick the best: highest to_amount, ties broken by lowest fee, then fastest
     def score(q):
         # We want max to_amount and min total_fee, min time
