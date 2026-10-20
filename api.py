@@ -319,29 +319,23 @@ def _health_full():
 @app.get("/dashboard")
 def dashboard():
     """Public dashboard KPIs (no auth) for the home-page tiles.
-    Only exposes aggregated, non-sensitive data:
-      - treasury_usdc: USDC balance of the operator's treasury wallet
-      - last_settlement_ts: unix timestamp of the last successful payment
-      - revenue_total_usdc: total fees collected over the lifetime of the service
-      - chain: "avalanche-mainnet"
-      - status: "live"
-    Does NOT expose wallet addresses, individual transactions, or
-    per-user data (audit #5)."""
-    try:
-        b = chain.balance_at(os.environ["UBOT_WALLET_ADDRESS"], 43114)
-    except Exception as e:
-        b = {"usdc": 0.0, "native_balance": 0.0, "chain": "avalanche-mainnet", "error": str(e)[:80]}
-    rev = core.revenue_stats() if hasattr(core, "revenue_stats") else {}
-    last_settlement_ts = rev.get("last_settled_at") or 0
+
+    Audit 20 Oct: this used to return treasury_usdc / treasury_avax — the
+    exact live balance of the wallet that signs transactions. That is not an
+    aggregated KPI, it is an inventory of a spendable asset, and it leaked on
+    every page load. Now the public payload exposes no balances at all; the
+    web tiles read /health (X-Chain / X-Status headers) for status and keep
+    balances behind auth on /health/full.
+    """
     return {
         "ok": True,
         "chain": chain.NETWORK_NAME,
         "chain_id": 43114,
         "status": "live",
-        "treasury_usdc": round(b.get("usdc", 0), 2),
-        "treasury_avax": round(b.get("native_balance", 0), 4),
-        "last_settlement_ts": last_settlement_ts,
-        "revenue_total_usdc": round(rev.get("total_usdc", 0), 2),
+        "treasury_usdc": None,     # removed — auth required (see /health/full)
+        "treasury_avax": None,
+        "last_settlement_ts": 0,
+        "revenue_total_usdc": None,
         "ts": int(time.time()),
     }
 
@@ -868,8 +862,8 @@ def bridge_start(body: BridgeStartBody, request: Request):
     Requires a valid Bearer JWT. Audit H4: bounds on amount_usdc and
     chain_ids to prevent DoS via upstream quote spam."""
     user, err = _user_from_request(request)
-    if err:
-        raise HTTPException(401, err)
+    if err or user is None:
+        raise HTTPException(401, err or "auth required")
     # Bounds (Pydantic does some, but we add chain_id whitelist check)
     if not (1 <= body.from_chain <= 999999 and 1 <= body.to_chain <= 999999):
         raise HTTPException(400, "invalid chain id")
@@ -923,8 +917,8 @@ def bridge_confirm(bridge_id: str, body: dict, request: Request):
     """Called by the frontend after the user signs and broadcasts the
     bridge transaction. Stores the tx_hash and starts the polling loop."""
     user, err = _user_from_request(request)
-    if err:
-        raise HTTPException(401, err)
+    if err or user is None:
+        raise HTTPException(401, err or "auth required")
     br = core.get_bridge(bridge_id)
     if not br:
         raise HTTPException(404, "bridge not found")
@@ -949,8 +943,8 @@ def bridge_status(bridge_id: str, request: Request):
     endpoint to detect when the destination chain has received the
     funds. If the bridge is done, marks it as such in the DB."""
     user, err = _user_from_request(request)
-    if err:
-        raise HTTPException(401, err)
+    if err or user is None:
+        raise HTTPException(401, err or "auth required")
     br = core.get_bridge(bridge_id)
     if not br:
         raise HTTPException(404, "bridge not found")
@@ -996,10 +990,16 @@ def bridge_status(bridge_id: str, request: Request):
 
 @app.get("/bridge/history")
 def bridge_history(request: Request, limit: int = 20):
-    """Recent bridges for the authenticated user."""
+    """Recent bridges for the authenticated user.
+
+    Audit 20 Oct: the guard was `if err:` only. With no Authorization header
+    `_user_from_request` returns (None, None) — err is None — so the 401 never
+    fired and `user["id"]` raised TypeError → HTTP 500 to an unauthenticated
+    caller. Must check both.
+    """
     user, err = _user_from_request(request)
-    if err:
-        raise HTTPException(401, err)
+    if err or user is None:
+        raise HTTPException(401, err or "auth required")
     return core.list_bridges(user_id=user["id"], limit=limit)
 
 
