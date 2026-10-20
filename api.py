@@ -13,7 +13,7 @@ import httpx, urllib.parse
 from fastapi import FastAPI, HTTPException, Query, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import core, chain, brain, x402_client
 from brain import say
@@ -408,6 +408,12 @@ class Turn(BaseModel):
     text: str
     channel: str = "voice"
     lang_hint: str | None = None
+    # Audit 20 Oct: the balance intent has always read `t.chain_id`, but the field
+    # was never declared here. Pydantic drops undeclared fields without error, so
+    # a caller passing chain_id=8453 got a 200 with Avalanche data and no warning.
+    # Declared with validation so an unknown chain is a clear 422, not a silent
+    # wrong answer.
+    chain_id: int = Field(default=43114, ge=1, le=999_999, description="chain to read balances from; default Avalanche")
 
 
 @app.get("/health")
@@ -517,12 +523,22 @@ async def turn(t: Turn, request: Request,
 
     # ── balance ──
     if intent == "balance":
+        # A user row holds ONE address on ONE chain. Reading that address on a
+        # different chain is a well-formed query for a balance that is not
+        # theirs — on an EVM chain the same 0x address can be controlled by
+        # someone else entirely. Refuse instead of answering with someone
+        # else's money, or with a silent zero when the chain simply has nothing.
+        user_chain = user.get("chain_id") or chain.CHAIN_ID
+        if t.chain_id != user_chain and user.get("address"):
+            raise HTTPException(400, f"this wallet is registered on "
+                                     f"{chain.get_chain(user_chain).name}; "
+                                     f"balances for chain {t.chain_id} are not available for it")
         addr = user["address"] or os.environ["UBOT_WALLET_ADDRESS"]
         try:
             b = chain.balance_at(addr, t.chain_id)
         except Exception as e:
-            log.warning("balance lookup failed: %s", e)
-            b = {"usdc": 0.0, "native_balance": 0.0, "chain": "avalanche-mainnet"}
+            log.warning("balance lookup failed on chain %s: %s", t.chain_id, e)
+            b = {"usdc": 0.0, "native_balance": 0.0, "chain": chain.get_chain(t.chain_id).name}
         local_ccy = {"th": "THB", "es": "EUR", "en": "USD"}.get(lang, "USD")
         local = round(b.get("usdc", 0) * core.FX.get(local_ccy, 1.0), 2)
         return {"say": say(lang, "balance", usdc=b.get("usdc", 0), local=local, ccy=local_ccy), "action": "balance", "data": b}
