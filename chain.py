@@ -162,6 +162,17 @@ _BUILTIN_CHAINS = {
     # ZK / Optimistic L2s (added Phase 8). All use ETH as native gas.
     324:   Chain(324, "zkSync Era", "https://mainnet.era.zksync.io",
                  "0x1d17CBcF0D6D143135aE902365D2E5e2A16538D4", "https://explorer.zksync.io", "ETH"),
+    # Sonic (chain 146). Added 20 Oct 2026.
+    # USDC address verified on-chain before being written here — the addresses
+    # that circulate on the web are wrong. Confirmed by reading the contract:
+    #   eth_getCode  -> 1798 bytes of bytecode (not an empty account)
+    #   decimals()   -> 6
+    #   symbol()     -> "USDC"
+    #   totalSupply  -> 110,605,454 USDC in circulation
+    # LI.FI quotes Avalanche -> Sonic via Polymer, which is what makes this a
+    # bridge endpoint rather than just a name in a dropdown.
+    146:   Chain(146, "Sonic", "https://rpc.soniclabs.com",
+                 "0x29219dd400f2Bf60E5a23d13Be72B486D4038894", "https://sonicscan.org", "S"),
     59144: Chain(59144, "Linea", "https://rpc.linea.build",
                  "0x176211869cA2b568f2A7D4EE941E073a821EE1ff", "https://lineascan.build", "ETH"),
     534352: Chain(534352, "Scroll", "https://rpc.scroll.io",

@@ -30,6 +30,7 @@ CHAIN_NAME = {
     "arbitrum": 42161, "arb": 42161,
     "avalanche": 43114, "avax": 43114, "avaxc": 43114,
     "fuji": 43113,
+    "sonic": 146, "s": 146,
 }
 
 # USDC contract address per chain (for the bridge quote)
@@ -50,6 +51,12 @@ USDC_BY_CHAIN = {
     42220:  "0xcebA9300f2b948710d2653dD7B07f33A8B32118C",   # Celo (native USDC)
     480:    "0x79A02482A880bCE3F13e09Da970dC34db4CD24d1",   # World Chain (native USDC)
     130:    "0x078D782b760474a361dDA0AF3839290b0EF57AD6",   # Unichain (native USDC)
+    # Sonic. Address verified on-chain 20 Oct 2026 — the USDC addresses that
+    # circulate on the web are wrong (eth_getCode returns empty for those).
+    # decimals()->6, symbol()=="USDC", 110.6M supply. Kept in sync with
+    # chain.py — these two lists drifting apart would mean the UI shows one
+    # token while the bridge quotes another.
+    146:    "0x29219dd400f2Bf60E5a23d13Be72B486D4038894",   # Sonic (native USDC)
 }
 
 
