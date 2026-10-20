@@ -1,0 +1,18 @@
+Contact: mailto:security@ubotpay.com
+Expires: 2027-10-20T00:00:00.000Z
+Preferred-Languages: en
+Canonical: https://ubotpay.com/.well-known/security.txt
+Policy: https://ubotpay.com/security
+
+# Reporting a vulnerability
+#
+# Send an email to security@ubotpay.com with:
+#   - what you found and how to reproduce it
+#   - the impact you believe it has
+#   - whether funds are at risk
+#
+# Please do not run automated scans against the live site, and do not attempt
+# to move funds. Contact us before any public write-up so we can ship a fix and
+# credit you.
+#
+# We aim to acknowledge within 3 business days.

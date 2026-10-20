@@ -84,19 +84,31 @@ self.addEventListener("fetch", (event) => {
   }
 
   // Network-first for chain/health discovery (always fresh on first hit).
+  // Audit 20 Oct round 5: /balance was in this list and therefore cached. It
+  // returns the *signed-in user's* balance, which then sat in Cache Storage —
+  // readable by anyone who opens devtools on a shared device, and surviving
+  // logout (renderDisconnected clears localStorage but not the caches). Only
+  // cache responses that carry no user data: 2xx bodies here are all static
+  // discovery data, and a 401 is not worth storing either.
   if (
     url.pathname === "/health" ||
     url.pathname === "/auth/chains" ||
-    url.pathname === "/bridge/chains" ||
-    url.pathname === "/balance"
+    url.pathname === "/bridge/chains"
   ) {
     event.respondWith(
       fetch(req).then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE_NAME).then((c) => c.put(req, copy));
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((c) => c.put(req, copy));
+        }
         return res;
       }).catch(() => caches.match(req))
     );
+    return;
+  }
+
+  // Anything user-scoped goes straight to the network, never to the cache.
+  if (url.pathname === "/balance" || url.pathname.startsWith("/history")) {
     return;
   }
 

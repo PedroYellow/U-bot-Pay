@@ -863,7 +863,14 @@ async def auth_wallet_nonce(req: WalletNonceRequest):
 
 @app.post("/auth/wallet/verify")
 async def auth_wallet_verify(req: WalletVerifyRequest):
-    """Verify the personal_sign signature, return a 7-day JWT bound to (chain_id, address)."""
+    """Verify the personal_sign signature, return a 7-day JWT bound to (chain_id, address).
+
+    Audit 20 Oct round 5: this looked the wallet up by address and checked only
+    that a nonce existed. core.consume_wallet_nonce() — which does validate
+    jwt_exp — existed but was never called from anywhere. So the 10-minute expiry
+    that /auth/wallet/nonce advertises was never enforced: a captured nonce stayed
+    usable until it was spent. Now we go through the function that checks it.
+    """
     from eth_account.messages import encode_defunct
     if not Web3.is_address(req.address):
         raise HTTPException(400, "bad address")
@@ -875,11 +882,20 @@ async def auth_wallet_verify(req: WalletVerifyRequest):
         # the original is now rotated away and the signature fails.
         # Better to fail loudly so the client knows to re-fetch a nonce.
         raise HTTPException(400, "no active nonce — call /auth/wallet/nonce first")
+    # Enforce the expiry the nonce endpoint promised. Done before any
+    # signature work so an expired nonce costs nothing.
+    if not cur.get("jwt_exp") or cur["jwt_exp"] < time.time():
+        # Clear it so the row doesn't sit there with a dead nonce.
+        with core.conn() as cc:
+            cc.execute("UPDATE users SET jwt_nonce = NULL, jwt_exp = NULL WHERE id = ?", (cur["id"],))
+        raise HTTPException(400, "nonce expired — call /auth/wallet/nonce again")
     try:
         msg = encode_defunct(text=cur["jwt_nonce"])
         recovered = Web3().eth.account.recover_message(msg, signature=bytes.fromhex(req.signature.replace("0x", "")))
     except Exception as e:
-        raise HTTPException(400, f"bad signature: {e}")
+        # Don't echo the exception: it can carry library internals.
+        log.warning("signature decode failed: %s: %s", type(e).__name__, str(e)[:120])
+        raise HTTPException(400, "could not read that signature")
     if recovered.lower() != cur["address"].lower():
         raise HTTPException(401, "signature does not match address")
     # Rotate the nonce so it can't be re-used
