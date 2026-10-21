@@ -2,7 +2,7 @@
 U-bot Pay — core: users, contacts, FX, policy (limits + dual control), ledger.
 SQLite. Demo-grade but structured like the real thing.
 """
-import os, json, time, sqlite3, hashlib, secrets
+import os, threading, json, time, sqlite3, hashlib, secrets
 from contextlib import contextmanager
 
 DB = os.environ.get("UBOT_DB", "/opt/ubotpay/ubotpay.db")
@@ -93,7 +93,8 @@ CREATE TABLE IF NOT EXISTS payments(
   latency_s REAL,
   approved_by INTEGER,
   created_at INTEGER,
-  settled_at INTEGER
+  settled_at INTEGER,
+  claimed_at INTEGER   -- when it entered 'settling'; lets a stale claim be found
 );
 CREATE INDEX IF NOT EXISTS idx_payments_user   ON payments(user_id);
 CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
@@ -134,6 +135,9 @@ def init():
             "ALTER TABLE invoices ADD COLUMN chain_id  INTEGER DEFAULT 43114",
             # Audit 20 Oct round 4: real delivered amount per bridge.
             "ALTER TABLE bridges  ADD COLUMN delivered_usdc REAL",
+            # Audit 20 Oct round 12: when a payment entered 'settling', so a claim
+            # stranded by a killed process can be identified and released.
+            "ALTER TABLE payments ADD COLUMN claimed_at INTEGER",
         ]:
             try: c.execute(ddl)
             except Exception: pass
@@ -173,6 +177,12 @@ def init():
         try: c.execute("UPDATE invoices SET chain_id = 43114 WHERE chain_id IS NULL")
         except Exception: pass
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_wallet ON users(chain_id, lower(address)) WHERE address IS NOT NULL")
+    # Start the reaper outside the transaction block: it opens its own connection
+    # on its first tick, and a live connection here would just hold the write lock.
+    start_settling_reaper(
+        interval_s=int(os.environ.get("UBOT_REAP_INTERVAL_S", "60")),
+        max_age_s=int(os.environ.get("UBOT_SETTLING_MAX_AGE_S", "300")),
+    )
 
 
 # ───────── pricing (business model) ─────────
@@ -480,10 +490,85 @@ def claim_payment_for_settlement(pid: str) -> bool:
     """
     with conn() as c:
         cur = c.execute(
-            "UPDATE payments SET status='settling' WHERE id=? AND status='pending_approval'",
-            (pid,),
+            "UPDATE payments SET status='settling', claimed_at=? "
+            "WHERE id=? AND status='pending_approval'",
+            (int(time.time()), pid),
         )
         return cur.rowcount == 1
+
+
+_REAPER: threading.Thread | None = None
+
+
+def _reaper_loop(interval_s: int, max_age_s: int) -> None:
+    """Background thread that reaps stale settlement claims.
+
+    A daemon thread rather than an APScheduler job: nothing in this codebase used
+    APScheduler despite it being installed, and a thread started from init() has
+    no dependency to add and dies with the process.
+    """
+    while True:
+        try:
+            time.sleep(interval_s)
+            ids = reap_stale_settling_claims(max_age_s)
+            if ids:
+                log.warning(
+                    "reaped %d payment(s) stranded in 'settling' and returned them "
+                    "to pending_approval: %s", len(ids), ", ".join(ids[:10]))
+        except Exception as e:      # never let the thread die
+            log.warning("settling reaper iteration failed: %s", e)
+
+
+def start_settling_reaper(interval_s: int = 60, max_age_s: int = 300) -> None:
+    """Idempotent. Called from init() so every entrypoint (api, tg, tests) gets it."""
+    global _REAPER
+    if _REAPER is not None and _REAPER.is_alive():
+        return
+    t = threading.Thread(target=_reaper_loop, args=(interval_s, max_age_s),
+                         name="settling-reaper", daemon=True)
+    t.start()
+    _REAPER = t
+
+
+def reap_stale_settling_claims(max_age_s: int = 300) -> list[str]:
+    """Return payments stuck in 'settling' to 'pending_approval'.
+
+    Audit 20 Oct round 12. claim_payment_for_settlement() moves a payment to
+    'settling' before the chain call, and release_payment_claim() hands it back —
+    but only if the process survives to run its `finally`. A SIGKILL, an OOM kill
+    or a systemd restart between the claim and the settle leaves it in 'settling'
+    forever:
+
+        spent_today() counts 'settling' as committed budget, so the user's daily
+        limit stays debited by an amount that will never be spent, and
+        claim_payment_for_settlement() refuses to re-claim it (its WHERE requires
+        pending_approval). Reproduced: 50 USDC reserved permanently out of a 100
+        limit, unrecoverable without a direct DB edit.
+
+    Only claims older than max_age_s are reaped, so a settlement that is genuinely
+    in flight — a slow RPC, a congested chain — is not interrupted. Five minutes is
+    far longer than any observed settlement and still short enough that a stuck
+    payment is released well within a user's day.
+
+    Returns the ids it released, so the caller can log or notify.
+    """
+    cutoff = int(time.time()) - max_age_s
+    with conn() as c:
+        rows = c.execute(
+            "SELECT id FROM payments WHERE status='settling' "
+            "AND (claimed_at IS NULL OR claimed_at < ?)",
+            (cutoff,),
+        ).fetchall()
+        ids = [r["id"] for r in rows]
+        if ids:
+            # Same predicate as release_payment_claim, so this cannot resurrect a
+            # payment that was settled between the SELECT and this UPDATE.
+            c.execute(
+                "UPDATE payments SET status='pending_approval', claimed_at=NULL "
+                "WHERE status='settling' AND (claimed_at IS NULL OR claimed_at < ?)",
+                (cutoff,),
+            )
+    return ids
 
 
 def release_payment_claim(pid: str) -> None:
@@ -495,7 +580,8 @@ def release_payment_claim(pid: str) -> None:
     """
     with conn() as c:
         c.execute(
-            "UPDATE payments SET status='pending_approval' WHERE id=? AND status='settling'",
+            "UPDATE payments SET status='pending_approval', claimed_at=NULL "
+            "WHERE id=? AND status='settling'",
             (pid,),
         )
 
