@@ -1246,6 +1246,16 @@ async def energy_settle(order_id: str, request: Request):
         try:
             inv = await _energy.create_invoice(
                 order["target_address"], order["volume"], order["duration"])
+        except _energy.TronRentalBusy as e:
+            # Their account is at its 3-invoice limit and there is no endpoint to
+            # cancel early — the invoices expire on their own after 30 minutes.
+            log.warning("energy invoice limit reached for %s", order["id"])
+            core.set_energy_status(order["id"], "invoice_failed")
+            raise HTTPException(
+                429,
+                "Too many energy orders in progress on the TronRental side. "
+                "Your fee was charged and you will not be charged again — "
+                "try again in a few minutes.")
         except Exception as e:
             log.error("energy invoice failed for %s after fee was charged: %s: %s",
                       order["id"], type(e).__name__, e)
@@ -1282,28 +1292,84 @@ async def energy_order_remote_status(order_id: str, request: Request):
     order = core.get_energy_order(order_id, user_id=user["id"])
     if not order:
         raise HTTPException(404, "no such energy order")
-    remote_id = order.get("tronrental_order_id") or order.get("tronrental_invoice_id")
+    remote_id = order.get("tronrental_invoice_id")
     if not remote_id:
         return {"ok": True, "order": order, "remote": None,
-                "note": "no TronRental order yet — the fee has to settle first"}
+                "note": "no TronRental invoice yet — the fee has to settle first"}
     try:
-        remote = await _energy.get_order(remote_id)
+        # /invoices/{uuid}, not /orders/{id}: their /orders endpoint only accepts
+        # integer purchase ids and rejects an invoice UUID with 422.
+        remote = await _energy.get_invoice(remote_id)
     except Exception as e:
         log.warning("energy status check failed for %s: %s: %s",
                     order["id"], type(e).__name__, e)
         raise HTTPException(502, "could not reach TronRental right now, try again shortly")
     status = str(remote.get("status", "")).lower() if isinstance(remote, dict) else ""
-    if status in ("completed", "success", "succeeded", "confirmed", "done"):
+    # Their invoice states, confirmed from a live response: pending, then paid,
+    # then completed; error_message carries the failure reason.
+    if status in ("completed", "paid", "success", "succeeded", "confirmed", "done"):
         if order["status"] != "activated":
-            core.set_energy_status(
-                order["id"], "activated",
-                tronrental_order_id=str(remote.get("id") or remote_id))
-    elif status in ("failed", "expired", "cancelled", "canceled", "rejected"):
-        if order["status"] not in ("activated",):
+            core.set_energy_status(order["id"], "activated")
+    elif status in ("failed", "expired", "cancelled", "canceled", "rejected", "error"):
+        if order["status"] != "activated":
             core.set_energy_status(order["id"], "failed")
     return {"ok": True,
             "order": core.get_energy_order(order["id"]),
+            "remote_status": status,
+            "payment_address": remote.get("payment_address") if isinstance(remote, dict) else None,
+            "expires_at": remote.get("expires_at") if isinstance(remote, dict) else None,
             "remote": remote}
+
+
+@app.post("/energy/webhook")
+async def energy_webhook(request: Request):
+    """TronRental calls this when an invoice changes state.
+
+    Configured in their dashboard (one URL for order.updated and
+    subscription.transfer events). It removes the need to poll: the order moves
+    to 'activated' when they say it is paid, rather than when the user next asks.
+
+    Authenticated with a shared secret in the query string, because their webhook
+    posts no signature header we could verify — the alternative would be an
+    unauthenticated endpoint that moves order state from anything on the internet.
+    The secret is compared in constant time.
+    """
+    import hmac as _hmac
+    secret = os.environ.get("TRONRENTAL_WEBHOOK_SECRET", "")
+    provided = request.query_params.get("secret", "")
+    if not secret:
+        raise HTTPException(503, "webhook not configured")
+    if not _hmac.compare_digest(provided, secret):
+        raise HTTPException(401, "bad webhook secret")
+
+    try:
+        event = await request.json()
+    except Exception:
+        raise HTTPException(400, "malformed webhook payload")
+
+    data = event.get("data") if isinstance(event, dict) else None
+    if not isinstance(data, dict):
+        data = event if isinstance(event, dict) else {}
+    inv_id = data.get("invoice_id") or data.get("id")
+    if not inv_id:
+        return {"ok": True, "ignored": "no invoice id in payload"}
+    status = str(data.get("status", "")).lower()
+
+    order = core.find_energy_order_by_invoice(str(inv_id))
+    if not order:
+        # An invoice we do not know about. Nothing to do, and the response should
+        # not confirm that it exists.
+        return {"ok": True, "ignored": "unknown invoice"}
+
+    if status in ("completed", "paid", "success", "succeeded", "confirmed", "done"):
+        if order["status"] != "activated":
+            core.set_energy_status(order["id"], "activated")
+            log.info("energy order %s activated via webhook", order["id"])
+    elif status in ("failed", "expired", "cancelled", "canceled", "rejected", "error"):
+        if order["status"] != "activated":
+            core.set_energy_status(order["id"], "failed")
+            log.info("energy order %s failed via webhook (%s)", order["id"], status)
+    return {"ok": True}
 
 
 @app.get("/energy/orders")

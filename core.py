@@ -301,6 +301,24 @@ def list_energy_orders(user_id: int, limit: int = 20) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def find_energy_order_by_invoice(invoice_id: str) -> dict | None:
+    """Look an order up by its TronRental invoice id.
+
+    Used by the webhook, which receives TronRental's own id and not ours.
+    Scoped lookups elsewhere go through get_energy_order(user_id=...) because they
+    run inside an authenticated request; the webhook is authenticated by its own
+    secret and has no user context, so this is the one place that looks up by
+    external id alone.
+    """
+    if not invoice_id:
+        return None
+    with conn() as c:
+        row = c.execute(
+            "SELECT * FROM energy_orders WHERE tronrental_invoice_id=? LIMIT 1",
+            (str(invoice_id),)).fetchone()
+    return dict(row) if row else None
+
+
 def claim_energy_order_for_payment(order_id: str) -> bool:
     """Move an order out of 'quoted' so only one caller charges its fee.
 

@@ -154,22 +154,35 @@ def t_status_only_moves_forward_on_confirmation():
     check("does not assume success", "activated" in tail, True)
     check("requires an explicit success state",
           any(s in body for s in ("completed", "success", "succeeded")), True)
-    check("records the remote order id",
-          "tronrental_order_id=str(" in body, True)
+    # The remote id is the invoice id, stored in tronrental_invoice_id when the
+    # invoice is created — not a separate tronrental_order_id.
+    check("does not invent a second remote id column",
+          "tronrental_order_id=str(" in body, False)
+    check("activation is recorded locally", 'set_energy_status(order["id"], "activated")' in body, True)
     check("does not re-activate an already activated order",
           'order["status"] != "activated"' in body, True)
 
 
 def t_status_is_read_only_against_their_api():
     body = fn(api_src, "energy_order_remote_status")
-    check("only calls the read endpoint", "_energy.get_order(" in body, True)
+    # GET /orders/{id} rejects an invoice UUID with 422; the read endpoint is
+    # GET /invoices/{id}.
+    check("calls the invoice read endpoint", "_energy.get_invoice(" in body, True)
     check("never creates an invoice here", "create_invoice" not in body, True)
 
 
 def t_settle_has_no_dead_code():
     body = fn(api_src, "energy_settle")
     check("no leftover stub", "if False" not in body, True)
-    check("no bare re-raise of a custom exception", "except _energy." not in body, True)
+    # Every custom exception raised by the energy client must be caught and
+    # converted. TronRentalBusy is handled on its own; a bare re-raise of it
+    # would escape FastAPI as a 500, which is what the settle path must not do
+    # after the fee has been taken.
+    check("TronRentalBusy is handled explicitly",
+          "except _energy.TronRentalBusy as e:" in body, True)
+    check("the generic handler follows it",
+          body.index("except _energy.TronRentalBusy") <
+          body.index("except Exception as e:", body.index("except _energy.TronRentalBusy")), True)
 
 
 def t_module_still_parses():

@@ -33,6 +33,9 @@ TIMEOUT = float(os.environ.get("TRONRENTAL_TIMEOUT", "15"))
 # validating here means the user gets a clear message instead of a 400.
 MIN_ENERGY = 60_000
 MAX_ENERGY = 5_000_000
+# Their docs say energy supports 1h only. Note that create_invoice() echoes
+# duration back as null even when one is sent, so the value we hold is the one we
+# asked for, not a confirmation of it.
 SUPPORTED_DURATIONS = ("1h",)
 
 # Energy needed for a single USDT (TRC-20) transfer, from TronRental's own docs.
@@ -132,10 +135,25 @@ async def _get(path: str, params: dict | None = None) -> dict:
     return r.json()
 
 
+class TronRentalBusy(RuntimeError):
+    """Their account is at its pending-invoice limit.
+
+    TronRental allows at most 3 pending invoices at a time and answers 429 past
+    that. Invoices expire on their own after 30 minutes and there is no endpoint
+    to cancel one early, so this is a wait condition rather than an error — the
+    caller should tell the user to retry shortly, not to give up.
+    """
+
+
 async def _post(path: str, payload: dict) -> dict:
     url = f"{TRONRENTAL_BASE}{path}"
     async with httpx.AsyncClient(timeout=TIMEOUT) as c:
         r = await c.post(url, json=payload, headers=_headers())
+    if r.status_code == 429:
+        log.warning("tronrental POST %s -> 429 (pending invoice limit)", path)
+        raise TronRentalBusy(
+            "too many energy invoices in progress — they expire after 30 "
+            "minutes, so try again shortly")
     if r.status_code >= 400:
         log.warning("tronrental POST %s -> %s: %s", path, r.status_code,
                     r.text[:160])
@@ -206,9 +224,22 @@ async def create_invoice(target_address: str, volume: int,
     return await _post("/invoices", payload)
 
 
+async def get_invoice(invoice_id) -> dict:
+    """Invoice status from TronRental.
+
+    Note the path. /orders/{id} only accepts integer order ids and rejects a UUID
+    with 422 — it is for buy_energy() purchases, not for invoices created through
+    /invoices. Verified against their API: GET /invoices/<uuid> returns 200.
+
+    Used to tell the user whether the energy actually landed, and by the webhook
+    handler to react without polling.
+    """
+    return await _get(f"/invoices/{invoice_id}")
+
+
 async def get_order(order_id) -> dict:
-    """Order status. Used to tell the user whether the energy actually landed."""
-    return await _get(f"/orders/{order_id}")
+    """Order status for a direct buy_energy() purchase. Integer id only."""
+    return await _get(f"/orders/{int(order_id)}")
 
 
 # ── savings ────────────────────────────────────────────────────────────────
