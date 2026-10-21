@@ -1596,6 +1596,13 @@ async def push_subscribe(body: PushSubscriptionBody, request: Request):
     auth = body.keys.get("auth")
     if not (p256dh and auth):
         raise HTTPException(400, "keys.p256dh and keys.auth required")
+    # The endpoint is fetched by the server on every notification, so it has to be
+    # a real push service URL — see push.validate_push_endpoint. Storing an
+    # arbitrary URL here is what turns the next fan-out into a server-side request.
+    try:
+        push.validate_push_endpoint(body.endpoint)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     user_agent = request.headers.get("User-Agent", "")[:300]
     try:
         sub_id = core.save_push_subscription(

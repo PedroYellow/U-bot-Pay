@@ -115,7 +115,15 @@ async def handle_text(update: Update, text: str):
     try:
         res = await call_turn(str(update.effective_user.id), text)
     except Exception as e:
-        await update.message.reply_text(f"⚠️ {str(e)[:120]}"); return
+        # The exception can carry the full request URL, which embeds API_URL and
+        # would put an internal hostname in a chat log. Log it, tell the user only
+        # that it failed. This is the main text path, so it is the last place any
+        # of this was still leaking.
+        log.warning("turn call failed for tg %s: %s: %s",
+                    update.effective_user.id, type(e).__name__, str(e)[:200])
+        await update.message.reply_text(
+            "⚠️ Something went wrong on my side. Try again in a moment.")
+        return
     lang = (update.effective_user.language_code or "en")[:2]
     await reply_voice_and_text(update, res["say"], lang, _extra(res))
 
@@ -130,7 +138,10 @@ async def on_approve(update: Update, ctx: ContextTypes.DEFAULT_TYPE, approve=Tru
         r = await c.post(f"{API_URL}/approve", json={"payment_id": parts[1], "approver_key": str(update.effective_user.id), "approve": approve},
                          headers={"x-api-key": API_KEY})
     if r.status_code != 200:
-        await update.message.reply_text(f"⚠️ {r.text[:200]}"); return
+        log.warning("telegram /approve -> %s: %s", r.status_code, r.text[:200])
+        await update.message.reply_text(
+            "⚠️ That didn't work — the payment may already have been approved, "
+            "or you may not be its co-signer."); return
     d = r.json()
     await update.message.reply_text(("✅ Approved & settled in %ss\n%s" % (d.get("latency_s"), d.get("explorer"))) if approve else "❌ Rejected.", disable_web_page_preview=True)
 
@@ -147,6 +158,13 @@ async def on_code(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     Usage: /code <6-digit>
     """
+    # Audit 20 Oct round 13: this was the only handler without the private-chat
+    # guard. Not directly exploitable — the endpoint still requires the 6-digit
+    # OTP and the bot's API key — but in a group the user types the code in
+    # public, it is echoed into the group transcript, and the bot replies with
+    # linking instructions to everyone there. A secret typed in the wrong place is
+    # the problem to prevent, not just the one this guard would stop.
+    if not await _require_private(update): return
     parts = (update.message.text or "").split()
     if len(parts) < 2 or not parts[1].isdigit() or len(parts[1]) != 6:
         await update.message.reply_text(
@@ -164,20 +182,28 @@ async def on_code(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                                headers={"x-api-key": API_KEY},
                                json={"code": code, "telegram_id": update.effective_user.id})
         if r.status_code != 200:
-            await update.message.reply_text(f"⚠️ Could not link: {r.text[:200]}"); return
+            # The body can carry internal detail (hostnames, upstream payloads).
+            # Log it here, tell the user only what they can act on.
+            log.warning("link-telegram confirm failed %s: %s", r.status_code, r.text[:200])
+            await update.message.reply_text(
+                "⚠️ That code didn't work. It may have expired (they last 10 "
+                "minutes) or already been used — request a new one on "
+                "ubotpay.com and try again."); return
         d = r.json()
         await update.message.reply_text(
             f"✅ Linked! Your wallet is now connected to this chat.\n"
             f"You'll get a Telegram message every time you do a cross-chain bridge.",
             parse_mode="Markdown")
     except Exception as e:
-        await update.message.reply_text(f"⚠️ Linking error: {str(e)[:120]}")
+        log.warning("telegram /code failed: %s: %s", type(e).__name__, e)
+        await update.message.reply_text(
+            "⚠️ Couldn't reach the server. Try again in a moment.")
 
 
 # Backward-compat: old /link command returns a friendly deprecation
 async def on_link(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not await _require_private(update): return
     """Deprecated. Use /code <6-digit> instead."""
+    if not await _require_private(update): return
     await update.message.reply_text(
         "⚠️ The `/link <token>` command has been retired for security.\n\n"
         "New flow:\n"
