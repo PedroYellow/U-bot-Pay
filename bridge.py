@@ -355,6 +355,13 @@ def _cache_key(partner, from_chain, to_chain, amount_usdc, from_address, to_addr
 
 def _cache_get(key):
     with _CACHE_LOCK:
+        # Round 24 audit M-3: gc_locked was only called from _set, so a
+        # read-only burst (HTTP traffic that always hits /bridge/quote)
+        # could grow _CACHE past _CACHE_MAX_ENTRIES. Move the GC to the read
+        # path too, but only when we are well over the cap to avoid its
+        # own lock churn on every cache hit.
+        if len(_CACHE) > _CACHE_MAX_ENTRIES * 2:
+            _cache_gc_locked()
         v = _CACHE.get(key)
         if not v: return None
         ts, data = v
