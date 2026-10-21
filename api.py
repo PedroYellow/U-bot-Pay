@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 import core, chain, brain, x402_client
+import energy as _energy
 from brain import say
 from web3 import Web3
 
@@ -1068,6 +1069,136 @@ async def auth_wallet_verify(req: WalletVerifyRequest):
 async def auth_chains():
     """Public list of supported chains. Used by the wallet selector."""
     return chain.chains()
+
+
+# ───────── TronRental energy (integration 21 Oct 2026) ─────────
+#
+# U-bot quotes TronRental's public price and takes its own fee; the user pays
+# TronRental directly. No TRX or TRC-20 is ever moved by U-bot, which is what
+# keeps this bridge-free. See TRONRENTAL_INTEGRATION.md.
+#
+# The fee is charged through the normal payment path, so the daily limit and the
+# dual-control gate apply exactly as they do to any other transfer. There is no
+# second money system here on purpose.
+
+
+class EnergyQuoteRequest(BaseModel):
+    target_address: str
+    volume: int = 65_000
+    duration: str = "1h"
+
+
+def _energy_user(request: Request):
+    user, err = _user_from_request(request)
+    if err or user is None:
+        raise HTTPException(401, err or "auth required")
+    return user
+
+
+def _energy_validate(target_address, volume, duration):
+    try:
+        return (_energy.validate_tron_address(target_address),
+                _energy.validate_volume(volume),
+                _energy.validate_duration(duration))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/energy/prices")
+async def energy_prices():
+    """TronRental's current market prices. Public, no key needed."""
+    try:
+        p = await _energy.market_prices()
+    except Exception as e:
+        log.warning("energy prices failed: %s: %s", type(e).__name__, e)
+        raise HTTPException(502, "could not reach TronRental right now, try again shortly")
+    return {"ok": True,
+            "energy_trx": p.get("energy_trx"), "energy_usd": p.get("energy_usd"),
+            "bandwidth_trx": p.get("bandwidth_trx"),
+            "burn_cost_trx": p.get("burn_cost_trx"),
+            "savings_percent": p.get("savings_percent"),
+            "volume": p.get("energy_volume")}
+
+
+@app.post("/energy/quote")
+async def energy_quote(body: EnergyQuoteRequest, request: Request):
+    """Quote energy for a TRON address and show U-bot's fee. Read-only."""
+    _energy_user(request)
+    addr, vol, dur = _energy_validate(body.target_address, body.volume, body.duration)
+    try:
+        q = await _energy.quote(vol, dur)
+    except Exception as e:
+        # Fail closed: the fee is charged against this quote, so a stale or
+        # invented price would mean charging the wrong amount.
+        log.warning("energy quote failed: %s: %s", type(e).__name__, e)
+        raise HTTPException(502, "could not reach TronRental right now, try again shortly")
+    usd = q["total_usd"]
+    if usd is None:
+        raise HTTPException(502, "TronRental did not return a USD price")
+    fee = core.energy_fee_for(usd)
+    return {"ok": True, "target_address": addr, "volume": vol, "duration": dur,
+            "tronrental_total_trx": q["total_trx"], "tronrental_total_usd": usd,
+            "fee_usdc": fee, "fee_pct": core.ENERGY_FEE_PCT * 100,
+            "negotiated_rate": q["negotiated"],
+            "savings": _energy.savings(vol, recipient_has_usdt=True)}
+
+
+@app.post("/energy/order")
+async def energy_order(body: EnergyQuoteRequest, request: Request):
+    """Create an order and charge U-bot's fee.
+
+    The quote comes from TronRental first, then the fee is charged. If the fee
+    cannot be charged the order stays in 'quoted' and no invoice is ever created
+    — U-bot does not hand out an invoice it has not been paid for.
+    """
+    user = _energy_user(request)
+    addr, vol, dur = _energy_validate(body.target_address, body.volume, body.duration)
+    try:
+        q = await _energy.quote(vol, dur)
+    except Exception as e:
+        log.warning("energy order quote failed: %s: %s", type(e).__name__, e)
+        raise HTTPException(502, "could not reach TronRental right now, try again shortly")
+    usd = q["total_usd"]
+    if usd is None:
+        raise HTTPException(502, "TronRental did not return a USD price")
+    fee = core.energy_fee_for(usd)
+
+    order = core.create_energy_order(user["id"], addr, vol, q["total_trx"], usd, dur)
+    revenue = getattr(chain, "REVENUE_ADDRESS", None)
+    try:
+        pay = core.create_payment(
+            user["id"],
+            {"alias": "tronrental", "address": revenue or addr,
+             "name": "TronRental energy fee"},
+            {"amount_usdc": fee, "amount_local": fee, "local_ccy": "USDC",
+             "fx_rate": 1.0, "fee_usdc": 0.0},
+            f"TronRental energy {vol} for {addr}", "energy", False)
+    except Exception as e:
+        log.error("energy fee payment failed for %s: %s: %s",
+                  order["id"], type(e).__name__, e)
+        raise HTTPException(500, "could not start the fee payment, try again")
+    pid = pay["id"] if isinstance(pay, dict) else pay
+    core.set_energy_status(order["id"], "fee_pending", payment_id=pid)
+    return {"ok": True, "order": core.get_energy_order(order["id"]),
+            "payment": {"id": pid, "amount_usdc": fee},
+            "next": "settle the fee payment, then the TronRental invoice is created"}
+
+
+@app.get("/energy/orders")
+async def energy_orders(request: Request):
+    user = _energy_user(request)
+    return {"ok": True, "orders": core.list_energy_orders(user["id"])}
+
+
+@app.get("/energy/order/{order_id}")
+async def energy_order_status(order_id: str, request: Request):
+    user = _energy_user(request)
+    order = core.get_energy_order(order_id, user_id=user["id"])
+    if not order:
+        # 404, not 403: an order id is close to a bearer token, so the response
+        # must not confirm that someone else's order exists.
+        raise HTTPException(404, "no such energy order")
+    return {"ok": True, "order": order}
 
 
 # ───────── cross-chain bridge (LI.FI) ─────────

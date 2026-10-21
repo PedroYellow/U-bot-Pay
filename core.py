@@ -96,6 +96,29 @@ CREATE TABLE IF NOT EXISTS payments(
   settled_at INTEGER,
   claimed_at INTEGER   -- when it entered 'settling'; lets a stale claim be found
 );
+
+-- TronRental energy orders (integration 21 Oct 2026).
+-- The fee is billed separately from TronRental's own payment, because their
+-- invoice API has no commission field and the user pays them directly. This
+-- table tracks that side; the fee itself flows through `payments` so it
+-- inherits check_policy, the daily limit and the atomic settlement claim.
+CREATE TABLE IF NOT EXISTS energy_orders(
+  id TEXT PRIMARY KEY,
+  user_id INTEGER,
+  target_address TEXT,        -- TRON address the energy is delegated to
+  volume INTEGER,
+  duration TEXT DEFAULT '1h',
+  quote_trx REAL,             -- what TronRental quoted
+  quote_usd REAL,
+  fee_usdc REAL,              -- 5% of quote_usd, floored at ENERGY_FEE_MIN
+  status TEXT DEFAULT 'quoted', -- quoted|fee_paid|invoice_created|activated|failed|expired
+  tronrental_invoice_id TEXT,
+  tronrental_order_id TEXT,
+  payment_id TEXT,            -- the U-bot payment that collected the fee
+  created_at INTEGER,
+  settled_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_energy_user ON energy_orders(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_payments_user   ON payments(user_id);
 CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
 CREATE INDEX IF NOT EXISTS idx_payments_daily  ON payments(user_id, status, created_at);
@@ -183,6 +206,91 @@ def init():
         interval_s=int(os.environ.get("UBOT_REAP_INTERVAL_S", "60")),
         max_age_s=int(os.environ.get("UBOT_SETTLING_MAX_AGE_S", "300")),
     )
+
+
+# ───────── TronRental energy orders ─────────
+# Integration 21 Oct 2026. See TRONRENTAL_INTEGRATION.md.
+#
+# U-bot never touches TRX or TRC-20. It quotes TronRental's public price, takes
+# its own fee against the user's U-bot balance, and hands back an invoice the
+# user settles with TronRental directly. That is what keeps it bridge-free.
+
+ENERGY_FEE_PCT = float(os.environ.get("UBOT_ENERGY_FEE_PCT", "5.0")) / 100
+# Below roughly a cent the fee does not cover its own gas, so it is floored.
+# At the real prices ($0.51 and $0.95) 5% is $0.026 / $0.048, well clear.
+ENERGY_FEE_MIN = float(os.environ.get("UBOT_ENERGY_FEE_MIN_USDC", "0.005"))
+
+
+def energy_fee_for(quote_usd: float) -> float:
+    """U-bot's cut of an energy order.
+
+    Floored at ENERGY_FEE_MIN and rounded to 6 decimals, which is the smallest
+    unit USDC has on chain. Rounding up would overcharge by a fraction of a
+    cent; the floor case is handled by the minimum instead.
+    """
+    if quote_usd <= 0:
+        raise ValueError("quote must be positive")
+    fee = max(quote_usd * ENERGY_FEE_PCT, ENERGY_FEE_MIN)
+    return round(fee, 6)
+
+
+def create_energy_order(user_id: int, target_address: str, volume: int,
+                        quote_trx: float, quote_usd: float,
+                        duration: str = "1h") -> dict:
+    """Record a quote. No money moves here — the fee is collected in
+    collect_energy_fee(), which is a separate, explicit step."""
+    fee = energy_fee_for(quote_usd)
+    oid = "en_" + secrets.token_hex(6)
+    now = int(time.time())
+    with conn() as c:
+        c.execute(
+            "INSERT INTO energy_orders(id,user_id,target_address,volume,duration,"
+            "quote_trx,quote_usd,fee_usdc,status,created_at) "
+            "VALUES(?,?,?,?,?,?,?,?,'quoted',?)",
+            (oid, user_id, target_address, int(volume), duration,
+             float(quote_trx), float(quote_usd), fee, now))
+    return get_energy_order(oid)
+
+
+def get_energy_order(order_id: str, user_id: int | None = None) -> dict | None:
+    with conn() as c:
+        row = c.execute("SELECT * FROM energy_orders WHERE id=?", (order_id,)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    # Enumeration guard: an order id is a bearer-ish token, so a mismatch is a
+    # 404 rather than a 403 — the caller learns nothing about other users' orders.
+    if user_id is not None and int(d["user_id"]) != int(user_id):
+        return None
+    return d
+
+
+def list_energy_orders(user_id: int, limit: int = 20) -> list[dict]:
+    with conn() as c:
+        rows = c.execute(
+            "SELECT * FROM energy_orders WHERE user_id=? ORDER BY created_at DESC LIMIT ?",
+            (user_id, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_energy_status(order_id: str, status: str, **fields) -> dict | None:
+    """Move an order forward. Only the columns named in `fields` are written."""
+    allowed = {"tronrental_invoice_id", "tronrental_order_id", "payment_id"}
+    unknown = set(fields) - allowed
+    if unknown:
+        raise ValueError(f"unknown energy order fields: {sorted(unknown)}")
+    sets = ["status=?"]
+    vals: list = [status]
+    for k, v in fields.items():
+        sets.append(f"{k}=?")
+        vals.append(v)
+    if status in ("activated", "failed", "expired"):
+        sets.append("settled_at=?")
+        vals.append(int(time.time()))
+    vals.append(order_id)
+    with conn() as c:
+        c.execute(f"UPDATE energy_orders SET {','.join(sets)} WHERE id=?", tuple(vals))
+    return get_energy_order(order_id)
 
 
 # ───────── pricing (business model) ─────────
