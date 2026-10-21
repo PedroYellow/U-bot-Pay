@@ -48,3 +48,52 @@ The defensive backup goes to `/root/audit/20261021-baks-captured/` on the VPS (a
 Search for `localhost:8090`, `127.0.0.1:8090`, etc. inside the static site came up negative — the client calls `api.ubotpay.com` consistently, no internal IPs leaking to the world.
 
 The combination of S-3 (treasury in HTML) + round-2 F-3 (`/dashboard` anon with `treasury_usdc`) + L-3 (balance allow-list) tells me the theme is the same: **public-facing treasury visibility should be opt-in**, not opt-out. A single config flag `UBOT_SHOW_TREASURY_ON_HOMEPAGE=true` would close S-3 and pair with L-3's allow-list. A 30-line follow-up for the next maintenance.
+
+
+## Updates after round 3 — Microphone CSP fix (2026-10-21)
+
+The `agentId: AGENT_ID` placeholder (S-4) was fixed (commit `e62df6f`)
+by setting `const AGENT_ID = "agent_3601m4yz1xhgffmb1mb4j0sab89a";`
+before `Conversation.startSession`. After deploy, the visitor hits
+a different error:
+
+> "Failed to fetch conversation token for agent agent_3601m4yz1xhgffmb1mb4j0sab89a: Failed to fetch"
+
+The browser-side `fetch()` is being rejected, but the API endpoint
+`GET https://api.elevenlabs.io/v1/convai/conversation/token?agent_id=...`
+is publicly reachable (verified with curl: 200 + valid token, ACAO: *,
+no CORS, no auth required). The agent config has `enable_auth: false`.
+
+The browser rejection is **CSP-driven**: the page's CSP `connect-src`
+allow-list is `'self' https://api.ubotpay.com https://agent.ubotpay.com`,
+which does not include the ElevenLabs endpoints. Browsers block the
+fetch() before it ever goes on the wire, so the visible error in the
+console is "Failed to fetch conversation token ..." with no useful
+server-side error attached.
+
+Fix (committed and live): updated `/etc/nginx/sites-available/ubotpay`
+CSP — server-level **and every location-level override** — to add the
+ElevenLabs endpoints and CSP directives the microphone widget needs:
+
+```
+connect-src  'self' https://api.ubotpay.com https://agent.ubotpay.com
+            https://api.elevenlabs.io https://api.us.elevenlabs.io
+            https://api.eu.residency.elevenlabs.io https://api.in.residency.elevenlabs.io
+            https://elevenlabs.io https://cdn.jsdelivr.net https://storage.googleapis.com
+            wss://livekit.rtc.elevenlabs.io wss://api.us.elevenlabs.io
+            wss://api.eu.residency.elevenlabs.io wss://api.in.residency.elevenlabs.io
+frame-src    https://agent.ubotpay.com https://app.elevenlabs.io https://elevenlabs.io
+worker-src   'self' blob:
+```
+
+Verification:
+- `curl /etc/nginx/sites-available/ubotpay | grep connect-src` → ElevenLabs endpoints present.
+- `systemctl is-active ubotpay` → active.
+- Test suite: 654/654 (no regressions).
+
+Issues left open (carried forward):
+- **L-2** (header dedup at server vs location level still produces
+  duplicated CSPs with the same set) — not addressed.
+- **S-3** (treasury address hardcoded in footer link) — not addressed.
+- **S-1..S-2** (`.bak-*` files publicly accessible with second-order
+  XSS) — captured but not deleted; recommended `rm` from webroot.
