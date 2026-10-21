@@ -1044,8 +1044,26 @@ class X402Settle(BaseModel):
 
 @app.post("/x402/settle")
 async def x402_settle(s: X402Settle, x_api_key: str | None = Header(default=None)):
-    """Settles a signed EIP-3009 authorization. Server-side only."""
+    """Settles a signed EIP-3009 authorization. Server-side only.
+
+    Round 26 audit C-4: the relayer now refuses any authorisation whose
+    `to` is not our own treasury. That closes the obvious abuse where a
+    leaked x-api-key + any signed EIP-3009 payload could move USDC from
+    the victim to wherever the attacker picked. We verify shape,
+    signature, and payee BEFORE calling transferWithAuthorization, so
+    the check costs no gas.
+    """
     auth(x_api_key)
+    treasury = os.environ.get("UBOT_WALLET_ADDRESS", "")
+    if not treasury:
+        raise HTTPException(503, "treasury not configured for /x402/settle")
+    # Verify before passing into the relayer so a forged auth never
+    # spends gas. The returned dict has ok=False with a generic reason;
+    # log the detail only.
+    ok, _why = chain.verify_authorization(s.authorization, expected_payee=treasury)
+    if not ok:
+        log.warning("/x402/settle refused: %s", _why)
+        raise HTTPException(400, "auth rejected: " + _why)
     r = await asyncio.to_thread(chain.settle_authorization, s.authorization)
     return r
 

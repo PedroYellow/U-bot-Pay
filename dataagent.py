@@ -126,57 +126,27 @@ def requirements(resource: str) -> dict:
 
 
 def verify(auth: dict) -> tuple[bool, str]:
-    """Recover signer of the EIP-712 TransferWithAuthorization and check fields."""
-    # Audit 20 Oct round 17: every field below was indexed directly, so a payload
-    # missing any of them raised KeyError and surfaced as the generic "verify
-    # error" — indistinguishable from a real cryptographic failure. Check presence
-    # and shape up front so a malformed request gets its own reason.
-    required = ("from", "to", "value", "validAfter", "validBefore", "nonce", "r", "s", "v")
-    missing = [k for k in required if k not in auth or auth[k] in (None, "")]
-    if missing:
-        return False, "malformed authorization"
-    # nonce/r/s are bytes32 / 32-byte halves; checking length here turns a hex
-    # decode error further down into a clean rejection.
-    try:
-        if len(bytes.fromhex(auth["nonce"][2:] if auth["nonce"].startswith("0x") else auth["nonce"])) != 32:
-            return False, "malformed authorization"
-        for k in ("r", "s"):
-            raw = auth[k][2:] if auth[k].startswith("0x") else auth[k]
-            if len(bytes.fromhex(raw)) != 32:
-                return False, "malformed authorization"
-    except (ValueError, TypeError, AttributeError):
-        return False, "malformed authorization"
-    try:
-        if Web3.to_checksum_address(auth["to"]) != PAYEE: return False, "wrong payee"
-        if int(auth["value"]) < chain.to_units(PRICE_USDC): return False, "amount too low"
-        # Audit 20 Oct round 17: validBefore was checked, validAfter was not.
-        # EIP-3009 TransferWithAuthorization carries both — validAfter is the
-        # earliest time the authorization may be used. Skipping it let a payer mint
-        # an authorization dated in the future and redeem it early, which is the
-        # other half of the window the payer asked the contract to enforce.
-        if int(auth["validBefore"]) < time.time(): return False, "expired"
-        if int(auth["validAfter"]) > time.time(): return False, "not yet valid"
-        if _nonce_seen(auth["nonce"]): return False, "nonce reused"
-        msg = {"types": {"EIP712Domain": [{"name": "name", "type": "string"}, {"name": "version", "type": "string"},
-                                          {"name": "chainId", "type": "uint256"}, {"name": "verifyingContract", "type": "address"}],
-                         "TransferWithAuthorization": [{"name": "from", "type": "address"}, {"name": "to", "type": "address"},
-                                                       {"name": "value", "type": "uint256"}, {"name": "validAfter", "type": "uint256"},
-                                                       {"name": "validBefore", "type": "uint256"}, {"name": "nonce", "type": "bytes32"}]},
-               "primaryType": "TransferWithAuthorization",
-               "domain": {"name": chain.usdc.functions.name().call(), "version": chain.usdc.functions.version().call(),
-                          "chainId": chain.CHAIN_ID, "verifyingContract": chain.USDC},
-               "message": {"from": auth["from"], "to": auth["to"], "value": int(auth["value"]), "validAfter": int(auth["validAfter"]),
-                           "validBefore": int(auth["validBefore"]), "nonce": bytes.fromhex(auth["nonce"][2:] if auth["nonce"].startswith("0x") else auth["nonce"])}}
-        sig = bytes.fromhex(auth["r"][2:]) + bytes.fromhex(auth["s"][2:]) + bytes([int(auth["v"])])
-        signer = Account.recover_message(encode_typed_data(full_message=msg), signature=sig)
-        if signer.lower() != auth["from"].lower(): return False, "bad signature"
-        return True, signer
-    except Exception as e:
-        # Audit 20 Oct round 8: the message used to interpolate the recovered
-        # address, telling an attacker which address a forged signature
-        # actually belonged to. Keep the reason generic; the detail is in the log.
-        log.warning("verify failed: %s: %s", type(e).__name__, str(e)[:160])
-        return False, "verify error"
+    """Recover signer of the EIP-3009 TransferWithAuthorization, check fields,
+    and confirm the nonce has not been seen before.
+
+    Round 26: shape and cryptographic verification are now in
+    chain.verify_authorization(), shared with /x402/settle. The
+    dataagent-specific checks (correct payee, amount at or above the
+    advertised price, and a nonce-seen DB lookup) stay here so the
+    per-payee policies are not implicit in chain.py.
+    """
+    # Nonce-seen check before any chain call so the DB is the first
+    # source of truth the relayer asks about.
+    if "nonce" in auth and _nonce_seen(auth["nonce"]):
+        return False, "nonce reused"
+    # Shape and signature via chain. The dataagent layers its own
+    # payee and amount rules on top by passing them to verify.
+    ok, why = chain.verify_authorization(
+        auth,
+        expected_payee=PAYEE,
+        min_value=chain.to_units(PRICE_USDC),
+    )
+    return ok, why
 
 
 # Audit 20 Oct round 17. See make_report() for why the company name is treated as

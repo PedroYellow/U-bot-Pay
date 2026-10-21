@@ -155,8 +155,110 @@ def sign_authorization(payer_key: str, to: str, amount, valid_seconds=600) -> di
             "v": sig.v, "r": "0x" + sig.r.to_bytes(32, "big").hex(), "s": "0x" + sig.s.to_bytes(32, "big").hex()}
 
 
+def verify_authorization(auth: dict, *, expected_payee: str | None = None,
+                       min_value: int | None = None) -> tuple[bool, str]:
+    """Recover the signer of an EIP-3009 TransferWithAuthorization and
+    check the field shapes the contract will require.
+
+    Centralised here so /x402/settle (which only needs x-api-key) cannot
+    be used to settle authorisations the contract's TransferWithAuthorization
+    would itself reject, only faster. Round 26 audit C-4 fix: prior to
+    this round the relayer accepted any auth dict that happened to match
+    the field names — the cryptographic check happened on-chain at
+    transferWithAuthorization time, but only after gas had been spent.
+    Combined with a leaked x-api-key this meant an attacker with a
+    stolen-signed auth could move funds with the treasury paying gas.
+
+    Returns (ok, reason). reason is a short string suitable for an HTTP
+    400; details are in the log.
+    """
+    required = ("from", "to", "value", "validAfter", "validBefore",
+                "nonce", "r", "s", "v")
+    missing = [k for k in required if k not in auth or auth[k] in (None, "")]
+    if missing:
+        return False, "malformed authorization"
+    try:
+        nonce_hex = auth["nonce"][2:] if auth["nonce"].startswith("0x") else auth["nonce"]
+        if len(bytes.fromhex(nonce_hex)) != 32:
+            return False, "malformed authorization"
+        for k in ("r", "s"):
+            raw = auth[k][2:] if auth[k].startswith("0x") else auth[k]
+            if len(bytes.fromhex(raw)) != 32:
+                return False, "malformed authorization"
+    except (ValueError, TypeError, AttributeError):
+        return False, "malformed authorization"
+    try:
+        if expected_payee is not None:
+            if Web3.to_checksum_address(auth["to"]) != Web3.to_checksum_address(expected_payee):
+                return False, "wrong payee"
+        if min_value is not None:
+            if int(auth["value"]) < int(min_value):
+                return False, "amount too low"
+        now = int(time.time())
+        if int(auth["validBefore"]) < now:
+            return False, "expired"
+        if int(auth["validAfter"]) > now:
+            return False, "not yet valid"
+        msg = {
+            "types": {
+                "EIP712Domain": [
+                    {"name": "name", "type": "string"},
+                    {"name": "version", "type": "string"},
+                    {"name": "chainId", "type": "uint256"},
+                    {"name": "verifyingContract", "type": "address"},
+                ],
+                "TransferWithAuthorization": [
+                    {"name": "from", "type": "address"},
+                    {"name": "to", "type": "address"},
+                    {"name": "value", "type": "uint256"},
+                    {"name": "validAfter", "type": "uint256"},
+                    {"name": "validBefore", "type": "uint256"},
+                    {"name": "nonce", "type": "bytes32"},
+                ],
+            },
+            "primaryType": "TransferWithAuthorization",
+            "domain": {
+                "name": usdc.functions.name().call(),
+                "version": usdc.functions.version().call(),
+                "chainId": CHAIN_ID,
+                "verifyingContract": USDC,
+            },
+            "message": {
+                "from": Web3.to_checksum_address(auth["from"]),
+                "to": Web3.to_checksum_address(auth["to"]),
+                "value": int(auth["value"]),
+                "validAfter": int(auth["validAfter"]),
+                "validBefore": int(auth["validBefore"]),
+                "nonce": bytes.fromhex(nonce_hex),
+            },
+        }
+        sig = (bytes.fromhex(auth["r"][2:]) + bytes.fromhex(auth["s"][2:])
+               + bytes([int(auth["v"])]))
+        signer = Account.recover_message(encode_typed_data(full_message=msg), signature=sig)
+        if signer.lower() != auth["from"].lower():
+            return False, "bad signature"
+        return True, signer
+    except Exception as e:
+        log.warning("verify_authorization failed: %s: %s", type(e).__name__, str(e)[:160])
+        return False, "verify error"
+
+
 def settle_authorization(auth: dict) -> dict:
-    """Submit a signed EIP-3009 authorization (relayer = U-bot wallet pays gas)."""
+    """Submit a signed EIP-3009 authorization (relayer = U-bot wallet pays gas).
+
+    Round 26 audit C-4: every caller MUST go through this function —
+    it now verifies shape + signature locally BEFORE spending any gas.
+    `verify_authorization` is exposed separately so /report on the
+    dataagent side can run the same checks against its own allowlist
+    (payee, min_value).
+    """
+    ok, _why = verify_authorization(auth)
+    if not ok:
+        # Echo a generic message to the caller; the detail goes to the log
+        # so a verifier leak cannot be turned into an oracle.
+        log.warning("settle_authorization refused: %s", _why)
+        return {"ok": False, "tx": None, "error": "auth rejected", "reason": _why,
+                "explorer": None, "latency_s": 0.0}
     acct = account()
     t0 = time.time()
     tx = usdc.functions.transferWithAuthorization(

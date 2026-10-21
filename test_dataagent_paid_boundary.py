@@ -91,20 +91,29 @@ def t_sanitiser_bounds_and_edge_cases():
 
 
 def t_valid_after_is_checked():
-    src = inspect_src = open(os.path.join(HERE, "dataagent.py"), encoding="utf-8").read()
-    fn = src[src.index("def verify("):src.index("async def make_report")]
+    """Round 26: shape and signature verification moved from dataagent.verify
+    into the centralised chain.verify_authorization, used by both /x402/settle
+    and dataagent.verify. These source-level pin the new home."""
+    src = open(os.path.join(HERE, "chain.py"), encoding="utf-8").read()
+    fn = src[src.index("def verify_authorization("):]
+    fn = fn[:fn.index("\ndef ", 10)]
     check("validBefore checked", '"expired"' in fn, True)
-    check("validAfter checked", "not yet valid" in fn, True)
+    check("validAfter checked", '"not yet valid"' in fn, True)
     check("the comparison is the right way round",
-          'int(auth["validAfter"]) > time.time()' in fn, True)
+          ("int(auth[\"validAfter\"]) >" in fn
+           and "int(auth[\"validBefore\"]) <" in fn), True)
 
 
 def t_malformed_authorizations_get_their_own_reason():
-    src = open(os.path.join(HERE, "dataagent.py"), encoding="utf-8").read()
-    fn = src[src.index("def verify("):src.index("async def make_report")]
+    """Round 26: the required-fields check moved into chain.py as
+    well, alongside the malformed-authorization branch. We still want
+    it here because the dataagent relies on this contract."""
+    src = open(os.path.join(HERE, "chain.py"), encoding="utf-8").read()
+    fn = src[src.index("def verify_authorization("):]
+    fn = fn[:fn.index("\ndef ", 10)]
     check("required fields enumerated",
           all(f'"{k}"' in fn for k in ("from", "to", "value", "validAfter",
-                                       "validBefore", "nonce", "r", "s", "v")), True)
+                                        "validBefore", "nonce", "r", "s", "v")), True)
     check("a distinct reason is returned", "malformed authorization" in fn, True)
 
     # Behaviour, not just presence in the source.
