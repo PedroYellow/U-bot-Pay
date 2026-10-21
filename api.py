@@ -673,7 +673,15 @@ async def turn(t: Turn, request: Request,
         if take >= 0.01 and chain.REVENUE_ADDRESS:
             try:
                 tk = await asyncio.to_thread(chain.send_usdc, chain.REVENUE_ADDRESS, take, None, 0.0)
-                pay["ubotpay_take_usdc"] = take; pay["take_tx"] = tk.get("explorer")
+                # Audit 20 Oct round 16: ok=False means the transaction mined and
+                # reverted. Recording the take anyway would report revenue the
+                # product never received — so it is only recorded when it settled.
+                if tk.get("ok"):
+                    pay["ubotpay_take_usdc"] = take
+                    pay["take_tx"] = tk.get("explorer")
+                else:
+                    log.warning("take-rate transfer reverted (tx=%s), not recording revenue",
+                                tk.get("tx"))
             except Exception as e:
                 log.warning("take-rate transfer failed: %s", e)
         summary = rep.get("summary", "")
@@ -726,6 +734,17 @@ async def _execute(user, lang, p):
     try:
         r = await asyncio.to_thread(chain.send_usdc, p["contact"]["address"], p["quote"]["amount_usdc"], pay["memo_hash"], p["quote"].get("fee_usdc", 0.0))
         core.mark(pay["id"], "settled" if r["ok"] else "failed", r["tx"], r["latency_s"])
+        # Audit 20 Oct round 16: send_usdc returning ok=False is not an exception —
+        # the transaction mined and reverted. The old code marked the row failed and
+        # then reported action="settled", told the user "sent", and marked the
+        # invoice paid. Reproduced: DB said failed while the response said settled.
+        if not r["ok"]:
+            log.warning("send reverted for pay %s (tx=%s)", pay["id"], r.get("tx"))
+            # The invoice is only settled against a real transfer.
+            return {"say": f"The transfer was rejected by the network, so nothing "
+                            f"was sent. Your {p['quote']['amount_usdc']} USDC is still yours.",
+                    "action": "failed",
+                    "data": {**pay, **r, "error": "transaction reverted on chain"}}
         if p.get("invoice_id"): core.pay_invoice(p["invoice_id"], r["tx"])
         return {"say": say(lang, "sent", lat=r["latency_s"]), "action": "settled", "data": {**pay, **r}}
     except Exception as e:
@@ -798,6 +817,18 @@ async def _approve_claimed(a: Approve) -> dict:
         raise HTTPException(409, pol["reason"])
     r = await asyncio.to_thread(chain.send_usdc, pay["to_address"], pay["amount_usdc"], pay["memo_hash"], pay.get("fee_usdc") or 0.0)
     core.mark(pay["id"], "settled" if r["ok"] else "failed", r["tx"], r["latency_s"], approved_by=int(a.approver_key))
+    # Audit 20 Oct round 16: this told the co-signer "✅ Approved & sent" even when
+    # the transaction reverted. The approval was honoured and recorded, so the row
+    # keeps approved_by — but nothing moved, and the co-signer has to be told that.
+    if not r["ok"]:
+        log.warning("approved send reverted for pay %s (tx=%s)", pay["id"], r.get("tx"))
+        if NOTIFY:
+            asyncio.create_task(NOTIFY(
+                user["telegram_id"],
+                f"⚠️ Approved, but the transfer was REJECTED by the network.\n"
+                f"Nothing was sent to {pay['contact_alias']} and the funds are still "
+                f"in the treasury.\nTx: {r['explorer']}"))
+        return {"ok": False, "status": "failed", "error": "transaction reverted on chain", **r}
     if NOTIFY: asyncio.create_task(NOTIFY(user["telegram_id"], f"✅ Approved & sent {pay['amount_usdc']} USDC to {pay['contact_alias']} in {r['latency_s']}s\n{r['explorer']}"))
     return {"ok": True, "status": "settled", **r}
 
