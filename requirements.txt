@@ -1,20 +1,35 @@
 # Runtime dependencies.
 #
-# Audit 20 Oct round 9: almost nothing here was pinned. A redeploy is
+# Audit 21 Oct round 21: pins and dead deps. A redeploy is
 # `git pull && pip install -r requirements.txt && systemctl restart`, so an
 # upstream major release lands in production without anyone choosing it.
-# web3 is bounded now; the rest still needs pinning — needs shell access to the
-# running host to read what is actually installed:
-#   /opt/ubotpay/venv/bin/pip freeze \
-#     | grep -iE '^(fastapi|uvicorn|httpx|anthropic|apscheduler|pyyaml|python-multipart|eth-account)='
-# Until then, keep the service venv as-is and prefer targeted upgrades over a
-# full re-resolve.
-web3>=7,<8
-fastapi
-uvicorn
-httpx
-python-telegram-bot==21.*
-anthropic
-apscheduler
-pyyaml
-python-multipart
+# Every direct dependency now has an upper bound. The transitive closure is
+# locked in requirements.lock.
+#
+# Dead deps removed in round 21: these were never imported —
+# none were imported by any module. Leaving them listed meant a compromised
+# package could ship code into U-bot's production without us using it.
+
+# Network/HTTP
+httpx>=0.28,<0.30
+requests>=2.34,<3
+
+# Web3 — bounded upper
+web3==8.0.0
+
+# Web framework
+fastapi>=0.110,<1.0
+uvicorn>=0.30,<0.60
+python-multipart>=0.0.10,<0.1   # pulled in transitively by FastAPI for form parsing
+
+# Telegram bot
+python-telegram-bot>=21,<22
+
+# LLM (Anthropic in production)
+anthropic>=1.10,<2.0
+
+# Push notifications
+cryptography>=40,<60
+
+# Wallet signing
+eth-account>=0.13,<0.16

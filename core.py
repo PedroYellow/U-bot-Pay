@@ -1003,18 +1003,33 @@ def cleanup_dead_subscriptions(user_id: int) -> int:
 
 # ───────── link codes (audit C3: OTP-based telegram link) ─────────
 def create_link_code(user_id: int, ttl_seconds: int = 600) -> str:
-    """Create a one-time code the user sends to the Telegram bot to
-    prove they own this telegram_id AND this wallet. Returns the code."""
-    code = "".join([str((user_id * 31 + i * 7) % 10) for i in range(6)])
-    # Make it actually random, not deterministic:
+    """Create a one-time code the user sends to the Telegram bot to prove
+    they own this telegram_id AND this wallet. Returns the code.
+
+    Seven digits, retries on a code that already exists. The space of 10M is
+    large enough that collisions are vanishingly rare at any realistic volume
+    (a 1% probability requires about 460 generations from the same process),
+    and the retry handles the rare case without leaking the 500. The earlier
+    6-digit version would collide ~1 in 2000 codes at scale and crash the
+    INSERT, which was the round-21 audit finding.
+    """
     import secrets
-    code = f"{secrets.randbelow(1000000):06d}"
-    with conn() as c:
-        c.execute(
-            "INSERT INTO link_codes(code, user_id, expires_at, created_at) VALUES(?, ?, ?, ?)",
-            (code, user_id, int(time.time()) + ttl_seconds, int(time.time())),
-        )
-    return code
+    deadline = time.time() + 5  # bound the retry loop; a few seconds is plenty
+    last_err = None
+    while time.time() < deadline:
+        code = f"{secrets.randbelow(10_000_000):07d}"
+        try:
+            with conn() as c:
+                c.execute(
+                    "INSERT INTO link_codes(code, user_id, expires_at, created_at) "
+                    "VALUES(?, ?, ?, ?)",
+                    (code, user_id, int(time.time()) + ttl_seconds, int(time.time())),
+                )
+            return code
+        except sqlite3.IntegrityError as e:
+            last_err = e
+            continue
+    raise RuntimeError(f"could not allocate a unique link code in 5s: {last_err}")
 
 
 def consume_link_code(code: str, telegram_id: int) -> dict | None:

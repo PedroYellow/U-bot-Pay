@@ -151,20 +151,26 @@ def _validate_tx_target(to_address: str) -> bool:
 _analytics_rate: dict[int, list[float]] = {}
 _ANALYTICS_WINDOW = 60
 _ANALYTICS_MAX = 30
+_ANALYTICS_LOCK = threading.Lock()
 
 
 def _analytics_rate_check(user_id: int) -> bool:
-    """Return True if the request is allowed under the rate limit."""
-    import time
+    """Return True if the request is allowed under the rate limit.
+
+    Locked for the same reason as _quote_rate_check: two threads may race on
+    the read-modify-write of the bucket. Without the lock, two requests at the
+    boundary can both observe a count of 29 and both decide "allowed", pushing
+    the user past the limit. Round 21 (audit subagent M-2).
+    """
     now = time.time()
-    bucket = _analytics_rate.setdefault(user_id, [])
-    # Drop entries older than window
-    while bucket and bucket[0] < now - _ANALYTICS_WINDOW:
-        bucket.pop(0)
-    if len(bucket) >= _ANALYTICS_MAX:
-        return False
-    bucket.append(now)
-    return True
+    with _ANALYTICS_LOCK:
+        bucket = _analytics_rate.setdefault(user_id, [])
+        while bucket and bucket[0] < now - _ANALYTICS_WINDOW:
+            bucket.pop(0)
+        if len(bucket) >= _ANALYTICS_MAX:
+            return False
+        bucket.append(now)
+        return True
 
 
 # ── public-endpoint rate limiting (audit 20 Oct round 4) ──────────────────
@@ -190,6 +196,69 @@ _QUOTE_MAX = int(os.environ.get("UBOT_QUOTE_RATE_PER_MIN", "20"))
 _QUOTE_LOCK = threading.Lock()
 # Bounded so a spray of spoofed XFF values can't grow this without limit.
 _QUOTE_MAX_BUCKETS = 20_000
+
+
+
+# Auth/wallet rate limit (round 21, audit M-3).
+# Per-IP and per-address bucket of nonce requests. Larger than quote rate
+# because the legitimate flow is also chatty (front-end retries, user
+# changing wallet in the UI), but bounded so a single IP cannot evict the
+# nonce faster than a real user can verify it.
+_wallet_nonce_ip: dict[str, list[float]] = {}
+_wallet_nonce_addr: dict[str, list[float]] = {}
+_WALLET_NONCE_WINDOW = 60
+_WALLET_NONCE_IP_MAX = 30
+_WALLET_NONCE_ADDR_MAX = 10
+_WALLET_NONCE_LOCK = threading.Lock()
+_WALLET_NONCE_MAX_BUCKETS = 20_000
+
+# Per-IP bucket for verify. recover_message is CPU and signature decoding
+# is the actual attack surface that needs to be bounded.
+_wallet_verify_ip: dict[str, list[float]] = {}
+_WALLET_VERIFY_WINDOW = 60
+_WALLET_VERIFY_MAX = 30
+_WALLET_VERIFY_LOCK = threading.Lock()
+_WALLET_VERIFY_MAX_BUCKETS = 20_000
+
+
+def _rate_allow(bucket_lock, bucket, max_buckets, key, max_events, window):
+    """Generic sliding-window rate limit. Returns True if the call is allowed.
+
+    Locked for the same reason as _quote_rate_check: the bucket list is a
+    shared mutable, and read-modify-write without a lock permits a burst of
+    concurrent requests all to see "allowed" simultaneously.
+    """
+    now = time.time()
+    with bucket_lock:
+        # Bound the number of tracked keys so a botnet spray of unique XFF
+        # values cannot grow this dict without limit.
+        if len(bucket) >= max_buckets and key not in bucket:
+            return False
+        seq = bucket.setdefault(key, [])
+        while seq and seq[0] < now - window:
+            seq.pop(0)
+        if len(seq) >= max_events:
+            return False
+        seq.append(now)
+        return True
+
+
+def _wallet_nonce_ip_allow(ip: str) -> bool:
+    return _rate_allow(_WALLET_NONCE_LOCK, _wallet_nonce_ip,
+                       _WALLET_NONCE_MAX_BUCKETS, ip,
+                       _WALLET_NONCE_IP_MAX, _WALLET_NONCE_WINDOW)
+
+
+def _wallet_nonce_addr_allow(addr: str) -> bool:
+    return _rate_allow(_WALLET_NONCE_LOCK, _wallet_nonce_addr,
+                       _WALLET_NONCE_MAX_BUCKETS, addr,
+                       _WALLET_NONCE_ADDR_MAX, _WALLET_NONCE_WINDOW)
+
+
+def _wallet_verify_ip_allow(ip: str) -> bool:
+    return _rate_allow(_WALLET_VERIFY_LOCK, _wallet_verify_ip,
+                       _WALLET_VERIFY_MAX_BUCKETS, ip,
+                       _WALLET_VERIFY_MAX, _WALLET_VERIFY_WINDOW)
 
 
 def _client_ip(request: Request | None) -> str:
@@ -1013,26 +1082,45 @@ class WalletVerifyResponse(BaseModel):
     chain: dict
 
 @app.post("/auth/wallet/nonce")
-async def auth_wallet_nonce(req: WalletNonceRequest):
-    """Return a one-shot nonce for the user's wallet to sign. Replay-safe (rotates any previous nonce)."""
+async def auth_wallet_nonce(req: WalletNonceRequest, request: Request):
+    """Return a one-shot nonce for the user's wallet to sign. Replay-safe (rotates any previous nonce).
+
+    Per-IP and per-address rate limits (round 21: audit M-3). Without the IP
+    cap an attacker who knows the wallet address could rotate the nonce on
+    every call, evicting whatever the legitimate front-end stored. Every
+    rotation wins, which means the legitimate client always gets a 400 when it
+    tries to verify. The address cap repeats the same defence one layer down
+    so the route fails closed even if the IP comes from a shared egress.
+    """
     if not Web3.is_address(req.address):
         raise HTTPException(400, "bad address")
-    nonce = core.new_wallet_nonce(Web3.to_checksum_address(req.address), req.chain_id)
+    addr_key = Web3.to_checksum_address(req.address).lower()
+    if not _wallet_nonce_ip_allow(_client_ip(request)):
+        raise HTTPException(429, "too many nonce requests from this IP")
+    if not _wallet_nonce_addr_allow(addr_key):
+        raise HTTPException(429, "too many nonce requests for this wallet")
+    nonce = core.new_wallet_nonce(addr_key, req.chain_id)
     return {"nonce": nonce, "expires_in": 600, "chain_id": req.chain_id}
 
 @app.post("/auth/wallet/verify")
-async def auth_wallet_verify(req: WalletVerifyRequest):
+async def auth_wallet_verify(req: WalletVerifyRequest, request: Request):
     """Verify the personal_sign signature, return a 7-day JWT bound to (chain_id, address).
 
     Audit 20 Oct round 5: this looked the wallet up by address and checked only
     that a nonce existed. core.consume_wallet_nonce() — which does validate
-    jwt_exp — existed but was never called from anywhere. So the 10-minute expiry
-    that /auth/wallet/nonce advertises was never enforced: a captured nonce stayed
-    usable until it was spent. Now we go through the function that checks it.
+    jwt_exp — existed but was never called from anywhere. So the 10-minute
+    expiry was never enforced: a captured nonce stayed usable until spent.
+
+    Per-IP rate limit (round 21, audit M-3): recover_message is CPU work and
+    a flood of bad signatures would keep the loop busy without producing any
+    progress for legitimate users. 30 per minute per IP is generous for any
+    realistic client and tight enough to bound the cost.
     """
     from eth_account.messages import encode_defunct
     if not Web3.is_address(req.address):
         raise HTTPException(400, "bad address")
+    if not _wallet_verify_ip_allow(_client_ip(request)):
+        raise HTTPException(429, "too many verify attempts from this IP")
     cur = core.get_user_by_wallet(req.address, req.chain_id)
     if not cur or not cur.get("jwt_nonce"):
         # No row or no active nonce — the front-end should have called
@@ -2073,9 +2161,13 @@ async def auth_link_telegram_confirm(body: LinkTelegramConfirmRequest, request: 
     # Bot auth: requires x-api-key header (same as other server-to-server
     # routes in this codebase, e.g. /approve).
     auth(x_api_key := request.headers.get("x-api-key"))
+    # Accept 6 or 7 digits. create_link_code produces 7 now (round 21: the
+    # 6-digit space produced 1-in-2000 collisions at scale, which crashed the
+    # INSERT). The bot may have older 6-digit codes in flight; both are
+    # accepted so the migration does not require a coordinated cutover.
     code = str(body.code or "").strip()
-    if len(code) != 6 or not code.isdigit():
-        raise HTTPException(400, "code must be 6 digits")
+    if len(code) not in (6, 7) or not code.isdigit():
+        raise HTTPException(400, "code must be 6 or 7 digits")
     u = core.consume_link_code(code, body.telegram_id)
     if not u:
         raise HTTPException(400, "code expired or already used")
