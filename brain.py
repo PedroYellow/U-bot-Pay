@@ -111,7 +111,8 @@ _NUM_RE = re.compile(r"(\d[\d,._]*)\s*(k|m|mil)?", re.I)
 # strip amount / currency / filler tokens. Token-based rather than one big
 # regex so it behaves the same in Thai (no word boundaries between words).
 _PAY_VERBS = ("send", "pay", "transfer", "envía", "envia", "pagar", "manda",
-              "mandar", "transferir", "ส่ง", "จ่าย", "โอน")
+              "mandar", "transferir", "transferirle", "transferencia", "pagar", "paga",
+               "abonar", "abona", "enviar", "ส่ง", "จ่าย", "โอน")
 _NOISE_TOKENS = {"to", "a", "la", "el", "los", "las", "para", "por", "favor",
                  "please", "now", "ahora", "de", "the", "please", "usdc", "dollars",
                  "dollar", "usd", "euros", "euro", "baht", "bath", "thb", "บาท",
@@ -171,11 +172,17 @@ def _extract_recipient(text: str) -> str | None:
     Works for Latin and Thai scripts (Thai has no \\b word boundaries, so this
     avoids \\b-delimited regexes)."""
     low = text.lower()
-    # Find earliest pay verb position.
+    # Find earliest pay verb position, and at that position the longest verb.
+    # Audit 20 Oct round 14: _PAY_VERBS holds both "transfer" and "transferir".
+    # They start at the same index, and the loop only kept the first match, so
+    # "transferir" was cut after "transfer" and the payee alias became
+    # "ir mom". On a longer tie the longer verb wins.
     pos, verb_len = None, 0
     for v in _PAY_VERBS:
         i = low.find(v)
-        if i != -1 and (pos is None or i < pos):
+        if i == -1:
+            continue
+        if pos is None or i < pos or (i == pos and len(v) > verb_len):
             pos, verb_len = i, len(v)
     if pos is None:
         return None
@@ -214,8 +221,14 @@ def _local_parse(text: str, context: dict | None = None) -> dict:
             "reply": ""}
 
     # ── confirm / cancel (checked before pay so "yes, send it" doesn't re-quote)
-    if re.search(r"\b(confirm|confirmo|confirmar|yes|yeah|yep|s[ií]|ok|okay|go ahead|do it|"
-                 r"ใช่|ได้|ส่งเลย|proceed)\b", low):
+    # Audit 20 Oct round 14: \b is an ASCII word boundary, so the Thai
+    # alternatives could never match on their own — "ใช่" and "ได้" were listed here
+    # and silently unreachable, so a Thai user saying yes got nothing. Thai has no
+    # word boundaries, which the pay pattern below already accounted for. The Latin
+    # alternatives keep \b; the Thai ones are matched on their own.
+    if (re.search(r"\b(confirm|confirma|confirmo|confirmar|yes|yeah|yep|y|"
+                  r"s[ií]|ok|okay|go ahead|do it|proceed)\b", low)
+            or re.search(r"(ใช่|ได้|ส่งเลย)", low)):
         base["intent"] = "confirm"
         base["reply"] = {"en": "On it.", "es": "Voy.", "th": "ได้เลย"}[lang]
         return base
@@ -224,7 +237,8 @@ def _local_parse(text: str, context: dict | None = None) -> dict:
     # a nonsense utterance silently cancelled whatever the user was doing. A
     # bare "no"/"nada" is far too weak a signal on its own: it only counts when
     # it is the whole message, or when it follows the money words we just quoted.
-    if re.search(r"\b(cancel|stop|nope|cancela|cancelar|หยุด|ยกเลิก)\b", low) \
+    if (re.search(r"\b(cancel|stop|nope|cancela|cancelar)\b", low)
+            or re.search(r"(หยุด|ยกเลิก)", low)) \
        or re.fullmatch(r"(no|nada|nah|nope|ไม่|ไม่เอ็น)\s*[.!]?", low) \
        or re.search(r"\b(no|nada)\b[^.!?]{0,24}\b(send|send it|env[ií]a|envia|do it|go ahead|it|pagar|paga)\b", low):
         base["intent"] = "cancel"
@@ -251,13 +265,15 @@ def _local_parse(text: str, context: dict | None = None) -> dict:
         return base
 
     # ── history
-    if re.search(r"\b(history|transactions?|payments?|mis pagos|historial|รายการ)\b", low):
+    if (re.search(r"\b(history|transactions?|payments?|mis pagos|historial)\b", low)
+            or re.search(r"รายการ", low)):
         base["intent"] = "history"
         base["reply"] = "…"
         return base
 
     # ── contacts
-    if re.search(r"\b(contacts?|contactos?|รายชื่อ|ผู้ติดต่อ)\b", low):
+    if (re.search(r"\b(contacts?|contactos?)\b", low)
+            or re.search(r"(รายชื่อ|ผู้ติดต่อ)", low)):
         base["intent"] = "contacts"
         base["reply"] = "…"
         return base
@@ -272,14 +288,33 @@ def _local_parse(text: str, context: dict | None = None) -> dict:
         return base
 
     # ── help
-    if re.search(r"^\s*(help|ayuda|ช่วยด้วย)\b", low):
+    # \b cannot sit against Thai script, so "ช่วยด้วย" never matched on its own.
+    if re.search(r"^\s*(help|ayuda)\b", low) or re.search(r"^\s*ช่วยด้วย", low):
         base["intent"] = "help"
         base["reply"] = "…"
         return base
 
     # ── pay / send (Thai verbs have no \b boundaries)
-    if re.search(r"send|pay|transfer|env[ií]a|envia|manda|mandar|transferir|"
-                 r"ส่ง|จ่าย|โอน", low):
+    # "pagar"/"paga"/"pagarle" were absent while "envia"/"manda" were present:
+    # the most obvious Spanish word for this product did not route to pay at all.
+    # Latin verbs are word-bounded so "paypal" / "payment" do not read as a
+    # payment request; Thai has no word boundaries and is matched on its own.
+    # ("send" appeared twice in the alternation before this.)
+    # Words are listed explicitly rather than with a \w* tail. "pay\w*" would
+    # match "paypal", and because the alternation is ordered, "transfer\w*"
+    # would match the "transfer" inside "transferir" first — which not only
+    # mis-fires on "paypal" but leaves _extract_recipient() with the leftover
+    # "ir mom" as the payee alias.
+    # "pay" is guarded with (?!pal) rather than a \w* tail: \b cannot help here
+    # because the character after "pay" in "paypal" is itself a word character, so
+    # the boundary sits cleanly and "pay" matches inside it.
+    if (re.search(r"\b(send|sends|sending|sent|pay(?!pal)|pays|paid|"
+                  r"transfer|transfers|transferring|"
+                  r"env[ií]a|env[ií]ar|env[ií]ale|envia|enviar|"
+                  r"manda|mandar|mándale|"
+                  r"transferir|transferirle|transferencia|"
+                  r"paga|pagar|pagarle|pago|pagos|abona|abonar)\b", low)
+            or re.search(r"(ส่ง|จ่าย|โอน)", low)):
         base["recipient"] = _extract_recipient(raw)
         base["intent"] = "pay"
         base["amount"] = _detect_amount(raw)
