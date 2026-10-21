@@ -1184,6 +1184,128 @@ async def energy_order(body: EnergyQuoteRequest, request: Request):
             "next": "settle the fee payment, then the TronRental invoice is created"}
 
 
+@app.post("/energy/order/{order_id}/settle")
+async def energy_settle(order_id: str, request: Request):
+    """Charge U-bot's fee, then ask TronRental for an invoice.
+
+    Order matters and is the whole point of this endpoint:
+
+      1. claim the order atomically, so a retry cannot charge twice
+      2. take the fee, through the ordinary payment path
+      3. only if the transfer settled, create the TronRental invoice
+
+    If any step fails the claim is released and the order goes back to 'quoted',
+    so the user can simply try again. If the fee settles but the invoice call
+    fails, the fee is NOT refunded automatically: the order records that the fee
+    was taken and why the invoice is missing, because silently taking money and
+    then doing nothing is the one outcome this flow must never have.
+    """
+    user = _energy_user(request)
+    order = core.get_energy_order(order_id, user_id=user["id"])
+    if not order:
+        raise HTTPException(404, "no such energy order")
+    if order["status"] not in ("quoted", "fee_pending", "invoice_failed"):
+        raise HTTPException(409, f"order is already {order['status']}")
+    if order["status"] == "invoice_failed":
+        # The fee was already taken on a previous attempt; do not take it twice.
+        order = core.set_energy_status(order["id"], "fee_paid")
+        if not order:
+            raise HTTPException(500, "could not read the order, try again")
+    elif not core.claim_energy_order_for_payment(order["id"]):
+        raise HTTPException(409, "this order is already being charged")
+
+    try:
+        pay = core.get_payment(order["payment_id"]) if order.get("payment_id") else None
+        if not pay:
+            raise HTTPException(500, "the fee payment for this order is missing")
+
+        # Charge the revenue wallet, not the TRON address: the TRON address is a
+        # destination for energy delegation and must not receive USDC.
+        revenue = getattr(chain, "REVENUE_ADDRESS", None)
+        if not revenue:
+            raise HTTPException(503, "no revenue wallet configured, cannot charge the fee")
+        try:
+            r = await asyncio.to_thread(chain.send_usdc, revenue, order["fee_usdc"])
+        except Exception as e:
+            log.error("energy fee send failed for %s: %s: %s",
+                      order["id"], type(e).__name__, e)
+            core.release_energy_order(order["id"])
+            core.mark(pay["id"], "failed")
+            raise HTTPException(502, "could not charge the fee, nothing was taken")
+
+        if not r["ok"]:
+            log.warning("energy fee reverted for %s (tx=%s)", order["id"], r.get("tx"))
+            core.release_energy_order(order["id"])
+            core.mark(pay["id"], "failed", r["tx"], r["latency_s"])
+            raise HTTPException(502, "the fee transaction was rejected by the network")
+
+        core.mark(pay["id"], "settled", r["tx"], r["latency_s"])
+        order = core.set_energy_status(order["id"], "fee_paid")
+
+        # Fee is in. Now ask TronRental for the invoice.
+        try:
+            inv = await _energy.create_invoice(
+                order["target_address"], order["volume"], order["duration"])
+        except Exception as e:
+            log.error("energy invoice failed for %s after fee was charged: %s: %s",
+                      order["id"], type(e).__name__, e)
+            core.set_energy_status(order["id"], "invoice_failed")
+            raise HTTPException(
+                502,
+                "Your fee was charged but TronRental did not return an invoice. "
+                "Support has the order id; you will not be charged again.")
+
+        inv_id = (inv.get("id") or inv.get("invoice_id")
+                  if isinstance(inv, dict) else None)
+        order = core.set_energy_status(
+            order["id"], "invoice_created",
+            tronrental_invoice_id=str(inv_id) if inv_id is not None else None)
+        return {"ok": True, "order": order, "invoice": inv}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error("energy settle failed for %s: %s: %s",
+                  order["id"], type(e).__name__, e)
+        core.release_energy_order(order["id"])
+        raise HTTPException(500, "could not complete the order, try again")
+
+
+@app.get("/energy/order/{order_id}/status")
+async def energy_order_remote_status(order_id: str, request: Request):
+    """Ask TronRental whether the energy actually landed, and reflect it here.
+
+    Read-only against their API. The local status only moves forward to
+    'activated' when they say so — U-bot never assumes the delegation worked.
+    """
+    user = _energy_user(request)
+    order = core.get_energy_order(order_id, user_id=user["id"])
+    if not order:
+        raise HTTPException(404, "no such energy order")
+    remote_id = order.get("tronrental_order_id") or order.get("tronrental_invoice_id")
+    if not remote_id:
+        return {"ok": True, "order": order, "remote": None,
+                "note": "no TronRental order yet — the fee has to settle first"}
+    try:
+        remote = await _energy.get_order(remote_id)
+    except Exception as e:
+        log.warning("energy status check failed for %s: %s: %s",
+                    order["id"], type(e).__name__, e)
+        raise HTTPException(502, "could not reach TronRental right now, try again shortly")
+    status = str(remote.get("status", "")).lower() if isinstance(remote, dict) else ""
+    if status in ("completed", "success", "succeeded", "confirmed", "done"):
+        if order["status"] != "activated":
+            core.set_energy_status(
+                order["id"], "activated",
+                tronrental_order_id=str(remote.get("id") or remote_id))
+    elif status in ("failed", "expired", "cancelled", "canceled", "rejected"):
+        if order["status"] not in ("activated",):
+            core.set_energy_status(order["id"], "failed")
+    return {"ok": True,
+            "order": core.get_energy_order(order["id"]),
+            "remote": remote}
+
+
 @app.get("/energy/orders")
 async def energy_orders(request: Request):
     user = _energy_user(request)

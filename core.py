@@ -2,7 +2,14 @@
 U-bot Pay — core: users, contacts, FX, policy (limits + dual control), ledger.
 SQLite. Demo-grade but structured like the real thing.
 """
-import os, threading, json, time, sqlite3, hashlib, secrets
+import os, threading, json, time, sqlite3, hashlib, secrets, logging
+
+# Audit 21 Oct: this module used log.warning in three places but never created a
+# logger, so any of those paths raised NameError. init() hit it on the first
+# backfill that failed, which took the whole service down — it surfaced only
+# because the TronRental work exercised that path. Line 171 had been latent
+# since the multi-chain change.
+log = logging.getLogger("ubot.core")
 from contextlib import contextmanager
 
 DB = os.environ.get("UBOT_DB", "/opt/ubotpay/ubotpay.db")
@@ -166,9 +173,29 @@ def init():
             except Exception: pass
         # Backfill users with NULL address to the operator treasury (Avalanche).
         # Avoids (NULL,NULL) collisions on the unique index below.
+        #
+        # Audit 21 Oct: this assigned the treasury address to *every* NULL-address
+        # row. idx_users_wallet is UNIQUE on (chain_id, lower(address)), so the
+        # second such row made the whole UPDATE raise IntegrityError — which
+        # aborted init() and, because the handler raised NameError (this module
+        # had no logger), took the service down on every restart. One row per
+        # startup got the address; the rest kept theirs and were left alone.
         if treasury:
-            try: c.execute("UPDATE users SET address = ?, chain_id = 43114 WHERE address IS NULL", (treasury,))
-            except Exception as e: log.warning("backfill users.address: %s", e)
+            assigned = 0
+            for row in c.execute(
+                "SELECT id FROM users WHERE address IS NULL ORDER BY id"
+            ).fetchall():
+                try:
+                    c.execute("UPDATE users SET address = ?, chain_id = 43114 WHERE id = ?",
+                              (treasury, row["id"]))
+                    assigned += 1
+                except Exception as e:
+                    # Another user already holds this wallet, so the unique index
+                    # rejects it. That is the normal case from the second row on,
+                    # and it is not an error worth failing startup over.
+                    log.info("skipped treasury backfill for user %s: %s", row["id"], e)
+            if assigned:
+                log.info("backfilled treasury address onto %d user(s)", assigned)
         # Dedupe users by (chain_id, lower(address)) — merge payments/contacts/invoices
         # into the lowest id and delete the rest. Required before the unique index.
         # If a collision happens on contacts (same alias in two users), the canonical
@@ -192,7 +219,8 @@ def init():
                     try: c.execute("UPDATE payments SET user_id = ? WHERE user_id = ?", (cid, uid))
                     except Exception: pass
                     c.execute("DELETE FROM users WHERE id = ?", (uid,))
-        except Exception as e: print(f"[core.init] dedupe users: {e}")
+        except Exception as e:
+            log.warning("dedupe users on startup: %s", e)
         try: c.execute("UPDATE contacts SET chain_id = 43114 WHERE chain_id IS NULL")
         except Exception: pass
         try: c.execute("UPDATE payments SET chain_id = 43114 WHERE chain_id IS NULL")
@@ -271,6 +299,42 @@ def list_energy_orders(user_id: int, limit: int = 20) -> list[dict]:
             "SELECT * FROM energy_orders WHERE user_id=? ORDER BY created_at DESC LIMIT ?",
             (user_id, limit)).fetchall()
     return [dict(r) for r in rows]
+
+
+def claim_energy_order_for_payment(order_id: str) -> bool:
+    """Move an order out of 'quoted' so only one caller charges its fee.
+
+    The same compare-and-set discipline as claim_payment_for_settlement: without
+    it two concurrent POST /energy/order calls (or a retry after a timeout) could
+    both pass the status check and both charge the fee.
+
+    Returns True only for the caller that won.
+    """
+    with conn() as c:
+        cur = c.execute(
+            "UPDATE energy_orders SET status='fee_claiming' "
+            "WHERE id=? AND status='quoted'",
+            (order_id,),
+        )
+        return cur.rowcount == 1
+
+
+def release_energy_order(order_id: str) -> None:
+    """Undo the claim so a failed charge can be retried."""
+    with conn() as c:
+        c.execute(
+            "UPDATE energy_orders SET status='quoted' "
+            "WHERE id=? AND status='fee_claiming'",
+            (order_id,),
+        )
+
+
+def find_energy_order_by_payment(payment_id: str) -> dict | None:
+    with conn() as c:
+        row = c.execute(
+            "SELECT * FROM energy_orders WHERE payment_id=? LIMIT 1",
+            (payment_id,)).fetchone()
+    return dict(row) if row else None
 
 
 def set_energy_status(order_id: str, status: str, **fields) -> dict | None:
