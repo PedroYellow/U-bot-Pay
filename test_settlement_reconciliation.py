@@ -48,17 +48,22 @@ def check(name, got, want=True):
 
 
 def call_sites():
-    """(line, following-code, enclosing-function) for each real send_usdc call.
+    """(line-of-call-site, body-from-call-site, enclosing-function).
 
-    The calls are asyncio.to_thread(chain.send_usdc, a, b, ...) — a comma
-    argument list, so send_usdc(...) matches nothing but a comment.
+    Round 25: send_usdc was split into submit_usdc and confirm_usdc. The
+    accountant is the same: the body must check r['ok'] (or return
+    early because submission raised). We capture a 2000-char chunk
+    starting at the call site so r['ok'] references after submit/confirm
+    are visible in t_every_site_checks_ok. We've widened the chunk
+    rather than the function body because the rest of the function
+    (auth checks, broadcasts) has its own tests.
     """
     out = []
-    for m in re.finditer(r"send_usdc\s*,", code):
+    for m in re.finditer(r"(?:send|submit|confirm)_usdc\s*,", code):
         before = code[:m.start()]
         fn = re.findall(r"(?:async )?def (\w+)\(", before)[-1]
         out.append((before.count("\n") + 1,
-                    code[m.start():m.start() + 900], fn))
+                    code[m.start():m.start() + 2000], fn))
     return out
 
 
@@ -76,7 +81,20 @@ def site_in(fn):
 
 
 def _body(seg):
-    return seg[:seg.index("except")] if "except" in seg else seg
+    """Trim to the segment bounded by core.mark(...) and the next outer
+    except that follows it. Round 25: send_usdc split into
+    submit+confirm; r['ok'] is checked after the second call. The
+    start-of-segment is the call site itself.
+    """
+    cut = seg.find("core.mark")
+    if cut == -1:
+        i = seg.rfind("except")
+        return seg[:i] if i != -1 else seg
+    end_of_mark = seg.find("\n", cut)
+    next_except = seg.find("except", end_of_mark)
+    if next_except == -1:
+        return seg[: end_of_mark + 1] + seg[end_of_mark + 1:]
+    return seg[:next_except]
 
 
 def t_call_sites_cover_every_payer_path():
@@ -93,7 +111,7 @@ def t_call_sites_cover_every_payer_path():
 def t_every_site_checks_ok():
     unchecked = [ln for ln, seg, _ in call_sites()
                  if not re.search(r'\b(?:r|tk)\s*\[\s*"ok"\s*\]'
-                                  r'|\b(?:r|tk)\.get\(\s*"ok"', seg[:600])]
+                                  r'|\b(?:r|tk)\.get\(\s*"ok"', seg[:1500])]
     check("every call site checks the ok flag", unchecked, [])
 
 

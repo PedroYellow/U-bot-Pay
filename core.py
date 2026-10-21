@@ -741,8 +741,17 @@ def _reaper_loop(interval_s: int, max_age_s: int) -> None:
             ids = reap_stale_settling_claims(max_age_s)
             if ids:
                 log.warning(
-                    "reaped %d payment(s) stranded in 'settling' and returned them "
-                    "to pending_approval: %s", len(ids), ", ".join(ids[:10]))
+                    "reaped %d payment(s) stranded in 'settling' (settled/failed/recycled): %s",
+                    len(ids), ", ".join(ids[:10]))
+            # Round 25 audit C-3: reaper of payments parked in 'pending' /
+            # 'pending_approval' that carry a tx_hash because the process
+            # died between attach_payment_tx and core.mark(). 30-minute
+            # cutoff is well above the round-25 confirm timeout (~60s).
+            ids2 = reap_stale_pending_payments(max_age_s=1800)
+            if ids2:
+                log.warning(
+                    "reaped %d payment(s) stranded in 'pending' / 'pending_approval' with a tx_hash: %s",
+                    len(ids2), ", ".join(ids2[:10]))
         except Exception as e:      # never let the thread die
             log.warning("settling reaper iteration failed: %s", e)
 
@@ -759,44 +768,125 @@ def start_settling_reaper(interval_s: int = 60, max_age_s: int = 300) -> None:
 
 
 def reap_stale_settling_claims(max_age_s: int = 300) -> list[str]:
-    """Return payments stuck in 'settling' to 'pending_approval'.
+    """Resolve payments stranded in 'settling' after a process crash.
 
-    Audit 20 Oct round 12. claim_payment_for_settlement() moves a payment to
-    'settling' before the chain call, and release_payment_claim() hands it back —
-    but only if the process survives to run its `finally`. A SIGKILL, an OOM kill
-    or a systemd restart between the claim and the settle leaves it in 'settling'
-    forever:
+    Round 25 audit C-2: with the round-25 split, the tx_hash is attached to
+    the payments row before wait_for_transaction_receipt. So now the
+    reaper can ask the chain what the tx actually did:
 
-        spent_today() counts 'settling' as committed budget, so the user's daily
-        limit stays debited by an amount that will never be spent, and
-        claim_payment_for_settlement() refuses to re-claim it (its WHERE requires
-        pending_approval). Reproduced: 50 USDC reserved permanently out of a 100
-        limit, unrecoverable without a direct DB edit.
+      - tx_hash present and mined (status==1) -> row -> settled.
+      - tx_hash present and mined (status==0) -> row -> failed (reverted).
+      - tx_hash present but not yet mined -> keep waiting; the next tick
+        will re-check.
+      - tx_hash absent -> the process died before send_raw_transaction
+        even fired. Send the row back to pending_approval so a retry
+        can attempt a fresh send.
 
-    Only claims older than max_age_s are reaped, so a settlement that is genuinely
-    in flight — a slow RPC, a congested chain — is not interrupted. Five minutes is
-    far longer than any observed settlement and still short enough that a stuck
-    payment is released well within a user's day.
-
-    Returns the ids it released, so the caller can log or notify.
+    Five-minute cutoff keeps in-flight settlements safe.
+    Returns the ids whose status was moved.
     """
+    import chain as _chain
     cutoff = int(time.time()) - max_age_s
+    released, settled, failed = [], [], []
     with conn() as c:
         rows = c.execute(
-            "SELECT id FROM payments WHERE status='settling' "
+            "SELECT id, tx FROM payments WHERE status='settling' "
             "AND (claimed_at IS NULL OR claimed_at < ?)",
             (cutoff,),
         ).fetchall()
-        ids = [r["id"] for r in rows]
-        if ids:
-            # Same predicate as release_payment_claim, so this cannot resurrect a
-            # payment that was settled between the SELECT and this UPDATE.
-            c.execute(
-                "UPDATE payments SET status='pending_approval', claimed_at=NULL "
-                "WHERE status='settling' AND (claimed_at IS NULL OR claimed_at < ?)",
-                (cutoff,),
-            )
-    return ids
+        for r in rows:
+            pid = r["id"]
+            tx = r["tx"]
+            if not tx:
+                c.execute(
+                    "UPDATE payments SET status='pending_approval', claimed_at=NULL "
+                    "WHERE id=? AND status='settling'",
+                    (pid,),
+                )
+                released.append(pid)
+                continue
+            try:
+                rcpt = _chain.w3.eth.get_transaction_receipt(tx)
+            except Exception as e:
+                log.warning("reaper RPC for %s (%s): %s", pid, tx, e)
+                continue
+            if rcpt is None:
+                # Tx still in mempool or unknown to this RPC. Skip until
+                # the next tick.
+                continue
+            if int(rcpt.status) == 1:
+                now = int(time.time())
+                c.execute(
+                    "UPDATE payments SET status='settled', tx=?, settled_at=?, "
+                    "claimed_at=NULL WHERE id=? AND status='settling'",
+                    (tx, now, pid),
+                )
+                settled.append(pid)
+            else:
+                c.execute(
+                    "UPDATE payments SET status='failed', tx=?, claimed_at=NULL "
+                    "WHERE id=? AND status='settling'",
+                    (tx, pid),
+                )
+                failed.append(pid)
+    if released or settled or failed:
+        log.warning("reaper: %d recycled to pending_approval, %d settled, %d failed (reverted)",
+                    len(released), len(settled), len(failed))
+    return released + settled + failed
+
+
+
+def reap_stale_pending_payments(max_age_s: int = 1800) -> list[str]:
+    """Resolve 'pending' / 'pending_approval' rows that have a tx_hash
+    but the caller died before core.mark() could update status.
+
+    Round 25 audit C-3: prior to this round, _execute (api.py:805) called
+    send_usdc directly without ever writing the tx_hash to the row. If
+    the process died after send_usdc the row stayed in 'pending' forever
+    and the daily limit stayed debited. After round 25 /_execute and
+    /_approve_claimed attach the tx_hash before confirm_usdc, so the
+    only way to land here is a crash between attach and confirm. The
+    reaper asks the chain for the receipt, the same way
+    reap_stale_settling_claims does, but with a 30-minute cutoff (not
+    5) because 'pending' is a normal in-flight state for several minutes.
+    """
+    import chain as _chain
+    cutoff = int(time.time()) - max_age_s
+    settled, failed = [], []
+    with conn() as c:
+        rows = c.execute(
+            "SELECT id, tx FROM payments WHERE status IN ('pending','pending_approval') "
+            "AND tx IS NOT NULL AND created_at < ?",
+            (cutoff,),
+        ).fetchall()
+        for r in rows:
+            pid = r["id"]; tx = r["tx"]
+            try:
+                rcpt = _chain.w3.eth.get_transaction_receipt(tx)
+            except Exception as e:
+                log.warning("pending reaper RPC for %s (%s): %s", pid, tx, e)
+                continue
+            if rcpt is None:
+                continue
+            if int(rcpt.status) == 1:
+                now = int(time.time())
+                c.execute(
+                    "UPDATE payments SET status='settled', settled_at=? "
+                    "WHERE id=? AND status IN ('pending','pending_approval')",
+                    (now, pid),
+                )
+                settled.append(pid)
+            else:
+                c.execute(
+                    "UPDATE payments SET status='failed' "
+                    "WHERE id=? AND status IN ('pending','pending_approval')",
+                    (pid,),
+                )
+                failed.append(pid)
+    if settled or failed:
+        log.warning("pending reaper: %d settled, %d failed",
+                    len(settled), len(failed))
+    return settled + failed
 
 
 def release_payment_claim(pid: str) -> None:
@@ -812,6 +902,26 @@ def release_payment_claim(pid: str) -> None:
             "WHERE id=? AND status='settling'",
             (pid,),
         )
+
+
+def attach_payment_tx(pid, tx: str) -> bool:
+    """Persist the tx_hash as soon as chain.send_usdc returned it, before
+    wait_for_transaction_receipt. Round 25 audit C-2: if the process dies
+    between send and wait, the row already has the hash so the reaper can
+    decide whether the transfer actually mined.
+
+    COALESCE so we never overwrite a tx_hash that was already attached.
+    Returns True if we wrote (or kept) a tx_hash on this row.
+    """
+    if not tx:
+        return False
+    with conn() as c:
+        cur = c.execute(
+            "UPDATE payments SET tx = COALESCE(tx, ?) WHERE id = ?", (tx, pid)
+        )
+    # rowcount==1 if the row exists; on SQLite it can be 0 with the same
+    # semantics (no row matched). Verify separately when we care.
+    return cur.rowcount == 1
 
 
 def mark(pid, status, tx=None, latency=None, approved_by=None):

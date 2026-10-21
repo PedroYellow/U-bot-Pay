@@ -69,21 +69,67 @@ def _transfer(acct, to, amount, nonce):
     return w3.eth.send_raw_transaction(acct.sign_transaction(tx).raw_transaction)
 
 
-def send_usdc(to: str, amount, memo_hash: str | None = None, fee: float = 0.0) -> dict:
-    """Recipient gets `amount` in full. If fee > 0 and a revenue wallet is set, a second transfer
-    pays the fee to UBOT_REVENUE_ADDRESS (sent back-to-back, confirmed together)."""
+def submit_usdc(to: str, amount, fee: float = 0.0) -> dict:
+    """Sign and broadcast the transfer(s); return the tx_hash(es) immediately.
+
+    Round 25 audit C-2: send_usdc used to wait_for_transaction_receipt
+    before returning. If the process died between send and wait, no
+    payment row had any tx_hash, and the reaper recycled the row to
+    pending_approval — meaning a second /approve would mint a fresh
+    nonce and send a SECOND transfer for the same amount. Splitting the
+    submit from the confirm lets the caller attach the tx_hash to the
+    payment row before the chain confirm completes.
+
+    Returns:
+      {"tx": "<hex>", "fee_tx": "<hex or None>"}
+    The values are 0x-prefixed hex strings. The strings are ready to be
+    persisted to payments.tx at this exact point; the receipt comes later
+    from confirm_usdc(tx).
+    """
     acct = account()
-    t0 = time.time()
     nonce = w3.eth.get_transaction_count(acct.address)
     h = _transfer(acct, to, amount, nonce)
     h_fee = None
     if fee and fee >= 0.01 and REVENUE_ADDRESS:
         h_fee = _transfer(acct, REVENUE_ADDRESS, fee, nonce + 1)
-    rcpt = w3.eth.wait_for_transaction_receipt(h, timeout=60)
-    if h_fee: w3.eth.wait_for_transaction_receipt(h_fee, timeout=60)
-    return {"tx": h.hex(), "ok": rcpt.status == 1, "block": rcpt.blockNumber,
-            "latency_s": round(time.time() - t0, 2), "explorer": f"{EXPLORER}/tx/{h.hex()}",
-            "fee_tx": h_fee.hex() if h_fee else None, "fee_explorer": f"{EXPLORER}/tx/{h_fee.hex()}" if h_fee else None, "fee_usdc": fee if h_fee else 0.0}
+    return {"tx": h.hex(), "fee_tx": h_fee.hex() if h_fee else None,
+            "fee_usdc": fee if h_fee else 0.0}
+
+
+def confirm_usdc(tx: str, fee_tx: str | None = None, timeout: int = 60) -> dict:
+    """Wait for a previously submitted transfer to mine and produce a result.
+
+    Mirrors what send_usdc used to return after wait_for_transaction_receipt,
+    but only against a known tx_hash. Used by /approve to decide
+    settled vs failed even when the previous process died mid-flight.
+    """
+    t0 = time.time()
+    rcpt = w3.eth.wait_for_transaction_receipt(tx, timeout=timeout)
+    if fee_tx:
+        w3.eth.wait_for_transaction_receipt(fee_tx, timeout=timeout)
+    return {
+        "tx": tx,
+        "ok": rcpt.status == 1,
+        "block": rcpt.blockNumber,
+        "latency_s": round(time.time() - t0, 2),
+        "explorer": f"{EXPLORER}/tx/{tx}",
+        "fee_tx": fee_tx,
+        "fee_explorer": f"{EXPLORER}/tx/{fee_tx}" if fee_tx else None,
+    }
+
+
+def send_usdc(to: str, amount, memo_hash: str | None = None, fee: float = 0.0) -> dict:
+    """Recipient gets `amount` in full. If fee > 0 and a revenue wallet is set, a second transfer
+    pays the fee to UBOT_REVENUE_ADDRESS (sent back-to-back, confirmed together).
+
+    Historical convenience wrapper: submit+confirm in one call. The
+    /approve and _execute paths now use submit_usdc()/confirm_usdc()
+    directly so they can attach the tx_hash to the payments row before
+    wait_for_transaction_receipt completes — that closes the round-25
+    C-2 double-charge window.
+    """
+    sub = submit_usdc(to, amount, fee)
+    return confirm_usdc(sub["tx"], sub.get("fee_tx"))
 
 
 # ───────── EIP-3009 / x402-style: payer signs offline, payee (or anyone) submits ─────────

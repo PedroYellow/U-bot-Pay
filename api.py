@@ -802,7 +802,30 @@ async def _execute(user, lang, p):
             asyncio.create_task(NOTIFY(approver, f"🔐 Approval needed\n{user['name']} wants to send {pay['amount_usdc']} USDC to {p['contact']['name']}.\nReply: /approve {pay['id']}  or  /reject {pay['id']}"))
         return {"say": say(lang, "needs_approval", approver="your co-signer"), "action": "pending_approval", "data": pay}
     try:
-        r = await asyncio.to_thread(chain.send_usdc, p["contact"]["address"], p["quote"]["amount_usdc"], pay["memo_hash"], p["quote"].get("fee_usdc", 0.0))
+        # Round 25 audit C-2: same submit+attach+confirm split as /approve.
+        # Otherwise death between send_raw_transaction and wait would leave
+        # a row in pending forever, with debit on the daily limit and no
+        # tx_hash to look up.
+        submit = await asyncio.to_thread(
+            chain.submit_usdc,
+            p["contact"]["address"], p["quote"]["amount_usdc"],
+            p["quote"].get("fee_usdc", 0.0),
+        )
+        try:
+            core.attach_payment_tx(pay["id"], submit["tx"])
+        except Exception as e:
+            log.warning("attach tx failed for %s: %s", pay["id"], e)
+        try:
+            r = await asyncio.to_thread(
+                chain.confirm_usdc, submit["tx"], submit.get("fee_tx"),
+            )
+            r["fee_usdc"] = submit.get("fee_usdc", 0.0)
+        except Exception as e:
+            log.exception("confirm_usdc")
+            return {"say": f"Payment submitted but confirmation timed out; "
+                            f"the reaper will resolve it. Tx: {submit['tx']}",
+                    "action": "pending_confirm",
+                    "data": {**pay, "tx": submit["tx"], "explorer": f"{chain.EXPLORER}/tx/{submit['tx']}"}}
         core.mark(pay["id"], "settled" if r["ok"] else "failed", r["tx"], r["latency_s"])
         # Audit 20 Oct round 16: send_usdc returning ok=False is not an exception —
         # the transaction mined and reverted. The old code marked the row failed and
@@ -885,22 +908,49 @@ async def _approve_claimed(a: Approve) -> dict:
             asyncio.create_task(NOTIFY(user["telegram_id"],
                 f"⚠️ Payment {pay['id']} was not sent: {pol['reason']}. Re-quote it."))
         raise HTTPException(409, pol["reason"])
-    r = await asyncio.to_thread(chain.send_usdc, pay["to_address"], pay["amount_usdc"], pay["memo_hash"], pay.get("fee_usdc") or 0.0)
-    core.mark(pay["id"], "settled" if r["ok"] else "failed", r["tx"], r["latency_s"], approved_by=int(a.approver_key))
-    # Audit 20 Oct round 16: this told the co-signer "✅ Approved & sent" even when
-    # the transaction reverted. The approval was honoured and recorded, so the row
-    # keeps approved_by — but nothing moved, and the co-signer has to be told that.
-    if not r["ok"]:
-        log.warning("approved send reverted for pay %s (tx=%s)", pay["id"], r.get("tx"))
-        if NOTIFY:
-            asyncio.create_task(NOTIFY(
-                user["telegram_id"],
-                f"⚠️ Approved, but the transfer was REJECTED by the network.\n"
-                f"Nothing was sent to {pay['contact_alias']} and the funds are still "
-                f"in the treasury.\nTx: {r['explorer']}"))
-        return {"ok": False, "status": "failed", "error": "transaction reverted on chain", **r}
-    if NOTIFY: asyncio.create_task(NOTIFY(user["telegram_id"], f"✅ Approved & sent {pay['amount_usdc']} USDC to {pay['contact_alias']} in {r['latency_s']}s\n{r['explorer']}"))
-    return {"ok": True, "status": "settled", **r}
+    # Round 25 audit C-2: split submit from confirm so the tx_hash is
+        # attached to the payments row immediately after broadcast, BEFORE
+        # wait_for_transaction_receipt. If the process dies between submit
+        # and confirm, the reaper still has a tx_hash to look up on chain and
+        # decide whether the transfer already mined.
+        submit = await asyncio.to_thread(
+            chain.submit_usdc,
+            pay["to_address"], pay["amount_usdc"],
+            pay.get("fee_usdc") or 0.0,
+        )
+        try:
+            core.attach_payment_tx(pay["id"], submit["tx"])
+        except Exception as e:
+            log.warning("attach tx failed for %s: %s", pay["id"], e)
+        try:
+            r = await asyncio.to_thread(
+                chain.confirm_usdc, submit["tx"], submit.get("fee_tx"),
+            )
+        except Exception as e:
+            # Confirm timed out but the tx_hash is already on the row. The
+            # reaper will resolve it; return a partial ack rather than roll back.
+            log.warning("confirm_usdc threw for %s (tx=%s): %s",
+                        pay["id"], submit.get("tx"), e)
+            return {"ok": False, "status": "pending_confirm",
+                    "tx": submit["tx"],
+                    "explorer": f"{chain.EXPLORER}/tx/{submit['tx']}",
+                    "payment_id": pay["id"]}
+        r["fee_usdc"] = submit.get("fee_usdc", 0.0)
+        core.mark(pay["id"], "settled" if r["ok"] else "failed", r["tx"], r["latency_s"], approved_by=int(a.approver_key))
+        # Audit 20 Oct round 16: this told the co-signer "✅ Approved & sent" even when
+        # the transaction reverted. The approval was honoured and recorded, so the row
+        # keeps approved_by — but nothing moved, and the co-signer has to be told that.
+        if not r["ok"]:
+            log.warning("approved send reverted for pay %s (tx=%s)", pay["id"], r.get("tx"))
+            if NOTIFY:
+                asyncio.create_task(NOTIFY(
+                    user["telegram_id"],
+                    f"⚠️ Approved, but the transfer was REJECTED by the network.\n"
+                    f"Nothing was sent to {pay['contact_alias']} and the funds are still "
+                    f"in the treasury. \nTx: {r['explorer']}"))
+            return {"ok": False, "status": "failed", "error": "transaction reverted on chain", **r}
+        if NOTIFY: asyncio.create_task(NOTIFY(user["telegram_id"], f"✅ Approved & sent {pay['amount_usdc']} USDC to {pay['contact_alias']} in {r['latency_s']}s\n{r['explorer']}"))
+        return {"ok": True, "status": "settled", **r}
 
 
 def _resolve_demo_user():
