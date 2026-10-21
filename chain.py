@@ -4,7 +4,7 @@ U-bot Pay — chain layer (Avalanche Fuji C-Chain, USDC).
 - balance(address)                → AVAX + USDC
 - transfer_with_authorization()   → EIP-3009 (x402 style) for agent-to-agent payments
 """
-import os, time, re
+import os, time, re, threading
 from decimal import Decimal
 from web3 import Web3
 from eth_account import Account
@@ -80,20 +80,36 @@ def submit_usdc(to: str, amount, fee: float = 0.0) -> dict:
     submit from the confirm lets the caller attach the tx_hash to the
     payment row before the chain confirm completes.
 
+    Round 28 audit H-4: the entire get_transaction_count + _transfer
+    sequence runs inside `_treasury_lock`. Without the lock, two
+    concurrent callers (/approve, _execute, two retried of either) read
+    the same nonce and both sign with it; one of the two transactions is
+    rejected by the chain with "nonce too low" and the caller's gas is
+    burnt. The lock makes the read-modify-write atomic per-treasury.
+
     Returns:
       {"tx": "<hex>", "fee_tx": "<hex or None>"}
     The values are 0x-prefixed hex strings. The strings are ready to be
     persisted to payments.tx at this exact point; the receipt comes later
     from confirm_usdc(tx).
     """
-    acct = account()
-    nonce = w3.eth.get_transaction_count(acct.address)
-    h = _transfer(acct, to, amount, nonce)
-    h_fee = None
-    if fee and fee >= 0.01 and REVENUE_ADDRESS:
-        h_fee = _transfer(acct, REVENUE_ADDRESS, fee, nonce + 1)
+    with _treasury_lock:
+        acct = account()
+        nonce = w3.eth.get_transaction_count(acct.address)
+        h = _transfer(acct, to, amount, nonce)
+        h_fee = None
+        if fee and fee >= 0.01 and REVENUE_ADDRESS:
+            h_fee = _transfer(acct, REVENUE_ADDRESS, fee, nonce + 1)
     return {"tx": h.hex(), "fee_tx": h_fee.hex() if h_fee else None,
             "fee_usdc": fee if h_fee else 0.0}
+
+
+# Round 28 audit H-4: serialise treasury writes. Two concurrent
+# callers (/approve and _execute, or two retried of the same caller)
+# would otherwise read the same get_transaction_count value and sign
+# two transactions with the same nonce, leaking one of the two fees
+# on-chain. The lock makes get_transaction_count + _transfer atomic.
+_treasury_lock = threading.Lock()
 
 
 def confirm_usdc(tx: str, fee_tx: str | None = None, timeout: int = 60) -> dict:
