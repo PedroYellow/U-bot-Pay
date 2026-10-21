@@ -137,13 +137,51 @@ CCY_WORDS = {"baht": "THB", "bath": "THB", "บาท": "THB", "dollar": "USD", 
              "peso": "PHP", "pesos": "PHP", "riel": "KHR", "kip": "LAK", "rupiah": "IDR", "rupee": "INR", "rupees": "INR", "usdc": "USDC"}
 
 
+_BUSY_TIMEOUT_S = 5
+_PRAGMAS = (
+    "PRAGMA journal_mode=WAL",
+    "PRAGMA synchronous=NORMAL",
+    f"PRAGMA busy_timeout={_BUSY_TIMEOUT_S * 1000}",
+    "PRAGMA foreign_keys=ON",
+)
+
+
+def _open_conn():
+    c = sqlite3.connect(DB, timeout=_BUSY_TIMEOUT_S)
+    c.row_factory = sqlite3.Row
+    for p in _PRAGMAS:
+        try:
+            c.execute(p)
+        except sqlite3.DatabaseError:
+            pass
+    return c
+
+
 @contextmanager
 def conn():
-    c = sqlite3.connect(DB); c.row_factory = sqlite3.Row
-    try:
-        yield c; c.commit()
-    finally:
-        c.close()
+    for attempt in range(3):
+        c = _open_conn()
+        try:
+            yield c
+            c.commit()
+            return
+        except sqlite3.OperationalError as e:
+            try: c.rollback()
+            except Exception: pass
+            if "locked" not in str(e).lower() and "busy" not in str(e).lower():
+                raise
+            try: c.close()
+            except Exception: pass
+            if attempt == 2: raise
+            time.sleep(0.02 * (attempt + 1))
+        except sqlite3.DatabaseError:
+            try: c.close()
+            except Exception: pass
+            raise
+        finally:
+            try: c.close()
+            except Exception: pass
+
 
 
 def init():

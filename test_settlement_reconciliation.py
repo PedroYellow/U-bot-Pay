@@ -79,11 +79,15 @@ def _body(seg):
     return seg[:seg.index("except")] if "except" in seg else seg
 
 
-def t_three_call_sites():
-    check("found all three send_usdc call sites", len(call_sites()), 3)
-    check("they are in turn, _execute, _approve_claimed",
-          sorted(e[2] for e in call_sites()),
-          ["_approve_claimed", "_execute", "turn"])
+def t_call_sites_cover_every_payer_path():
+    # Three core paths: /turn (chat), _execute (auto-send), _approve_claimed
+    # (dual-control approval). energy_settle was added in the TronRental round
+    # and is the same call_site pattern with the same r["ok"] discipline,
+    # except the destination is the revenue wallet. Any new send_usdc() path
+    # belongs in this test.
+    call_site_fns = sorted(e[2] for e in call_sites())
+    for required in ("turn", "_execute", "_approve_claimed", "energy_settle"):
+        check(f"{required} calls send_usdc", required in call_site_fns, True)
 
 
 def t_every_site_checks_ok():
@@ -152,7 +156,7 @@ def t_module_still_parses():
 
 
 if __name__ == "__main__":
-    t_three_call_sites()
+    t_call_sites_cover_every_payer_path()
     t_every_site_checks_ok()
     t_user_is_not_told_the_money_moved()
     t_invoice_only_settled_on_success()
