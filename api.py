@@ -1020,20 +1020,47 @@ def seed(x_api_key: str | None = Header(default=None)):
     return {"ok": True, "user": u, "contacts": core.list_contacts(u["id"]), "invoices": core.open_invoices(u["id"])}
 
 
-def _seed_for(uid):
+def _seed_for(uid, *, fresh=False):
+    """Seed demo contacts/invoices on first contact with a user.
+
+    fresh=False (default) only fills in fields the user has not customised
+    yet. Round 23 audit: this used to be unbounded — every /start from
+    Telegram called core.set_policy(uid, daily_limit=DEMO_DAILY_LIMIT,
+    dual_threshold=DEMO_DUAL_THRESHOLD) and overwrote the user's policy,
+    including dual_threshold=5 he had deliberately lowered to require
+    co-sign approval on smaller amounts. /start also overwrote real
+    contacts (INSERT OR REPLACE on the (user_id, alias) primary key) and
+    the user's wallet address (UPDATE users SET address=...). After the
+    rewrite, policy and address are never touched here, and contacts only
+    get the demo placeholder row if no real row exists.
+
+    fresh=True (used by DEMO_RESET_INVOICES) keeps the old "reseed"
+    behaviour for the three demo invoices.
+    """
     demo = os.environ.get("DEMO_RECIPIENT", "0x000000000000000000000000000000000000dEaD")
-    core.add_contact(uid, "mom", "Mom (Chiang Mai)", demo, "TH")
-    core.add_contact(uid, "madre", "Mamá (Chiang Mai)", demo, "TH")
-    core.add_contact(uid, "vietsupply", "VietSupply Co.", demo, "VN")
-    core.add_contact(uid, "somchai", "Somchai Restaurant", demo, "TH")
-    core.add_contact(uid, "dataagent", "DataAgent (AI service)", demo, "—", is_agent=1)
-    if os.environ.get("DEMO_RESET_INVOICES") == "1":
+    # Round 23: add_contact's INSERT OR REPLACE overwrote the user's real
+    # "mom" with the demo address. Only fill in a placeholder contact if
+    # there is no existing one. Same for any row the user might have
+    # added with the same alias.
+    existing = {c["alias"] for c in core.list_contacts(uid)}
+    if "mom" not in existing:  core.add_contact(uid, "mom",       "Mom (Chiang Mai)",   demo, "TH")
+    if "madre" not in existing: core.add_contact(uid, "madre",     "Mamá (Chiang Mai)",  demo, "TH")
+    if "vietsupply" not in existing: core.add_contact(uid, "vietsupply", "VietSupply Co.", demo, "VN")
+    if "somchai" not in existing:  core.add_contact(uid, "somchai",  "Somchai Restaurant",demo, "TH")
+    if "dataagent" not in existing: core.add_contact(uid, "dataagent","DataAgent (AI service)",demo, "—", is_agent=1)
+    if not fresh and os.environ.get("DEMO_RESET_INVOICES") == "1":
+        core.clear_invoices(uid)
+    if fresh and os.environ.get("DEMO_RESET_INVOICES") == "1":
         core.clear_invoices(uid)
     if not core.open_invoices(uid):
-        core.add_invoice(uid, "VietSupply Co.", demo, float(os.environ.get("DEMO_INV_1", "5")), "Invoice #VS-2041 packaging", 5)
-        core.add_invoice(uid, "Somchai Restaurant", demo, float(os.environ.get("DEMO_INV_2", "3")), "Team dinner 12 Oct", 3)
-        core.add_invoice(uid, "Bangkok Office Rent", demo, float(os.environ.get("DEMO_INV_3", "12")), "October rent", 9)
-    core.set_policy(uid, daily_limit=float(os.environ.get("DEMO_DAILY_LIMIT", "40")), dual_threshold=float(os.environ.get("DEMO_DUAL_THRESHOLD", "10")))
+        core.add_invoice(uid, "VietSupply Co.",      demo, float(os.environ.get("DEMO_INV_1", "5")),  "Invoice #VS-2041 packaging", 5)
+        core.add_invoice(uid, "Somchai Restaurant",  demo, float(os.environ.get("DEMO_INV_2", "3")),  "Team dinner 12 Oct",         3)
+        core.add_invoice(uid, "Bangkok Office Rent", demo, float(os.environ.get("DEMO_INV_3", "12")), "October rent",                9)
+    # The policy is whatever the operator set in DEMO_DAILY_LIMIT etc.
+    # We DO NOT apply it here any more: the user's daily_limit and
+    # dual_threshold are theirs to set. The server's defaults live in
+    # the schema (500 / 1000) and apply for brand-new users; everything
+    # they customise afterwards stays customised.
 
 
 # ───────── session helpers (Nivel 1+2+3) ─────────

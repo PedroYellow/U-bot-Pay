@@ -1037,17 +1037,34 @@ def consume_link_code(code: str, telegram_id: int) -> dict | None:
     belongs to. Returns None if the code is unknown, expired, or already
     used. The telegram_id is recorded but not enforced here — the bot
     passes the id of the chat that sent the code, so this becomes
-    the binding between wallet and chat."""
+    the binding between wallet and chat.
+
+    Round 23 (TOCTOU fix): the previous version SELECTed the row to inspect
+    used_at, then did a separate UPDATE. Two concurrent request handlers
+    could both observe used_at IS NULL, both fall through, and both stamp
+    their own binding — the last writer wins, and the "unused" guarantee
+    between SELECT and UPDATE was a lie. The CAS form below claims the
+    code atomically and returns the user only to the caller that got
+    rowcount==1. SQLite serialises writers on a transaction, so the second
+    UPDATE updates 0 rows and the second caller returns None.
+    """
     now = int(time.time())
     with conn() as c:
+        # Atomically: only a row that is still unused and not expired can be
+        # claimed. rowcount==1 only for the first caller.
+        cur = c.execute(
+            "UPDATE link_codes SET used_at = ? "
+            "WHERE code = ? AND used_at IS NULL AND expires_at >= ?",
+            (now, code, now),
+        )
+        if cur.rowcount != 1:
+            return None
+        # Row is now claimed; read it once for the caller.
         row = c.execute(
-            "SELECT id, user_id, expires_at, used_at FROM link_codes WHERE code = ?",
-            (code,),
+            "SELECT user_id FROM link_codes WHERE code = ?", (code,),
         ).fetchone()
-        if not row: return None
-        if row["used_at"]: return None
-        if row["expires_at"] < now: return None
-        c.execute("UPDATE link_codes SET used_at = ? WHERE id = ?", (now, row["id"]))
+        if not row:
+            return None
     return get_user(user_id=row["user_id"])
 
 

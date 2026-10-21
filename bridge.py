@@ -220,7 +220,12 @@ def quote(from_chain: int, to_chain: int, amount_usdc: float,
     data = _http_get_json(url)
     if "estimate" not in data:
         _partner_fail("lifi")
-        raise ValueError(f"LI.FI response missing estimate: {data}")
+        # Audit round 22: do not include the raw LI.FI payload in the
+        # ValueError — api.py maps this to a 400 with str(e)[:200] sent to
+        # the caller. The full payload belongs in the server log only.
+        log.warning("LI.FI response missing estimate for %s->%s: keys=%s",
+                    from_chain, to_chain, sorted(data.keys())[:20])
+        raise ValueError("bridge partner returned an unusable response")
     _partner_ok("lifi")
 
     # Parse and normalize
@@ -319,14 +324,31 @@ _PARTNER_STATS = {     # rolling success rate
     "lifi":    {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0},
     "across":  {"ok": 0, "fail": 0, "last_ok": 0, "last_fail": 0},
 }
+_PARTNER_STATS_LOCK = threading.Lock()
 
 def _partner_ok(partner: str):
-    s = _PARTNER_STATS.get(partner)
-    if s: s["ok"] += 1; s["last_ok"] = time.time()
+    """Record a partner success. Locked because get_best_quote() fans out to
+    two partners concurrently and the dict counter is not atomic on Python
+    ints without a lock.
+
+    Round 22: the previous version could lose increments when two successes
+    landed at the same time: both threads read ok=N, both write ok=N+1, and
+    we lose one in partner_stats(). No money involved, but the
+    /bridge/partners UI would disagree with reality.
+    """
+    with _PARTNER_STATS_LOCK:
+        s = _PARTNER_STATS.get(partner)
+        if not s: return
+        s["ok"] += 1
+        s["last_ok"] = time.time()
 
 def _partner_fail(partner: str):
-    s = _PARTNER_STATS.get(partner)
-    if s: s["fail"] += 1; s["last_fail"] = time.time()
+    """Same, for failures."""
+    with _PARTNER_STATS_LOCK:
+        s = _PARTNER_STATS.get(partner)
+        if not s: return
+        s["fail"] += 1
+        s["last_fail"] = time.time()
 
 def _cache_key(partner, from_chain, to_chain, amount_usdc, from_address, to_address):
     return f"{partner}:{from_chain}:{to_chain}:{amount_usdc}:{from_address.lower()}:{to_address.lower()}"
@@ -525,20 +547,21 @@ def get_best_quote(from_chain: int, to_chain: int, amount_usdc: float,
 
 def partner_stats() -> dict:
     """Return the rolling success stats for each partner. Used by
-    /bridge/status to show in the UI which partner the quote came
-    from and how reliable it is."""
+    /bridge/partners to show in the UI which partner the quote came from and
+    how reliable it is. Locked read so we never tear with a concurrent write."""
     out = {}
-    for name, s in _PARTNER_STATS.items():
-        total = s["ok"] + s["fail"]
-        rate = (s["ok"] / total) if total else None
-        out[name] = {
-            "ok": s["ok"],
-            "fail": s["fail"],
-            "success_rate": rate,
-            "last_ok": s["last_ok"],
-            "last_fail": s["last_fail"],
-            "is_healthy": rate is None or rate > 0.5,
-        }
+    with _PARTNER_STATS_LOCK:
+        for name, s in _PARTNER_STATS.items():
+            total = s["ok"] + s["fail"]
+            rate = (s["ok"] / total) if total else None
+            out[name] = {
+                "ok": s["ok"],
+                "fail": s["fail"],
+                "success_rate": rate,
+                "last_ok": s["last_ok"],
+                "last_fail": s["last_fail"],
+                "is_healthy": rate is None or rate > 0.5,
+            }
     return out
 
 

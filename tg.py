@@ -87,7 +87,15 @@ async def _require_private(update: Update) -> bool:
 async def on_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not await _require_private(update): return
     u = update.effective_user
-    user = core.upsert_user(u.id, u.full_name, (u.language_code or "en")[:2], os.environ.get("UBOT_WALLET_ADDRESS"))
+    # Round 23: pass address=None. The previous form was upsert_user(...,
+    # os.environ.get("UBOT_WALLET_ADDRESS")), which on every /start forced the
+    # user's row.address back to the demo wallet, even after the user had
+    # linked their real wallet via /code. /start now only registers the
+    # user and seeds demo contacts; the wallet address comes from /code,
+    # not from /start. Address=None means core.upsert_user leaves an
+    # existing address untouched and leaves it None for brand-new users
+    # until they link one.
+    user = core.upsert_user(u.id, u.full_name, (u.language_code or "en")[:2], None)
     api._seed_for(user["id"])
     await update.message.reply_text(
         "👋 I'm ubotpay. Talk to me — send a voice note or type.\n\n"
@@ -166,12 +174,15 @@ async def on_code(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # the problem to prevent, not just the one this guard would stop.
     if not await _require_private(update): return
     parts = (update.message.text or "").split()
-    if len(parts) < 2 or not parts[1].isdigit() or len(parts[1]) != 6:
+    # Round 21 bumped create_link_code to 7 digits; the bot has to accept both
+    # so a fresh code from the UI is usable, while an older 6-digit one in
+    # flight is not refused.
+    if len(parts) < 2 or not parts[1].isdigit() or len(parts[1]) not in (6, 7):
         await update.message.reply_text(
             "🔗 *Link this chat to your ubotpay wallet*\n\n"
             "1. Open https://ubotpay.com and connect your wallet\n"
-            "2. Click the 'Link Telegram' button — it gives you a 6-digit code\n"
-            "3. Come back here and send:  `/code <6-digit>`\n\n"
+            "2. Click the 'Link Telegram' button — it gives you a 6 or 7-digit code\n"
+            "3. Come back here and send:  `/code <digits>`\n\n"
             "Codes expire in 10 minutes.",
             parse_mode="Markdown")
         return
