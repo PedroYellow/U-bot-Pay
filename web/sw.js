@@ -14,7 +14,7 @@
  * In particular we skip caching anything sent with an Authorization header.
  */
 
-const CACHE_NAME = "ubotpay-v5";
+const CACHE_NAME = "ubotpay-v6";
 const PRECACHE = [
   "/",
   "/manifest.json",

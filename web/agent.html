@@ -1,7 +1,13 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>DataAgent — a paid AI service · ubotpay</title>
-<script>(function(){var t=localStorage.getItem("ubotpay-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.setAttribute("data-theme",t);})();</script>
+<script>
+// Audit round 14: agent.html had no escaping helper; payment values coming back
+// from the DataAgent were interpolated into innerHTML unescaped.
+const esc = s => String(s).replace(/[&<>"'`]/g, c => ({
+  "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;","`":"&#96;"
+}[c]));
+(function(){var t=localStorage.getItem("ubotpay-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.setAttribute("data-theme",t);})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://ubotpay.com/ubot.css">
@@ -91,7 +97,10 @@ refresh();
 $("ask").onclick=async()=>{$("out402").textContent="…";const r=await fetch("/report?company="+encodeURIComponent($("co").value));const j=await r.json();$("out402").textContent="HTTP "+r.status+"\n"+JSON.stringify(j,null,1);};
 $("pay").onclick=async()=>{$("paystat").textContent=I18N.t("a_paying");$("out200").textContent="…";
   try{const r=await fetch("https://api.ubotpay.com/agent/query",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({company:$("co").value})});const j=await r.json();
-    const p=(j.body||{}).payment||{};$("paystat").innerHTML=j.paid?`<span class="badge ok">PAID</span>${j.price_usdc} USDC · ${j.latency_s}s · <a href="${p.explorer}" target="_blank">tx ↗</a>`:`<span class="badge bad">FAILED</span>${(j.body||{}).error||j.error||j.status}`;
+    const p=(j.body||{}).payment||{};// p.explorer lands in an href attribute and j.error in text, both from the
+// DataAgent response. esc() escapes quotes, so neither can break out of its
+// context; rel=noopener stops the opened tab reaching back through window.opener.
+$("paystat").innerHTML=j.paid?`<span class="badge ok">PAID</span>${esc(j.price_usdc)} USDC · ${esc(j.latency_s)}s · <a href="${esc(p.explorer)}" target="_blank" rel="noopener noreferrer">tx ↗</a>`:`<span class="badge bad">FAILED</span>${esc((j.body||{}).error||j.error||j.status)}`;
     $("out200").textContent="HTTP "+j.status+"\n"+JSON.stringify(j.body,null,1);refresh();}
   catch(e){$("paystat").textContent="error: "+e.message}};
 </script><script>(function(){var b=document.getElementById("theme"),ic=document.getElementById("theme-ic"),tx=document.getElementById("theme-tx");function paint(){var d=document.documentElement.getAttribute("data-theme")==="dark";ic.textContent=d?"☀️":"🌙";tx.textContent=d?(window.I18N?I18N.t("light"):"Light"):(window.I18N?I18N.t("dark"):"Dark");}b.onclick=function(){var d=document.documentElement.getAttribute("data-theme")==="dark";document.documentElement.setAttribute("data-theme",d?"light":"dark");localStorage.setItem("ubotpay-theme",d?"light":"dark");paint();};paint();})();</script>

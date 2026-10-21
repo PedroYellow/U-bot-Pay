@@ -170,7 +170,13 @@ const API = "https://api.ubotpay.com";
 // API key removed from browser for security — see api.py to enable session-based auth
 const log = document.getElementById("log"), inp = document.getElementById("inp"), orb = document.getElementById("orb"), orbstate = document.getElementById("orbstate");
 const add = (cls, html) => { const d = document.createElement("div"); d.className = "msg " + cls; d.innerHTML = html; log.appendChild(d); log.scrollTop = log.scrollHeight; return d; };
-const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+// Escapes for text nodes and quoted attribute values alike. The previous version
+// covered & < > only, so a value interpolated into an attribute could still break
+// out of it through a quote — the usual way DOM XSS survives on a page that
+// otherwise looks escaped.
+const esc = s => String(s).replace(/[&<>"'`]/g, c => ({
+  "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;","`":"&#96;"
+}[c]));
 
 function render(res){
   const d = res.data || {}; let extra = "";
@@ -830,12 +836,14 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
         if (b.status === "done") {
           status.style.background = "rgba(19,179,122,.15)";
           status.style.color = "#7ed4a3";
-          status.innerHTML = "✅ Done! Recipient received the funds.<br>Bridge ID: " + payBridgeId;
+          status.innerHTML = "✅ Done! Recipient received the funds.<br>Bridge ID: " + esc(payBridgeId);
           clearInterval(payPollInterval); payPollInterval = null;
         } else if (b.status === "failed") {
           status.style.background = "rgba(229,72,77,.15)";
           status.style.color = "#ff8888";
-          status.innerHTML = "❌ Bridge failed: " + (b.error || "unknown error");
+          // b.error reaches us from the bridge partner via the server, and is replayed
+  // whenever the bridge row is rendered again — unescaped, that is second-order XSS.
+  status.innerHTML = "❌ Bridge failed: " + esc(b.error || "unknown error");
           clearInterval(payPollInterval); payPollInterval = null;
         } else if (b.status === "confirming") {
           status.textContent = "🔄 Confirming on destination chain…";

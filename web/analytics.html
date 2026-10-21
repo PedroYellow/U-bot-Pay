@@ -119,6 +119,12 @@
   </div>
 
 <script>
+// Audit round 14: this page had no escaping helper at all and interpolated
+// server-supplied values straight into innerHTML.
+const esc = s => String(s).replace(/[&<>"'`]/g, c => ({
+  "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;","`":"&#96;"
+}[c]));
+
 const ROOT_API = (location.hostname === "localhost" || location.hostname.startsWith("127.")) ? "http://localhost:8090" : "https://ubotpay.com";
 const COLOR_PARTNERS = ["#1F5AF0", "#6C5CE7", "#13B37A", "#E5B022", "#E54D4D", "#9EC5FF", "#F178B6"];
 
@@ -248,7 +254,7 @@ function render(data) {
     return;
   }
   if (data.error) {
-    document.getElementById("root").innerHTML = `<div class="err">Failed to load analytics: ${data.error}</div>`;
+    document.getElementById("root").innerHTML = `<div class="err">Failed to load analytics: ${esc(data.error)}</div>`;
     return;
   }
   const t = data.totals;
@@ -298,7 +304,7 @@ function render(data) {
     const data = await fetchAnalytics();
     render(data);
   } catch (e) {
-    document.getElementById("root").innerHTML = `<div class="err">Network error: ${e.message || e}</div>`;
+    document.getElementById("root").innerHTML = `<div class="err">Network error: ${esc(e.message || e)}</div>`;
   }
 })();
 </script>
