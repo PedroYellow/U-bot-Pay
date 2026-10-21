@@ -52,6 +52,14 @@ app.add_middleware(
 # replayed after a deploy or a crash. The set is now backed by SQLite, with the
 # in-memory set kept as a hot cache in front of it.
 #
+# Round 27 audit C-5: the previous version touched _seen_nonces.add(nonce)
+# BEFORE the SQLite INSERT ran. If the INSERT raised (DB locked, disk I/O,
+# cold-start race), the nonce was already in memory and would block future
+# authorisations forever. This rewrite keeps SQLite as the single source of
+# truth: the in-memory set is hydration, not a write cache. The INSERT and
+# the in-memory add happen under the same lock; if SQLite raises, the
+# memory side-effect is rolled back.
+#
 # The nonce is recorded AFTER settlement on purpose: if settlement fails the
 # authorization is not burned, so the payer can retry with a fresh one. The
 # chain's own ERC-20 nonce is what actually prevents a double settle.
@@ -59,45 +67,102 @@ _NONCE_DB = os.environ.get("DATAAGENT_NONCE_DB",
                            os.path.join(os.path.dirname(os.path.abspath(__file__)), "dataagent_nonces.db"))
 _seen_nonces: set[str] = set()
 _nonce_lock = threading.Lock()
+_nonce_conn: sqlite3.Connection | None = None  # reused, WAL + busy_timeout
+
+
+def _nonce_persist(nonce: str, now: int) -> sqlite3.Row:
+    """Module-level helper so tests can monkey-patch the persistence
+    path and simulate sqlite errors. Holds the executing of the
+    INSERT and the commit."""
+    cur = _nonce_conn.execute(
+        "INSERT OR IGNORE INTO seen_nonces(nonce, seen_at) VALUES(?, ?)",
+        (nonce, now),
+    )
+    _nonce_conn.commit()
+    return cur
+
+
+def _open_nonce_conn() -> sqlite3.Connection:
+    c = sqlite3.connect(_NONCE_DB, timeout=5, check_same_thread=False)
+    c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA busy_timeout=5000")
+    c.execute("PRAGMA synchronous=NORMAL")
+    c.row_factory = sqlite3.Row
+    return c
 
 
 def _init_nonce_store() -> None:
-    with sqlite3.connect(_NONCE_DB) as c:
-        c.execute("""CREATE TABLE IF NOT EXISTS seen_nonces(
-                        nonce TEXT PRIMARY KEY,
-                        seen_at INTEGER NOT NULL)""")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_nonce_seen ON seen_nonces(seen_at)")
+    """Open the persistent connection, create the schema, hydrate the
+    in-memory cache from the last 7 days of nonces."""
+    global _nonce_conn
+    with _nonce_lock:
+        if _nonce_conn is None:
+            _nonce_conn = _open_nonce_conn()
+        # idempotent DDL — must run before any reader sees the table.
+        _nonce_conn.execute("""CREATE TABLE IF NOT EXISTS seen_nonces(
+                                   nonce TEXT PRIMARY KEY,
+                                   seen_at INTEGER NOT NULL)""")
+        _nonce_conn.execute("CREATE INDEX IF NOT EXISTS idx_nonce_seen ON seen_nonces(seen_at)")
+        _nonce_conn.commit()
+    # Hydrate the cache from disk. Informational only: even if a row is
+    # missed here, the next _nonce_seen() read will pick it up.
+    cutoff = int(time.time()) - 7 * 86400
+    with _nonce_conn:
+        rows = _nonce_conn.execute(
+            "SELECT nonce FROM seen_nonces WHERE seen_at >= ?", (cutoff,),
+        ).fetchall()
+    with _nonce_lock:
+        _seen_nonces.update(r["nonce"] for r in rows)
+    log.info("nonce store ready: %d nonces hydrated from disk", len(rows))
 
 
 def _nonce_seen(nonce: str) -> bool:
+    """Return True if the nonce has been claimed. SQLite is authoritative;
+    the in-memory set is an additive shortcut, not the gate."""
+    if nonce in _seen_nonces:
+        return True
     with _nonce_lock:
-        if nonce in _seen_nonces:
-            return True
-    with sqlite3.connect(_NONCE_DB) as c:
-        row = c.execute("SELECT 1 FROM seen_nonces WHERE nonce = ?", (nonce,)).fetchone()
-    if row:
+        row = _nonce_conn.execute(
+            "SELECT 1 FROM seen_nonces WHERE nonce = ?", (nonce,)
+        ).fetchone()
+    if row is not None:
+        # Hydrate the cache from the authoritative read.
         with _nonce_lock:
             _seen_nonces.add(nonce)
         return True
     return False
 
 
-def _remember_nonce(nonce: str) -> None:
-    """Persist a nonce. Returns False if another worker got there first, which
-    means the authorization was replayed and must not be settled."""
+def _remember_nonce(nonce: str) -> bool:
+    """Persist the nonce. Returns True if we claimed it; False if another
+    worker got there first (an auth replay).
+
+    Round 27 audit C-5 fix: the in-memory add happens ONLY if the SQLite
+    INSERT committed with rowcount==1. A SQLite OperationalError
+    (database is locked, disk full, cold-start race) propagates as
+    False, and the nonce is NEVER added to the memory cache. So an
+    attacker cannot pin in memory a row that never made it to disk.
+    """
     now = int(time.time())
     with _nonce_lock:
-        _seen_nonces.add(nonce)
-    with sqlite3.connect(_NONCE_DB) as c:
-        cur = c.execute("INSERT OR IGNORE INTO seen_nonces(nonce, seen_at) VALUES(?, ?)", (nonce, now))
-        first_come = cur.rowcount == 1
-    # Nonces older than the longest authorization we issue are dead weight.
-    try:
-        with sqlite3.connect(_NONCE_DB) as c:
-            c.execute("DELETE FROM seen_nonces WHERE seen_at < ?", (now - 7 * 86400,))
-    except Exception:
-        pass
-    return first_come
+        try:
+            cur = _nonce_persist(nonce, now)
+        except sqlite3.OperationalError as e:
+            log.warning("nonce DB insert failed for %s...: %s", nonce[:10], e)
+            return False
+        if cur.rowcount == 1:
+            # Safe to hydrate: the disk row exists by now.
+            _seen_nonces.add(nonce)
+        else:
+            # rowcount==0 -> another worker already wrote this row.
+            # Hydrate the cache so /report's next read is also fast, but
+            # this caller did not claim — return False.
+            _seen_nonces.add(nonce)
+    # Best-effort GC. Run outside the lock so a slow DELETE does not
+    # block new writes. Errors already logged; the next call retries.
+    if not _seen_nonces or len(_seen_nonces) % 200 == 0:
+        _gc_old_nonces()
+    return cur.rowcount == 1
 
 
 def _forget_nonce(nonce: str) -> None:
@@ -106,10 +171,27 @@ def _forget_nonce(nonce: str) -> None:
     with _nonce_lock:
         _seen_nonces.discard(nonce)
     try:
-        with sqlite3.connect(_NONCE_DB) as c:
-            c.execute("DELETE FROM seen_nonces WHERE nonce = ?", (nonce,))
-    except Exception as e:
+        with _nonce_conn:
+            _nonce_conn.execute(
+                "DELETE FROM seen_nonces WHERE nonce = ?", (nonce,)
+            )
+    except sqlite3.OperationalError as e:
         log.warning("could not release nonce: %s", e)
+
+
+def _gc_old_nonces():
+    """Best-effort GC: drop nonces older than 7 days. Errors logged and
+    ignored; the next iteration will retry."""
+    try:
+        cutoff = int(time.time()) - 7 * 86400
+        with _nonce_conn:
+            cur = _nonce_conn.execute(
+                "DELETE FROM seen_nonces WHERE seen_at < ?", (cutoff,),
+            )
+        return cur.rowcount
+    except sqlite3.OperationalError as e:
+        log.warning("nonce DB gc failed: %s", e)
+        return 0
 
 
 _init_nonce_store()
