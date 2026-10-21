@@ -1163,6 +1163,14 @@ async def energy_order(body: EnergyQuoteRequest, request: Request):
         raise HTTPException(502, "TronRental did not return a USD price")
     fee = core.energy_fee_for(usd)
 
+    # Audit 20 Oct round 20: the energy fee used to bypass the daily limit and
+    # the dual-control gate entirely. /turn and /approve both go through
+    # check_policy, and the energy fee is just a U-bot payment, so it must too.
+    pol = core.check_policy(user, fee)
+    if not pol["allowed"]:
+        raise HTTPException(402, pol["reason"])
+    needs_approval = bool(pol["needs_approval"])
+
     order = core.create_energy_order(user["id"], addr, vol, q["total_trx"], usd, dur)
     revenue = getattr(chain, "REVENUE_ADDRESS", None)
     try:
@@ -1172,13 +1180,26 @@ async def energy_order(body: EnergyQuoteRequest, request: Request):
              "name": "TronRental energy fee"},
             {"amount_usdc": fee, "amount_local": fee, "local_ccy": "USDC",
              "fx_rate": 1.0, "fee_usdc": 0.0},
-            f"TronRental energy {vol} for {addr}", "energy", False)
+            f"TronRental energy {vol} for {addr}", "energy", needs_approval)
     except Exception as e:
         log.error("energy fee payment failed for %s: %s: %s",
                   order["id"], type(e).__name__, e)
         raise HTTPException(500, "could not start the fee payment, try again")
     pid = pay["id"] if isinstance(pay, dict) else pay
     core.set_energy_status(order["id"], "fee_pending", payment_id=pid)
+    # If the policy demanded a second approval, the payment is in
+    # pending_approval and the caller must go through /approve the same as
+    # for any other U-bot payment. We do not create the TronRental invoice
+    # here: the fee has to settle first, and /energy/order/{id}/settle
+    # is the only path that settles it.
+    if needs_approval:
+        return {"ok": True, "order": core.get_energy_order(order["id"]),
+                "payment": {"id": pid, "amount_usdc": fee,
+                            "status": "pending_approval",
+                            "approver": user.get("approver_telegram_id")},
+                "next": "approval needed; run /approve " + str(pid) +
+                        " from the co-signer, then /energy/order/" +
+                        order["id"] + "/settle"}
     return {"ok": True, "order": core.get_energy_order(order["id"]),
             "payment": {"id": pid, "amount_usdc": fee},
             "next": "settle the fee payment, then the TronRental invoice is created"}
