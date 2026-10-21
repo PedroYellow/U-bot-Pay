@@ -1082,6 +1082,7 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     42220:  { icon: "🟡", color: "#FCFF52", short: "CELO"    },
     480:    { icon: "🌍", color: "#000000", short: "WLD"     },
     130:    { icon: "🦄", color: "#FF007A", short: "UNI"     },
+    146:   { icon: "🔵", color: "#0A5EFF", short: "SONIC"   },
   };
   const CHAIN_PARAMS = {
     1:      { chainId: "0x1",   chainName: "Ethereum",      nativeCurrency: { name: "ETH",  symbol: "ETH",  decimals: 18 }, rpcUrls: ["https://eth.merkle.io"],                            blockExplorerUrls: ["https://etherscan.io"] },
@@ -1100,6 +1101,7 @@ let busy = false; mic.onclick = async () => { if (busy) return; busy = true; try
     42220:  { chainId: "0xa4ec",chainName: "Celo",              nativeCurrency: { name: "CELO",symbol: "CELO",decimals: 18 }, rpcUrls: ["https://forno.celo.org"],                       blockExplorerUrls: ["https://celoscan.io"] },
     480:    { chainId: "0x1e0", chainName: "World Chain",       nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://worldchain-mainnet.g.alchemy.com/public"],blockExplorerUrls: ["https://worldscan.org"] },
     130:    { chainId: "0x82",  chainName: "Unichain",          nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://mainnet.unichain.org"],                 blockExplorerUrls: ["https://uniscan.xyz"] },
+    146:   { chainId: "0x92",  chainName: "Sonic",             nativeCurrency: { name: "S",   symbol: "S",   decimals: 18 }, rpcUrls: ["https://rpc.soniclabs.com"],                    blockExplorerUrls: ["https://sonicscan.org"] },
   };
   const SUPPORTED_CHAINS = Object.keys(CHAIN_PARAMS).map(Number);
   // Default: Avalanche C-Chain (preserves previous UX)
