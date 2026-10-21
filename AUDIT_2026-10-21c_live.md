@@ -76,3 +76,52 @@ Lines 45 and 47 of the vhost. Harmless. Track separately.
 2. **L-3 (balance auth)**: decide. Either (a) gate by JWT inside the handler, or (b) hard-list the demo address(es) the unauth path is allowed to read.
 3. **L-4 (pricing transparency)**: keep as is. If you want to gate, route `/pricing` through X-API-Key for full payload, and serve a public minimum (model params only) to anonymous.
 4. **L-1 (already fixed)**: add an inline nginx comment near the new locations warning future regenerators: `# Round 2026-10-21 /history/ and /invoices/ prefix locations required; without them, SPA fallback masquerades the API 401 as 200 HTML`.
+
+
+## Updates after the original run
+
+### L-3 (balance allow-list) — FIXED (2026-10-21)
+
+`/balance/{addr}` previously returned real balances for any address without auth (audit above). Fixed by adding a 4-line allow-list guard in the handler:
+
+```python
+def _anon_allowlist():
+    s = os.environ.get(
+        "UBOT_BALANCE_ANON_ALLOWLIST",
+        "0x000000000000000000000000000000000000dEaD,0x713261F2151a759d9D935e6De2DB1d63A98176f6",
+    )
+    return {a.strip().lower() for a in s.split(",") if a.strip()}
+if address.lower() not in _anon_allowlist():
+    auth(x_api_key)
+```
+
+The default allow-list keeps the two historical demo / burn addresses (the live audit used `0x713261F...` for the demo read and saw it work; that still works). Anything outside the allow-list — including the treasury `0x673678...` and the revenue wallet `0xbE440bf22...` — now requires either a JWT session or a valid `X-API-Key`. The flat `/balance` route (used by the frontend for the demo session) is unaffected.
+
+**Live behaviour after the fix**:
+
+```
+$ curl /balance/0x713261F...?chain_id=43114            → 200  (allow-list)
+$ curl /balance/0x000...dEaD?chain_id=43114            → 200  (allow-list)
+$ curl /balance/0xbE440bf22...?chain_id=43114         → 401  (now gated)
+$ curl -H "X-API-Key: ..." /balance/0xbE440bf22...    → 200  (key-gated)
+$ curl -H "X-API-Key: ..." /balance/0x673678...        → 200  (key-gated)
+```
+
+Configurable via `UBOT_BALANCE_ANON_ALLOWLIST` in `/opt/ubotpay/.env`.
+
+### L-2 (header dedup) — NOT FIXED (regression risk; see infra note)
+
+Three attempts to delete the duplicated `add_header` set inside `location` blocks failed nginx `nginx -t` with `location "/i18n.js" cannot be inside the exact location "/ubot.css"`. My parser stripped the brace-pair `{ }` of one of the inline location blocks (`location = /ubot.css { add_header Cache-Control "no-cache";`) because the original vhost had `}` and `add_header` on the same line. Reverted cleanly; live `/health` 200; no impact.
+
+Recommended follow-up: instead of stripping lines from the existing file, rewrite that vhost from scratch as one consistent block per `location` (each block opens on its own line and closes on its own line). One logical nginx-file change + a 30-line diff. Approx 20 min.
+
+### Status
+
+- L-1 (history/invoices prefix) — live, fixed.
+- L-3 (balance allow-list) — live, fixed.
+- L-2 (header dedup) — documented, not fixed. Roll forward when the
+  vhost is next regenerated or when there's time to do the structural
+  rewrite.
+- All other findings still informational / working as designed.
+
+Suite after the live fixes: **654/654** (no regressions).
