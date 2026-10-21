@@ -1612,13 +1612,20 @@ def bridge_quote(
                     from_chain, to_chain, amount_usdc, type(e).__name__, str(e)[:200])
         raise HTTPException(502, "could not get a bridge quote right now, try again shortly")
     raw = q.pop("raw", {})
-    # Audit M5: validate that the partner's transactionRequest.to is a
-    # known bridge contract. A compromised partner could redirect funds
-    # to an arbitrary address by returning a tx with a malicious `to`.
-    tx_req = q.get("transaction") or q.get("transaction_request")
-    if isinstance(tx_req, dict) and tx_req.get("to"):
-        if not _validate_tx_target(tx_req["to"]):
-            log.warning("M5: rejecting quote from %s — unknown tx.to=%s", q.get("partner"), tx_req["to"])
+    # Audit M5 (round 24): validate that the partner's transactionRequest.to is
+    # a known bridge contract. A compromised partner could redirect funds to
+    # an arbitrary address by returning a tx with a malicious `to`.
+    #
+    # The previous code read from `q.get("transaction")` or `q.get
+    # ("transaction_request")` — but q["transaction_request"] is the fromAddress
+    # string and q["transaction"] is None (the real tx dict only lives under
+    # raw["transactionRequest"]). As a result, isinstance(tx_req, dict) was
+    # always False, and _validate_tx_target() never ran. The malicious `to`
+    # went straight back to the client.
+    raw_tx = raw.get("transactionRequest") or {}
+    if isinstance(raw_tx, dict) and raw_tx.get("to"):
+        if not _validate_tx_target(raw_tx["to"]):
+            log.warning("M5: rejecting quote from %s — unknown tx.to=%s", q.get("partner"), raw_tx["to"])
             raise HTTPException(502, "bridge contract not in allowlist; quote rejected")
     return {
         "ok": True,
