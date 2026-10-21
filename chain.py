@@ -325,8 +325,21 @@ def verify_bridge_tx(tx_hash: str, from_address: str, chain_id: int,
     return out
 
 def _balance_usdc(w3l, c, a) -> Decimal:
-    global _DEC
-    _DEC = w3l.eth.contract(Web3.to_checksum_address(c.usdc), abi=[{"name":"decimals","type":"function","stateMutability":"view","inputs":[],"outputs":[{"type":"uint8"}], "constant":True}])
-    dec = _DEC.functions.decimals().call()
+    """Fetch USDC balance on chain `c` for address `a`.
+
+    Round 24 audit: this used to assign a Contract object to the global _DEC.
+    After it ran, the next chain.decimals() returned that Contract object, and
+    send_usdc() / to_units() crashed with TypeError on the next payment. The
+    the cascade was 'visible' because two unrelated chains share one Python
+    process: looking up a Base balance killed Avalanche payments. Fixed by
+    binding the contract to a local variable; the global _DEC stays as the
+    int it is supposed to be.
+    """
+    usdc_local = w3l.eth.contract(
+        Web3.to_checksum_address(c.usdc),
+        abi=[{"name": "decimals", "type": "function", "stateMutability": "view",
+              "inputs": [], "outputs": [{"type": "uint8"}]}],
+    )
+    dec = usdc_local.functions.decimals().call()
     raw = _CHAIN_RUNTIME[c.id][2].functions.balanceOf(a).call()
     return Decimal(raw) / (10 ** dec)

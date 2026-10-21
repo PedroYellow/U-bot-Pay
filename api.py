@@ -1916,11 +1916,27 @@ def bridge_status(bridge_id: str, request: Request):
             delivered = _delivered_amount(receiving)
             if delivered is None:
                 delivered = _expected_amount(br)
-            core.update_bridge(bridge_id, status="done", confirmed_at=int(time.time()),
+            # Audit round 24: the previous version marked the bridge "done"
+            # regardless of how much actually arrived. A bridge that returned
+            # half the guaranteed minimum was indistinguishable in DB from a
+            # full success; only the Telegram notification told the user.
+            # Compute the floor in human units; bridge.to_amount_min is stored
+            # as base units (LI.FI int convention), then converted at compare
+            # time so we never paper over a partner encoding change.
+            floor_human: float | None = None
+            try:
+                raw = json.loads(br.get("to_amount_min") or "0")
+                floor_human = float(int(raw) / 1e6)
+            except Exception:
+                floor_human = None
+            short = bool(floor_human and delivered < floor_human * 0.999)
+            new_status = "short" if short else "done"
+            core.update_bridge(bridge_id, status=new_status,
+                               confirmed_at=int(time.time()),
                                delivered_usdc=delivered)
             br_done = core.get_bridge(bridge_id)
             if NOTIFY:
-                try: asyncio.create_task(_notify_bridge(br_done, "done", user))
+                try: asyncio.create_task(_notify_bridge(br_done, new_status, user))
                 except Exception as e: log.warning("done notify failed: %s", e)
             return br_done
         if lifi_status in ("failed", "error"):
