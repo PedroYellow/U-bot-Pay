@@ -2,6 +2,7 @@
 import os, asyncio, logging
 import uvicorn
 import api, tg
+import treasury_watch
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -27,6 +28,10 @@ async def main():
     server = uvicorn.Server(config)
     tasks = [asyncio.create_task(server.serve())]
     tasks.append(asyncio.create_task(_pending_gc_loop()))
+    # Treasury watch polls the operator's address every 5 minutes and
+    # sends a Telegram message when the USDC balance increases. The
+    # thread is a daemon and dies with the process.
+    treasury_watch.start_background()
     if os.environ.get("UBOT_BOT_TOKEN"):
         app = tg.build()
         await app.initialize(); await app.start()
