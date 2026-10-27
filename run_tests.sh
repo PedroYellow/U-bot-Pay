@@ -13,13 +13,29 @@ cd "$(dirname "$0")"
 FILTER="${1:-}"
 PASS=0; FAIL=0; FAILED_SUITES=""
 
+# Use the project venv's interpreter, not the system python3.
+#
+# The venv is where fastapi / httpx / web3 / eth_account live. The system
+# python3 does not have them, so five suites (test_energy, test_energy_api_shape,
+# test_dataagent_paid_boundary, test_settling_reaper, test_turn_chain) died at
+# import with ModuleNotFoundError and were reported as FAIL — an environment
+# artefact, not a product regression. Falling back to system python3 keeps the
+# script runnable on a machine with no venv.
+if [ -x "/opt/ubotpay/venv/bin/python" ]; then
+  PY="/opt/ubotpay/venv/bin/python"
+elif [ -x "$PWD/venv/bin/python" ]; then
+  PY="$PWD/venv/bin/python"
+else
+  PY="python3"
+fi
+
 for t in test_*.py; do
   # test_brain.py is the original 15 Oct script. It reads /opt/ubotpay/.env at
   # import time, so it only runs on the VPS and dies everywhere else. It is
   # superseded by test_brain_fallback.py, which is portable and covers more.
   [ "$t" = "test_brain.py" ] && continue
   [ -n "$FILTER" ] && [[ "$t" != *"$FILTER"* ]] && continue
-  out=$(python3 "$t" 2>&1)
+  out=$("$PY" "$t" 2>&1)
   code=$?
   if [ $code -eq 0 ]; then
     line=$(printf '%s\n' "$out" | grep -E '^[0-9]+/[0-9]+ passed' | tail -1)

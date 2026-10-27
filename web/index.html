@@ -148,7 +148,7 @@
    ubotpay brain  —  Ubot understands · policy checks · FX quote
             ↓
    Avalanche C-Chain  —  USDC settles in &lt; 2 s</pre></div>
-  <div class="links"><a class="link" href="https://api.ubotpay.com/docs" target="_blank">API ↗</a><a class="link" href="https://agent.ubotpay.com" target="_blank">DataAgent ↗</a><a class="link" href="https://snowtrace.io/address/0x673678B1870Ae7ef598A5982D25ffdee68d85669" target="_blank" data-i18n="l_treasury">Treasury ↗</a><a class="link" href="https://github.com/PedroYellow/U-bot-Pay" target="_blank">GitHub ↗</a></div>
+  <div class="links"><a class="link" href="https://api.ubotpay.com/docs" target="_blank">API ↗</a><a class="link" href="https://agent.ubotpay.com" target="_blank">DataAgent ↗</a><a class="link" id="treasuryLink" href="#" target="_blank" rel="noopener" data-i18n="l_treasury" style="display:none">Treasury ↗</a><a class="link" href="https://github.com/PedroYellow/U-bot-Pay" target="_blank">GitHub ↗</a></div>
 </section>
 
 <section id="contact">
@@ -167,6 +167,23 @@
 <script type="module">
 console.log("[ubotpay] main module loading…");
 const API = "https://api.ubotpay.com";
+// Audit round 3 (S-3): the treasury address used to be hardcoded in this
+// file's footer, so it was baked into every cached copy of the site and
+// could not be rotated without a redeploy. Fetch it at runtime instead, and
+// honour the server's visibility flag: if the operator turns the link off,
+// the anchor stays hidden.
+(function loadTreasuryLink(){
+  const a = document.getElementById("treasuryLink");
+  if (!a) return;
+  fetch(API + "/treasury", { headers: { "Accept": "application/json" } })
+    .then(r => r.ok ? r.json() : null)
+    .then(d => {
+      if (!d || !d.address || d.visible === false) { a.style.display = "none"; return; }
+      a.href = d.explorer;
+      a.style.display = "";
+    })
+    .catch(() => { a.style.display = "none"; });
+})();
 // API key removed from browser for security — see api.py to enable session-based auth
 const log = document.getElementById("log"), inp = document.getElementById("inp"), orb = document.getElementById("orb"), orbstate = document.getElementById("orbstate");
 const add = (cls, html) => { const d = document.createElement("div"); d.className = "msg " + cls; d.innerHTML = html; log.appendChild(d); log.scrollTop = log.scrollHeight; return d; };

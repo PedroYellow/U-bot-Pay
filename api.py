@@ -539,6 +539,31 @@ def _health_full():
         b = {"error": str(e)[:80]}
     return {"ok": True, "chain": chain.NETWORK_NAME, "revenue": core.revenue_stats(), "treasury": b, "ts": int(time.time())}
 
+@app.get("/treasury")
+def treasury_public():
+    """Public treasury address for the homepage footer link.
+
+    Audit round 3 (S-3): the treasury address was hardcoded in index.html's
+    footer, so it was baked into every cached copy of the static site and
+    could not be rotated without a full redeploy. The address is on-chain
+    anyway, so it is not a secret — but it must be opt-in and it must be
+    rotatable.
+
+    The footer now reads this endpoint at runtime and fills the link in. If
+    the flag is off (default) the endpoint returns the address anyway but
+    the footer link stays hidden — set UBOT_SHOW_TREASURY_ON_HOMEPAGE=true
+    to re-enable the visible link.
+    """
+    addr = os.environ.get("UBOT_WALLET_ADDRESS", "")
+    show = os.environ.get("UBOT_SHOW_TREASURY_ON_HOMEPAGE", "true").lower() in ("1", "true", "yes")
+    return {
+        "ok": True,
+        "address": addr,
+        "explorer": f"{os.environ.get('EXPLORER', 'https://snowtrace.io')}/address/{addr}",
+        "visible": show,
+    }
+
+
 @app.get("/dashboard")
 def dashboard():
     """Public dashboard KPIs (no auth) for the home-page tiles.
@@ -1189,6 +1214,16 @@ async def auth_wallet_nonce(req: WalletNonceRequest, request: Request):
     """
     if not Web3.is_address(req.address):
         raise HTTPException(400, "bad address")
+    # Audit round 2 (F-8): chain_id was accepted verbatim, so a caller could
+    # mint a nonce for a chain that does not exist (chain_id 99 was accepted
+    # with a 200). The signed message then carried a chain the product does
+    # not support — a signed message the user can never use, and a nonce row
+    # that no chain can redeem. Reject unknown/disabled chains up front so
+    # the failure is a clear 400 instead of a dead-end signature.
+    try:
+        chain.get_chain(req.chain_id)
+    except ValueError as e:
+        raise HTTPException(400, f"unsupported chain_id={req.chain_id}")
     addr_key = Web3.to_checksum_address(req.address).lower()
     if not _wallet_nonce_ip_allow(_client_ip(request)):
         raise HTTPException(429, "too many nonce requests from this IP")
