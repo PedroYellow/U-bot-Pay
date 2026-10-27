@@ -299,6 +299,88 @@ def test_nonce_live_rejects_unknown_chain():
     chk("F-8 live nonce with chain_id 99 returns 400", code, 400)
 
 
+# ── L-3b: /balance/{addr} must not leak the treasury anonymously ─────────
+
+def test_balance_allowlist_guard_exists_in_code():
+    """The guard must be in the SOURCE, not only in a deployed file.
+
+    This is the finding that motivated the whole check: on 21 Oct the
+    allow-list was applied directly to the deployed api.py and then lost
+    when the repository was synced over the deployment. The audit document
+    said the fix was live; the code had never contained it. This test
+    reads the source so the two can never disagree again.
+    """
+    src = os.path.join(HERE, "api.py")
+    if not os.path.exists(src):
+        print("SKIP  L-3b guard in source (api.py not found)")
+        return
+    body = open(src, encoding="utf-8").read()
+    chk("L-3b allow-list helper present in api.py",
+        "_anon_balance_allowlist" in body, True)
+    chk("L-3b allow-list env var referenced",
+        "UBOT_BALANCE_ANON_ALLOWLIST" in body, True)
+    # the guard must actually be applied inside the handler
+    m = re.search(r'def balance_by_address.*?(?=\n@|\ndef )', body, re.S)
+    chk("L-3b guard applied inside balance_by_address",
+        bool(m) and "_anon_balance_allowlist" in m.group(0), True)
+
+
+def test_treasury_balance_not_public():
+    """Live check: the treasury balance must NOT be readable anonymously."""
+    api = os.environ.get("UBOT_API", "https://api.ubotpay.com")
+    treasury = os.environ.get(
+        "UBOT_TREASURY_ADDRESS",
+        "0x673678B1870Ae7ef598A5982D25ffdee68d85669")
+    try:
+        req = urllib.request.Request(api + "/balance/" + treasury)
+        with urllib.request.urlopen(req, timeout=20) as r:
+            code = r.status
+            body = r.read()[:200].decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        code = e.code
+        body = ""
+    except Exception as e:
+        print("SKIP  L-3b live treasury check (%s)" % type(e).__name__)
+        return
+    chk("L-3b treasury balance is 401 for an anonymous caller", code, 401)
+    chk("L-3b treasury balance body carries no balance",
+        ("usdc" in body or "native_balance" in body), False)
+
+
+def test_revenue_balance_not_public():
+    """The revenue wallet must not be readable anonymously either."""
+    api = os.environ.get("UBOT_API", "https://api.ubotpay.com")
+    revenue = os.environ.get(
+        "UBOT_REVENUE_ADDRESS",
+        "0xbE440bf22FFDDdD8372DDf66a4beffEB8D41B209")
+    try:
+        with urllib.request.urlopen(api + "/balance/" + revenue, timeout=20) as r:
+            code = r.status
+    except urllib.error.HTTPError as e:
+        code = e.code
+    except Exception as e:
+        print("SKIP  L-3b live revenue check (%s)" % type(e).__name__)
+        return
+    chk("L-3b revenue balance is 401 for an anonymous caller", code, 401)
+
+
+def test_allowlisted_address_still_readable():
+    """The demo address must still be readable without auth, or the
+    homepage breaks."""
+    api = os.environ.get("UBOT_API", "https://api.ubotpay.com")
+    demo = "0x713261F2151a759d9D935e6De2DB1d63A98176f6"
+    try:
+        with urllib.request.urlopen(api + "/balance/" + demo, timeout=20) as r:
+            code = r.status
+    except urllib.error.HTTPError as e:
+        code = e.code
+    except Exception as e:
+        print("SKIP  L-3b allow-listed address check (%s)" % type(e).__name__)
+        return
+    chk("L-3b allow-listed demo address is still readable anonymously",
+        code, 200)
+
+
 # ── regression: the API still serves what it should ──────────────────────
 
 def test_api_health_and_core_endpoints():

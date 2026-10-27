@@ -1000,18 +1000,49 @@ def balance(x_api_key: str | None = Header(default=None), request: Request = Non
     u = _resolve_demo_user()
     return chain.balance(u["address"] or os.environ["UBOT_WALLET_ADDRESS"])
 
+def _anon_balance_allowlist() -> set[str]:
+    """Addresses whose balances may be read without authentication.
+
+    Audit L-3 (2026-10-21, and re-confirmed 2026-10-27): /balance/{addr}
+    returned real balances for ANY address without auth. The demo address
+    was harmless, but the treasury and the revenue wallet were not — the
+    treasury is the wallet that signs transactions, and its balance is
+    exactly the kind of thing that should not be public.
+
+    The guard was applied directly to the deployed file on 21 Oct and was
+    then lost when the repository was synced over the deployment, so the
+    audit note and the code disagreed for six days. It is here now, in the
+    repository, with a test that fails if it disappears again.
+
+    Configurable via UBOT_BALANCE_ANON_ALLOWLIST in the environment.
+    """
+    raw = os.environ.get(
+        "UBOT_BALANCE_ANON_ALLOWLIST",
+        # the historical demo address and the burn address
+        "0x000000000000000000000000000000000000dEaD,"
+        "0x713261F2151a759d9D935e6De2DB1d63A98176f6",
+    )
+    return {a.strip().lower() for a in raw.split(",") if a.strip()}
+
+
 @app.get("/balance/{address}")
 def balance_by_address(address: str, chain_id: int = 43114, x_api_key: str | None = Header(default=None)):
-    """Public balance lookup for any address on any enabled chain.
+    """Balance lookup for any address on any enabled chain.
 
     Query params:
       chain_id: 1=ETH, 10=OP, 137=Polygon, 8453=Base, 42161=Arbitrum, 43114=Avalanche.
     Default is 43114 (Avalanche C-Chain) for backward compatibility.
 
-    Returns the native and USDC balance of the given address on the chosen chain.
-    No auth required (balances are public on-chain data)."""
+    Balances are public on-chain data, but an UNAUTHENTICATED read of an
+    arbitrary address would publish the treasury's and the revenue
+    wallet's balances. So the anonymous path is limited to a named
+    allow-list (see _anon_balance_allowlist); anything else needs the
+    internal API key or a JWT session.
+    """
     if not Web3.is_address(address):
         raise HTTPException(400, "bad address")
+    if address.lower() not in _anon_balance_allowlist():
+        auth(x_api_key)
     # A destination-only chain (Solana) has no RPC to read from. Say so with a
     # 400 rather than answering 0.0, which would read as "this address is broke".
     try:
