@@ -197,6 +197,90 @@ already handles both directions; the destination list needs to change.
 
 ---
 
+## The business case has a second revenue line on Sonic (FeeM)
+
+Found while preparing the outreach, and it changes the economics.
+
+**Sonic's FeeM (Fee Monetization) pays builders 90% of the network fees
+their app generates.** The flow: 10% of each gas fee goes to validators, the
+remaining 90% is sent to the FeeM contract, and oracles trace gas
+consumption per registered contract — including sub-calls — and release the
+app's share.
+
+**Why this suits a payments product specifically.** A payments app settles
+in USDC but the *app contract* is what executes on Sonic, so the gas is
+attributed to our contract, not to the user's USDC transfer. The traffic is
+unusual for a chain: high-frequency, small-value, and it keeps our
+contract hot. Per the FeeM FAQ, for a proxy contract we register the proxy
+and the gas consumed by the implementation via delegatecall is attributed to
+it — which is exactly our shape, since the payment path is a proxy.
+
+This is a **revenue line, not a grant**, and it is worth stating in the
+pitch that way. The dashboard is at `feem.soniclabs.com`, and the
+registration path is at `docs.soniclabs.com/funding/fee-monetization/apply`.
+
+**Apply for it as part of the native deployment, not after.**
+
+---
+
+## The finding that makes this a real conversation (added 2026-10-27, 14:40 UTC)
+
+**Stargate cannot route a single USDC into Sonic right now.**
+
+Measured on-chain and against the aggregator, not from a website:
+
+| What | Value | How |
+|---|---|---|
+| Stargate V2 USDC pool on Sonic | `0xa272ffe20cffe769cdfc4b63088dcd2c82a2d8f9` | sonicscan trace + contract read |
+| USDC held by that pool | **27,874.19 USDC** | `balanceOf(pool)` on `0x29219dd4…` |
+| Stargate V2 total TVL | $75.58M | DefiLlama |
+| of which Ethereum | $53.02M | DefiLlama |
+| of which **Sonic** | **$27,836** | DefiLlama |
+| Sonic 30-day bridge volume via Stargate | $118,471 (vs $301M Ethereum) | DefiLlama |
+| LayerZero Endpoint V2 on Sonic | `0x88853d410299bcbfe5fcc9eef93c03115e908279` | storage slot 2 of the pool |
+
+And with Stargate as the only allowed bridge, LI.FI returns **no route at
+any size**:
+
+```
+10 USDC       -> No available quotes for the requested transfer
+100 USDC      -> No available quotes for the requested transfer
+1,000 USDC    -> No available quotes for the requested transfer
+10,000 USDC   -> No available quotes for the requested transfer
+100,000 USDC  -> No available quotes for the requested transfer
+```
+
+Meanwhile the Avalanche→Sonic route **does** work, through Polymer, and our
+own live endpoint quotes it:
+
+```
+$ curl 'https://api.ubotpay.com/bridge/quote?from_chain=43114&to_chain=146&amount_usdc=100&...'
+  tool               : Polymer (Standard)
+  to_amount_human    : 99.75 USDC
+  total_fee_usd      : 0.2591
+  execution_duration : 1080s
+```
+
+**The consequence for the pitch.** A payments rail that cannot move $100
+is not a payments rail. And the Stargate Sonic deployment was ratified by
+the DAO at 95.55% with USDC and USDT pools promised on day one, and 1m USDC
++ 1m USDT of liquidity requested — **the pools shipped and the liquidity
+never arrived.** That is a fair thing to raise, politely, with the $27,874
+figure attached, alongside the offer to be a recurring consumer of the
+route.
+
+**It also sharpens the CCTP point.** Circle's CCTP is not deployed on Sonic
+either — of the 69 addresses in Circle's registry, only the Sonic USDC
+token has code on chain 146, with no `MessageTransmitter` or
+`TokenMessenger`. So the paths into Sonic today are:
+
+- **Polymer** — works. This is what the product uses right now.
+- **Sonic Gateway** — Sonic's own trustless Ethereum↔Sonic bridge.
+- **Stargate** — deployed, but effectively empty and unroutable.
+- **CCTP** — not live yet.
+
+---
+
 ## Two things to verify before promising anything
 
 ### A. Is Sonic USDC Circle-native? — **ANSWERED: yes, native Circle USDC**
