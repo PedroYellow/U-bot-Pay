@@ -70,6 +70,38 @@ if grep -rqE "sk-(ant|nous|or)[a-zA-Z0-9_-]{8,}|[\"']x-api-key[\"']\s*[:=]\s*[\"
   exit 1
 fi
 
+# ── stray backup files ────────────────────────────────────────────────────
+# Audit 2026-10-27 (L-3): eight backup files (.bak-*, .before-fix3,
+# .pre-fix-agent) were sitting in the webroot and being served with HTTP 200.
+# index.html.bak-* also carried a second-order XSS in the bridge error
+# handler that the live index.html had already fixed.
+#
+# The nginx deny rule stops them being served, but they still pile up on
+# disk and they are one config change away from being served again. So the
+# deploy removes them and the verification below fails if any survive.
+#
+# Backups belong OUTSIDE the webroot. ARCHIVE_DIR, if set, receives a copy
+# first; nothing is deleted without a copy unless ARCHIVE_DIR is empty.
+ARCHIVE_DIR="${UBOT_WEB_ARCHIVE_DIR:-/root/audit/web-archive}"
+stale=()
+while IFS= read -r f; do
+  [ -n "$f" ] && stale+=("$f")
+done < <(find "$DST" -maxdepth 1 -type f \
+  \( -name '*.bak-*' -o -name '*.before-fix*' -o -name '*.pre-fix*' \
+     -o -name '*.post-fix*' -o -name '*.orig' -o -name '*.tmp' -o -name '*.swp' \) \
+  2>/dev/null || true)
+
+if [ "${#stale[@]}" -gt 0 ]; then
+  if [ -n "$ARCHIVE_DIR" ] && mkdir -p "$ARCHIVE_DIR" 2>/dev/null; then
+    for f in "${stale[@]}"; do
+      cp -p "$f" "$ARCHIVE_DIR/$(basename "$f").$(date -u +%Y%m%dT%H%M%SZ)" 2>/dev/null || true
+    done
+    echo "archived ${#stale[@]} stale backup file(s) to $ARCHIVE_DIR"
+  fi
+  rm -f "${stale[@]}"
+  echo "removed ${#stale[@]} stale backup file(s) from $DST"
+fi
+
 # ── verification ───────────────────────────────────────────────────────────
 # A partial deploy that reports success is worse than a failed one. But a file
 # missing from the *source* is a different situation: warn about it, deploy the
@@ -86,6 +118,17 @@ for f in "${ASSETS[@]}"; do
     failed=1
   fi
 done
+
+# A stray backup file in the webroot is a deploy failure, not a warning.
+leftover=$(find "$DST" -maxdepth 1 -type f \
+  \( -name '*.bak-*' -o -name '*.before-fix*' -o -name '*.pre-fix*' \
+     -o -name '*.post-fix*' -o -name '*.orig' -o -name '*.tmp' -o -name '*.swp' \) \
+  2>/dev/null | wc -l)
+if [ "$leftover" -ne 0 ]; then
+  echo "VERIFY: $leftover backup file(s) still in $DST" >&2
+  failed=1
+fi
+
 [ "$failed" -eq 0 ] || { echo "deploy incomplete" >&2; exit 1; }
 
 deployed=$(( ${#ASSETS[@]} - ${#missing[@]} ))
