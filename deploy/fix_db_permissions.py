@@ -23,7 +23,24 @@ import sys
 path = sys.argv[1] if len(sys.argv) > 1 else "/opt/usonicpay/core.py"
 
 OLD = '''def _open_conn():
-    c = sqlite3.connect(DB, timeout=_BUSY_TIMEOUT_S)'''
+    c = sqlite3.connect(DB, timeout=_BUSY_TIMEOUT_S)
+    c.row_factory = sqlite3.Row
+    for p in _PRAGMAS:
+        try:
+            c.execute(p)
+        except sqlite3.DatabaseError:
+            pass
+    # An existing database may still be world-readable from before this
+    # was fixed. Tighten it - a deploy that recreates the database would
+    # otherwise leave it world-readable again.
+    try:
+        if os.path.exists(DB):
+            mode = os.stat(DB).st_mode & 0o777
+            if mode & 0o004:
+                os.chmod(DB, 0o600)
+    except OSError:
+        pass
+    return c'''
 
 NEW = '''def _open_conn():
     # SQLite creates the file with the process umask, which under
