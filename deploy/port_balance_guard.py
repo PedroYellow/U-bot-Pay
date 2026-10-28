@@ -14,24 +14,61 @@ repository was synced over the deployment, and the audit note and the
 code disagreed for six days.
 
 The whitelabels were forked from the Solana deployment, which never had
-the guard. So api.usonicpay.com answers a balance read for ANY address
-with no auth - including its own treasury. It returns 0 today only
-because the treasury is unfunded. The moment it is funded, the balance
-is public.
+the guard. api.usonicpay.com and api.usolpay.com both answered a
+balance read for ANY address with no auth - including their own
+treasury.
 
-This ports the guard, with the deployment's own environment prefix so
-each deployment configures its own allow-list.
+Two things this has to get right:
+
+  1. The env var name. The Sonic deployment uses config.py's
+     cfg("BALANCE_ANON_ALLOWLIST"), which resolves under its own
+     prefix. The Solana deployment never got that refactor and reads
+     os.environ.get("USOL_...") directly. A guard that calls cfg() in a
+     codebase without config.py raises NameError at request time - a
+     500 with nothing in the journal, which is the hardest kind of
+     failure to diagnose.
+
+  2. The check has to go INSIDE the endpoint, after the address is
+     validated.
 
 Line-based rather than regex-based: a regex over the whole function
 body is easy to get subtly wrong, and a wrong patch that still compiles
-is worse than no patch.
+reads the same as no patch at all.
 
 Usage: port_balance_guard.py <api.py> <prefix>
+  api.py:   the service to patch
+  prefix:   the deployment prefix, e.g. USONIC
 """
+import os
 import sys
 
 path = sys.argv[1] if len(sys.argv) > 1 else "/opt/usonicpay/api.py"
 prefix = sys.argv[2] if len(sys.argv) > 2 else "USONIC"
+
+# Does this codebase have the config.py prefix layer?
+has_cfg = False
+for cand in (os.path.join(os.path.dirname(path), "config.py"),):
+    if os.path.exists(cand):
+        with open(cand, encoding="utf-8") as fh:
+            has_cfg = "def cfg(" in fh.read()
+        break
+
+if has_cfg:
+    reader = f'''    raw = cfg(
+        "BALANCE_ANON_ALLOWLIST",
+        # the burn address and the historical demo address
+        "0x000000000000000000000000000000000000dEaD,"
+        "0x713261F2151a759d9D935e6De2DB1d63A98176f6",
+    )'''
+    env_note = f"{prefix}_BALANCE_ANON_ALLOWLIST"
+else:
+    reader = f'''    raw = os.environ.get(
+        "{prefix}_BALANCE_ANON_ALLOWLIST",
+        # the burn address and the historical demo address
+        "0x000000000000000000000000000000000000dEaD,"
+        "0x713261F2151a759d9D935e6De2DB1d63A98176f6",
+    )'''
+    env_note = f"{prefix}_BALANCE_ANON_ALLOWLIST"
 
 GUARD = f'''def _anon_balance_allowlist() -> set[str]:
     """Addresses whose balances may be read without authentication.
@@ -43,14 +80,9 @@ GUARD = f'''def _anon_balance_allowlist() -> set[str]:
     transactions, and its balance is exactly the kind of thing that
     should not be public.
 
-    Configurable via {prefix}_BALANCE_ANON_ALLOWLIST in the environment.
+    Configurable via {env_note} in the environment.
     """
-    raw = cfg(
-        "BALANCE_ANON_ALLOWLIST",
-        # the burn address and the historical demo address
-        "0x000000000000000000000000000000000000dEaD,"
-        "0x713261F2151a759d9D935e6De2DB1d63A98176f6",
-    )
+{reader}
     return {{a.strip().lower() for a in raw.split(",") if a.strip()}}
 
 
@@ -76,10 +108,11 @@ if start is None:
     print("could not find the balance endpoint")
     sys.exit(1)
 
-# the validation line inside that function
+# The validation message differs per chain - "bad address" on EVM,
+# "bad TRON address" on Tron. Look for the raise, not the wording.
 validate = None
-for i in range(start, min(start + 80, len(lines))):
-    if "raise HTTPException(400, \"bad address\")" in lines[i]:
+for i in range(start, min(start + 120, len(lines))):
+    if "HTTPException(400," in lines[i] and "address" in lines[i]:
         validate = i
         break
 if validate is None:
@@ -94,10 +127,23 @@ lines[start:start] = GUARD.rstrip("\n").split("\n") + [""]
 
 open(path, "w", encoding="utf-8").write("\n".join(lines))
 print(f"the anonymous-balance guard was ported for {prefix}")
+print(f"  config.py present: {has_cfg}")
+print(f"  env var: {env_note}")
 
-# verify
+# verify: the guard, the check, and that the reader exists
 out = open(path, encoding="utf-8").read()
-ok = ("_anon_balance_allowlist" in out
-      and "auth(x_api_key)" in out
-      and f"{prefix}_BALANCE_ANON_ALLOWLIST" not in out)  # the prefix is used via cfg()
-print("the guard and its check are both present" if ok else "WARNING: verify by hand")
+problems = []
+if "_anon_balance_allowlist" not in out:
+    problems.append("the guard function is missing")
+if "auth(x_api_key)" not in out:
+    problems.append("the auth check is missing")
+if has_cfg and "cfg(" not in out.split("def _anon_balance_allowlist")[1][:900]:
+    problems.append("the guard does not use cfg() but the codebase has config.py")
+if not has_cfg and "os.environ.get" not in out.split("def _anon_balance_allowlist")[1][:900]:
+    problems.append("the guard does not read os.environ but the codebase has no config.py")
+
+if problems:
+    for p in problems:
+        print(f"  WARNING: {p}")
+    sys.exit(1)
+print("  the guard and its check are both present, and the reader matches this codebase")
