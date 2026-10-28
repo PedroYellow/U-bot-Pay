@@ -366,3 +366,88 @@ And a suite that times out is reported as a failure, not skipped.
 The main deployment keeps its own runner - it excludes test_brain.py,
 which reads /opt/ubotpay/.env at import time and only runs on the
 server.
+
+---
+
+## The guard watch, and what it found
+
+Nothing was watching for the balance guard to be lost again. It was
+lost once already - on the main service, when the repository was
+synced over the deployment - and the audit note and the code
+disagreed for six days. The whitelabels were forked from a deployment
+that never had it, so two of them shipped without it.
+
+`deploy/guard_watch.py` checks every deployment, every run:
+
+  1. the service is up
+  2. the anonymous-balance allowlist is in the code
+  3. the treasury is NOT in the allowlist
+  4. at runtime the treasury answers 401 and the demo address reads
+  5. the live chain id matches the chain the deployment claims to be
+
+It is scheduled every 30 minutes with change detection, so only a
+change wakes anything.
+
+### It found the Tron chain id
+
+    8090  avalanche-mainnet   43114
+    8093  USolPay             1151111081099710
+    8094  Sonic               146
+    8092  Tron Mainnet        0     <- wrong
+
+Two places said zero: the profile had no `chain_id` key, and the
+engine hardcoded `self._chain_id = 0`. Tron mainnet is 728126428.
+
+The chain id is not cosmetic. It is what the x402 payment paths sign
+over, what a bridge route is keyed by, and what the dashboard
+publishes as the deployment's identity. A deployment reporting 0 is a
+deployment that cannot be told apart from "no chain".
+
+### The same bug in two more places
+
+The Tron deployment had **Avalanche's** chain id hardcoded - 43114 - in
+`resolve_user` and in both wallet models. So a request that omitted
+the chain id was resolved against Avalanche: the nonce was minted for
+one chain and the user looked up on another.
+
+Every one now comes from `chain.CHAIN_ID`, which resolves through the
+registry to the engine, and the engine takes it from the profile. A
+pydantic field default is evaluated at class-definition time, so the
+default is `None` and the value is resolved at request time.
+
+### Giving the deployment its real chain id broke the balance route
+
+The route was:
+
+```python
+def balance_by_address(address: str, chain_id: int = 0, ...):
+```
+
+The default was the literal 0, which happened to be the Tron
+deployment's chain id - so the default and the registry's key agreed
+**by accident, on a wrong value**. Give the deployment its real chain
+id and the literal no longer matched: `engine_for` raised
+`NotSupported` and the endpoint answered **500** where it had answered
+400 for a wrong-chain address.
+
+The default is now the deployment's own chain id. Then it is right
+whatever the chain is, and the route and the registry cannot
+disagree.
+
+### Two false positives worth recording
+
+The first version of the watch reported the treasury as being IN the
+allowlist. It grepped the file for the address - and matched the
+DOCSTRING, which mentions the treasury to explain why it is not
+there. The address appears zero times in the code.
+
+And the HTTP probe failed on every deployment, because the ports are
+bound to 127.0.0.1 **on the VPS** and the watch runs on the Hermes
+host. The probe now lives in a file on the VPS: passing a multi-line
+script as an argument through ssh loses the quoting, and it failed
+silently - which looked like a broken deployment.
+
+### The rule, again
+
+A chain id is a fact about a deployment, not a literal. The moment it
+is written down in two places, one of them is wrong.
