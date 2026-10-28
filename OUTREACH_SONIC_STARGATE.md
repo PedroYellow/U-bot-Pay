@@ -91,6 +91,7 @@ pool were liquid.
 | **16 chains already enabled, Sonic included** | `GET api.ubotpay.com/auth/chains` — Avalanche, Base, Polygon, Arbitrum, Ethereum, Optimism, zkSync, **Sonic**, Solana, Linea, Scroll, Mantle, Celo, World Chain, Unichain + Fuji |
 | Avalanche→Sonic bridge works today | `GET api.ubotpay.com/bridge/quote` — Polymer, 18 min, $0.26 total fee |
 | 40 regression suites green | `run_tests.sh` → `40 suites passed, EXIT=0` |
+| Stargate routability is measured, not asserted | `deploy/track_stargate_sonic.py`, re-run every 6h by a watchdog |
 | USDC on Sonic is **native Circle USDC** | Circle's own registry lists `0x29219dd400f2Bf60E5a23d13Be72B486D4038894` for Sonic mainnet |
 
 **On that last point** — the USDC address that circulates on the web for

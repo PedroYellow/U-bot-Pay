@@ -106,8 +106,10 @@ already routing volume into Sonic and would rather it went through you.
 **What we measured, today**
 
 The Stargate V2 USDC pool on Sonic:
-`0xa272ffe20cffe769cdfc4b63088dcd2c82a2d8f9` — **27,874.19 USDC held**,
-read straight from the contract.
+`0xa272ffe20cffe769cdfc4b63088dcd2c82a2d8f9` — **27,339 USDC held**,
+read straight from the contract on 2026-10-28. It was 27,874 USDC
+the day before, so the liquidity is draining rather than being
+supplied.
 
 And with Stargate as the only allowed bridge, the aggregator returns no
 route at any size:
