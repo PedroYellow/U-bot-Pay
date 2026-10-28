@@ -281,6 +281,77 @@ token has code on chain 146, with no `MessageTransmitter` or
 
 ---
 
+## Funding the Sonic treasury — the concrete blocker
+
+The Sonic treasury key exists and is control-proved:
+
+```
+address : 0xCC57d2f8A941B3408f939E6fe949fb7C2b1F01Af
+chain   : 146
+key     : /opt/ubotpay/secrets/sonic_treasury.key  (0600)
+```
+
+**Its balance is 0 S.** Without S it cannot pay gas, so it cannot sign a
+payment, so the native deployment cannot run. This is the one thing
+standing between the plan and a working chain.
+
+### The route, and what it costs
+
+There is a working path, measured:
+
+```
+50 USDC on Avalanche  →  1,068.86 S on Sonic
+  via LayerSwap, 18 seconds
+  LI.FI fixed fee      0.125 USDC  ($0.125)
+  LayerSwap fee       0.104 USDC  ($0.104)
+  gas                 $0.006
+  ────────────────────────────────
+  total               $0.235
+```
+
+**$0.235 buys 1,068 S.** At Sonic's published ~$0.001 per transfer that
+is roughly a million transactions of gas. The treasury needs a few S, not
+a thousand.
+
+### Where the money comes from
+
+| Account | AVAX | USDC |
+|---------|------|------|
+| Avalanche treasury `0x673678…` | 0.2925 | 18.32 |
+| revenue wallet `0xbE440b…` | 0.0001 | 30.16 |
+| Sonic treasury `0xCC57d2…` | — | 0 S |
+
+**Recommendation: fund it from the revenue wallet, not the treasury.**
+The revenue wallet holds 30.16 USDC and is the account that is supposed
+to carry operating spend; the treasury holds 18.32 USDC and is the
+operating capital. Moving 50 USDC out of the treasury would leave it at
+zero and stall the next real payment.
+
+### What to do
+
+1. **Bridge 50 USDC → S** from the revenue wallet on Avalanche, to the
+   Sonic treasury. $0.235.
+2. **Then also bridge USDC** so the Sonic treasury can actually settle
+   payments — a treasury that can pay gas but holds no USDC still cannot
+   send anything. ~$0.25.
+3. **Record the funding** — a treasury that has been funded and a
+   treasury that has been *drained* must be distinguishable later.
+
+### And ask Sonic Labs for the rest
+
+The Innovator Fund application (up to 200M S) should cover the
+go-to-market and the launch liquidity, so the treasury only needs
+enough S to start. The ask is already drafted in
+`OUTREACH_EMAILS.md`.
+
+**Also worth asking:** Sonic's "sponsored by design" programme covers
+the first transaction for users who arrive with USDC only. If that
+applies to app contracts as well as EOAs, it removes the gas question
+for our users entirely — and that is a bigger prize than our own
+treasury's gas balance.
+
+---
+
 ## Two things to verify before promising anything
 
 ### A. Is Sonic USDC Circle-native? — **ANSWERED: yes, native Circle USDC**
