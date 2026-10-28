@@ -1,0 +1,81 @@
+# USonicPay — Sonic mainnet, USDC.
+#
+# Everything chain-specific about this deployment lives here. Sonic is
+# EVM-compatible, so this uses the shared `evm` engine and needs no
+# Python — adding a chain is a file in this directory, not a fork.
+#
+# Secrets are not in this file. The loader pulls `private_key` and
+# `revenue_address` from the environment so a key never has to be
+# committed.
+#
+# What is different from Avalanche:
+#   - the gas token is S, not AVAX
+#   - USDC is Circle-native on Sonic (not a bridged Avalanche asset),
+#     so the address below is the one Circle's own registry lists
+#   - the block explorer is sonicscan.org
+
+name: USonicPay
+brand: usonicpay
+engine: evm
+
+chains:
+  kind: evm
+  stable_symbol: USDC
+  native: S
+
+  # Sonic mainnet chain id. 146.
+  chain_id: 146
+  name: Sonic
+
+  # Circle's USDC on Sonic mainnet. Verified two ways before it was
+  # written here: Circle's own token registry lists this exact address
+  # for Sonic, and reading the contract on chain gives decimals() == 6
+  # and symbol() == "USDC".
+  #
+  # The addresses that circulate on the web for "USDC on Sonic" are
+  # wrong. Do not copy them from a search result.
+  stable_address: 0x29219dd400f2Bf60E5a23d13Be72B486D4038894
+  explorer: https://sonicscan.org
+
+  # The public Sonic RPC. It serves mainnet and does not rate-limit
+  # aggressively at this volume. Set SONIC_RPC_URLS in the environment
+  # to try a paid endpoint first; the public one stays as the fallback
+  # so the service keeps working if a key expires.
+  rpc: https://rpc.soniclabs.com
+  rpc_urls: []
+
+  # LI.FI's numeric id for Sonic. Used so the bridge code recognises
+  # it as a destination.
+  lifi_id: 146
+
+  # The engine reads the token block from this same file, so there is
+  # one source of truth for the address, the decimals and the RPC.
+  profile: usonicpay.yaml
+
+  # Where the treasury key lives. Read by the engine's signer at
+  # startup; the key itself never enters this file and never enters
+  # the environment.
+  key_path: /opt/usonicpay/secrets/treasury.key
+  # private_key / revenue_address come from the environment.
+
+# The engine's own view of the token and the chain. Kept in the same
+# file the engine is handed, so there is one source of truth.
+tokens:
+  USDC:
+    address: 0x29219dd400f2Bf60E5a23d13Be72B486D4038894
+    decimals: 6
+    symbol: USDC
+
+# Fees and limits.
+fees:
+  # Sonic gas is cheap - the S token pays for it.
+  max_fee_usdc: 5.0
+  min_usdc: 0.01
+
+# The bot and the database this deployment owns. It does not share
+# either with the main U-bot Pay service or with the other whitelabels.
+telegram:
+  bot_token_env: USONIC_TELEGRAM_BOT_TOKEN
+
+database:
+  path: /opt/usonicpay/data/usonicpay.db

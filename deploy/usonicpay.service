@@ -1,0 +1,44 @@
+[Unit]
+# USonicPay — Sonic-side whitelabel of U-bot Pay.
+#
+# Same single-process shape (FastAPI + Telegram bot polling), pointing at
+# /opt/usonicpay, with its own venv, its own database, its own port and
+# its own secrets. It shares a host with the other deployments but does
+# not share a process, a database, a port, or a secret.
+#
+# Sonic is EVM-compatible, so this service runs the same web3 stack as
+# the main U-bot Pay service — but in its own interpreter, so a dependency
+# change in one cannot reach the other. That is the lesson from audit
+# round 21, where installing tronpy into ubotpay's venv downgraded
+# eth-abi and silently broke its payments.
+Description=USonicPay (Sonic + Telegram)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/usonicpay
+EnvironmentFile=/opt/usonicpay/.env
+
+# The treasury key is NOT exported as an environment variable. The
+# signer reads the 0600 file directly, so the key never lands in
+# /proc/<pid>/environ (readable on the host, and visible in `ps eww`
+# and `systemctl show`). Only the path is in the .env.
+#
+# The wrapper starts read-only when the key is absent: balances and
+# health work, sends are refused with a message naming the file.
+ExecStart=/opt/usonicpay/deploy/run_usonicpay.sh
+
+Restart=always
+RestartSec=5
+
+# Hardening. The service needs to write only to its own directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/usonicpay /opt/usonicpay/secrets /var/log
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

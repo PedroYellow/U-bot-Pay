@@ -539,8 +539,56 @@ def _health_full():
         b = {"error": str(e)[:80]}
     return {"ok": True, "chain": chain.NETWORK_NAME, "revenue": core.revenue_stats(), "treasury": b, "ts": int(time.time())}
 
+# Which chain each host belongs to. The whitelabels are separate
+# deployments of the same codebase, and they are not on the same chain:
+# ubotpay settles on Avalanche, usonicpay on Sonic. A single global
+# UBOT_WALLET_ADDRESS meant every site showed the Avalanche treasury and
+# a snowtrace.io link, including the one whose whole pitch is Sonic.
+#
+# The key is the API host, because that is what the browser calls. The
+# value is a prefix for per-chain environment variables:
+#
+#     UBOT_TREASURY_<PREFIX>_ADDRESS   the wallet on that chain
+#     UBOT_TREASURY_<PREFIX>_EXPLORER   its block explorer
+#
+# Anything not listed falls back to UBOT_WALLET_ADDRESS / EXPLORER.
+_HOST_CHAIN = {
+    "api.ubotpay.com": "AVAX",
+    "api.usonicpay.com": "SONIC",
+    "api.ustartkpay.com": "STARKNET",
+}
+
+
+def _treasury_for_host(host):
+    """Resolve the treasury address and explorer for the calling host.
+
+    Returns (address, explorer_base, chain_name). The chain name is
+    informational - the front-end only needs the address and the link.
+    """
+    host = (host or "").split(":")[0].lower()
+    prefix = _HOST_CHAIN.get(host)
+
+    if prefix:
+        addr = os.environ.get(f"UBOT_TREASURY_{prefix}_ADDRESS", "")
+        explorer = os.environ.get(f"UBOT_TREASURY_{prefix}_EXPLORER", "")
+        chain_name = prefix.title()
+        if addr:
+            return addr, explorer, chain_name
+        # A host with a chain mapping but no address configured is a
+        # deployment mistake, not a request for the default. Returning
+        # the Avalanche wallet here would show a Starknet-branded site
+        # an Avalanche address.
+        return "", explorer, chain_name
+
+    return (
+        os.environ.get("UBOT_WALLET_ADDRESS", ""),
+        os.environ.get("EXPLORER", "https://snowtrace.io"),
+        "Avalanche",
+    )
+
+
 @app.get("/treasury")
-def treasury_public():
+def treasury_public(request: Request = None):
     """Public treasury address for the homepage footer link.
 
     Audit round 3 (S-3): the treasury address was hardcoded in index.html's
@@ -553,14 +601,42 @@ def treasury_public():
     the flag is off (default) the endpoint returns the address anyway but
     the footer link stays hidden — set UBOT_SHOW_TREASURY_ON_HOMEPAGE=true
     to re-enable the visible link.
+
+    The response depends on the calling host, so each whitelabel shows
+    the treasury for the chain it settles on.
     """
-    addr = os.environ.get("UBOT_WALLET_ADDRESS", "")
+    host = ""
+    if request is not None:
+        try:
+            host = request.headers.get("host", "")
+        except Exception:
+            host = ""
+
+    addr, explorer, chain_name = _treasury_for_host(host)
     show = os.environ.get("UBOT_SHOW_TREASURY_ON_HOMEPAGE", "true").lower() in ("1", "true", "yes")
+
+    if addr and explorer:
+        link = f"{explorer.rstrip('/')}/address/{addr}"
+    elif addr:
+        link = ""
+    else:
+        link = ""
+
+    # A host mapped to a chain with no configured wallet returns an empty
+    # address. That is a deliberate deployment state, not an error: the
+    # Starknet deployment has no treasury account yet, because Starknet
+    # addresses are STARK-compatible rather than EVM and the account
+    # abstraction is not implemented. The front-end shows "not configured"
+    # for it rather than a broken-looking blank.
+    configured = bool(addr)
+
     return {
         "ok": True,
         "address": addr,
-        "explorer": f"{os.environ.get('EXPLORER', 'https://snowtrace.io')}/address/{addr}",
-        "visible": show,
+        "explorer": link,
+        "visible": show and configured,
+        "chain": chain_name,
+        "configured": configured,
     }
 
 

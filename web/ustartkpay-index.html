@@ -179,12 +179,18 @@ const API = "https://api.ustartkpay.com";
   fetch(API + "/treasury", { headers: { "Accept": "application/json" } })
     .then(r => r.ok ? r.json() : null)
     .then(d => {
-      if (!d || !d.address || d.visible === false) { a.style.display = "none"; return; }
+      if (!d || !d.address || d.visible === false) {
+        a.style.display = "none";
+        // the KPI tile still needs to know there is no wallet
+        window.__treasuryAddress = null;
+        if (window.__lastDashboard) renderKpis(window.__lastDashboard);
+        return;
+      }
       a.href = d.explorer;
       a.style.display = "";
       // the KPI tile shows the address instead of the balance, which the
       // public dashboard does not expose (audit L-3b)
-      window.__treasuryAddress = d.address;
+      window.__treasuryAddress = d.address || null;
       if (window.__lastDashboard) renderKpis(window.__lastDashboard);
     })
     .catch(() => { a.style.display = "none"; });
@@ -283,10 +289,18 @@ function renderKpis(d) {
     if (label0) label0.textContent = "TREASURY";
     const v = t0.querySelector("b, .kpi-value");
     if (v) {
-      v.textContent = d.treasury_usdc != null
-        ? d.treasury_usdc.toFixed(2) + " USDC"
-        : (window.__treasuryAddress ? window.__treasuryAddress.slice(0, 6) + "…" + window.__treasuryAddress.slice(-4) : "on-chain");
-      v.title = d.treasury_usdc != null ? "" : "The balance is not public. The address is.";
+      if (d.treasury_usdc != null) {
+        v.textContent = d.treasury_usdc.toFixed(2) + " USDC";
+        v.title = "";
+      } else if (window.__treasuryAddress) {
+        v.textContent = window.__treasuryAddress.slice(0, 6) + "…" + window.__treasuryAddress.slice(-4);
+        v.title = "The balance is not public. The address is.";
+      } else {
+        // No treasury configured for this chain yet. Say so, rather than
+        // showing a dash that reads as a broken widget.
+        v.textContent = "not configured";
+        v.title = "This deployment has no treasury wallet yet.";
+      }
     }
   }
   // Tile 1: LAST SETTLEMENT
