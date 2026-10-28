@@ -79,6 +79,35 @@ pool were liquid.
 
 ---
 
+## The diagnosis: the pool has zero LP tokens outstanding
+
+This is the number that explains the rest. The pool holds ~27,339 USDC
+and **0.00 S*USDC** — the pool's own LP token, read from the contract.
+Nobody has deposited against it, so:
+
+- there is no counterparty on the other side of a swap
+- there is no price for the pool share
+- the USDC sitting in the contract is not tradeable
+
+The pool is not thin. It has no market. The USDC was seeded into the
+contract without the LP being minted against it. The fix is for whoever
+supplies the USDC to mint the pool's LP tokens, not just to transfer
+tokens to the pool address.
+
+## Stargate does not support Starknet — this matters for the ask
+
+Stargate's own API publishes 56 chains and 123 assets. Sonic is one of
+them. Starknet is not — and neither is it on the aggregator we use
+(LI.FI's chain list has no Starknet either). So if the Stargate
+Foundation conversation is also meant to cover a Starknet deployment,
+that is a new chain integration for them, not a liquidity top-up.
+
+Worth noting in their favour: Stargate's own site links to a
+`dstChain=starknet` route, so the intent is there even though the
+deployment is not. And StarkGate is Starknet's official
+Ethereum↔Starknet bridge, so the path exists — just not through
+Stargate.
+
 ## Proof points (all live, all verifiable)
 
 | Claim | Source |
@@ -92,6 +121,9 @@ pool were liquid.
 | Avalanche→Sonic bridge works today | `GET api.ubotpay.com/bridge/quote` — Polymer, 18 min, $0.26 total fee |
 | 40 regression suites green | `run_tests.sh` → `40 suites passed, EXIT=0` |
 | Stargate routability is measured, not asserted | `deploy/track_stargate_sonic.py`, re-run every 6h by a watchdog |
+| The Sonic pool's own state, from the contract | `deploy/read_stargate_sonic_pool.py` — 27,339 USDC, 0.00 LP outstanding |
+| Stargate's chain list, from their own API | `GET mainnet.stargate-api.com/v1/metadata?version=v2` — 56 chains: Sonic yes, Starknet no |
+| USDC on Starknet, read on chain | `deploy/verify_starknet_usdc.py` — "USD Coin", 6 decimals, 4,388,217.22 supply |
 | USDC on Sonic is **native Circle USDC** | Circle's own registry lists `0x29219dd400f2Bf60E5a23d13Be72B486D4038894` for Sonic mainnet |
 
 **On that last point** — the USDC address that circulates on the web for

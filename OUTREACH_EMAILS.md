@@ -111,8 +111,22 @@ read straight from the contract on 2026-10-28. It was 27,874 USDC
 the day before, so the liquidity is draining rather than being
 supplied.
 
+But the number that matters is a different one. **The pool has zero LP
+tokens outstanding.** Not a thin market — no market. The 27,339 USDC
+is sitting in the contract with nothing minted against it, so there is
+no counterparty on the other side of a swap and no price for the pool
+share. That is consistent with everything else we see: the pool is
+configured correctly (`pool.token()` returns your USDC address), the
+address is the one your own API publishes for chainKey `sonic`, and
+your API lists 56 chains with Sonic among them — and yet nothing can
+route through it.
+
+So the route is not mispriced or thin. It is not connected to a
+liquidity provider at all.
+
 And with Stargate as the only allowed bridge, the aggregator returns no
-route at any size:
+route at any size, from either direction we tried (Ethereum → Sonic
+and Avalanche → Sonic):
 
 ```
 10 USDC      -> No available quotes for the requested transfer
@@ -144,7 +158,9 @@ so it goes through Polymer.
 1. **A liquidity proposal for the Sonic USDC pool** at a size that can
    service real payment volume rather than a few hundred thousand. The
    original proposal asked for 1m USDC and 1m USDT to be migrated; that
-   would change the picture entirely.
+   would change the picture entirely. Concretely: whoever supplies the
+   USDC also needs to mint the pool's LP tokens against it. The USDC
+   alone is not a route — there is nothing to trade it for.
 2. **A named technical contact** so we can point our bridge at Stargate
    directly rather than through an aggregator — we would rather not take a
    fixed fee out of a 0.5% payment.
