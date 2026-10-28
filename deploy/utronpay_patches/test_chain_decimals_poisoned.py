@@ -100,7 +100,9 @@ def test_balance_usdc_source_uses_local_var():
         if fname != "decimals":
             offenders.append(f"{fname}: {m.group(0).strip()}")
 
-    chk("no function assigns to a global _DEC", not offenders, offenders[:3])
+    # chk(name, got, want) compares got == want, so the VALUE goes
+    # first and the expectation second.
+    chk("no function assigns to a global _DEC", offenders, [])
 
 def test_balance_usdc_does_not_assign_to_global():
     """A bare 'global _DEC' may only occur inside the body of

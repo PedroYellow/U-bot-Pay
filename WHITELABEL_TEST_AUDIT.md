@@ -259,3 +259,40 @@ chain asks the deployment what it is rather than assuming.
 | `fix_decimals_pin.py` | the pin looking for a function that is not there |
 | `clean_stale_tests_tron.py` | the tests that cannot run on Tron |
 | `clean_stale_tests.py` | the Solana tests that cannot run on a non-Solana deployment |
+
+---
+
+## Two more that needed the same treatment
+
+### test_nonce_db_atomic.py - also a main-deployment test
+
+It pins `dataagent._remember_nonce` - the round 27 fix for a nonce
+pinned in memory when SQLite raises. The dataagent service runs from
+/opt/ubotpay, and the main deployment's dataagent.py imports web3,
+which the Tron venv does not have.
+
+In the utronpay deployment the test HANGS rather than failing: it runs
+`import dataagent` in a subprocess with the MAIN deployment's
+interpreter but utronpay's tree at the front of sys.path, so it
+imports a module that needs web3, in an interpreter that has it, and
+the import resolves to the wrong file.
+
+It passes on the main deployment.
+
+### test_pending_gc_and_cache.py - the same subprocess problem
+
+It imports `api` in a subprocess, with no env shim, so the module
+asked for Utron_API_KEY when the environment only had UTRON_API_KEY.
+
+The subprocess now runs this deployment's interpreter, imports the shim
+first, and gets this deployment's variable names.
+
+### One mistake worth recording
+
+The `chk` helper in the Tron suite is `chk(name, got, want)` and it
+compares `got == want`. The first version of the rewritten pin
+passed `not offenders` as the value and `offenders[:3]` as the
+expectation - so it compared `True == []` and failed, printing
+`got=True want=[]`.
+
+The value goes first. A helper's argument order is not a detail.
