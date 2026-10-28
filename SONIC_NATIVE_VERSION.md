@@ -502,3 +502,81 @@ Compare: the original Avalanche build was a fork. This is a profile.
 5. **Contact Sonic Labs and Stargate** with the pitch in section
    "Talking to…" — the Sonic Labs contact form and the Stargate DAO
    discourse are the two real channels.
+
+---
+
+## Starknet: the account, deployed and signing (28 Oct 2026)
+
+An account on Starknet is a CONTRACT. The address is derived from
+(public key, salt, class hash) and the contract has to be deployed at
+it before it can sign anything.
+
+**Done and proven on Sepolia:**
+
+    address:    0x4af96d3945b91f77f2f36abfd45291ec5e0d7d753709ee2a5484a34f05ce259
+    class:      oz v1.0.0  0x05b4b537eaa2399e3aa99c4e2e0208ebd6c71bc1467938cd52c798c601e43564
+    deployed:   class hash 0x5b4b537eaa2399e3aa99c4e2e0208ebd6c71bc1467938cd52c798c601e43564
+    signed:     a transfer of 0.0000001 STRK
+    settled:    block 17293372
+    gas:        4.95635640 -> 4.92894452 STRK, paid from the account itself
+
+The key is at `/opt/ustartkpay_secrets/starknet_sepolia_account.json` (0600).
+
+### The library version was the blocker
+
+The v3 deploy failed at the RPC with "Field validation for 'L1DataGas'
+failed on the 'required' tag" - the transaction was missing a field a
+v3 transaction requires. starknet-py was pinned ">=0.24,<0.26"; 0.30.0
+exists, and on it the deploy and the signing both work.
+
+The account methods moved with it:
+
+    account.execute(...)         -> account.execute_v3(...)
+    account.wait_for_transaction -> client.wait_for_tx(tx_hash)
+
+The Starknet venv is separate: `/opt/ustartkpay_venv`. The main
+deployment's venv is untouched.
+
+### The classes take different constructors
+
+Read from each class's ABI on the chain:
+
+    oz v1.0.0      1 param:  public_key
+    ready v0.4.0   2 params: owner, guardian
+    braavos v1.2.0 0 params
+
+### The order matters, and getting it wrong loses the key
+
+The first attempt generated a key, derived an address, funded it, and
+then crashed before writing the key out. The 5 STRK sat at an address
+whose private key no longer existed anywhere - and the address is
+DERIVED from the key, so it was unrecoverable.
+
+The key is now written FIRST, to a 0600 file, before anything is sent
+to the chain:
+
+    1. generate the key
+    2. derive the address
+    3. SAVE THE KEY
+    4. fund the address
+    5. deploy the account contract
+
+### The faucet, for the record
+
+The Foundation's faucet has an API for agents with no auth. It gates
+on proof of work:
+
+    POST /api/public-agent/pow/challenge  -> challengeId, prefix, difficulty
+    find a nonce so sha256(prefix+nonce) has `difficulty` leading zero BITS
+    POST /api/public-agent/faucet/request -> requestId
+    GET  /api/public-agent/faucet/status/<id>
+
+The difficulty is in BITS, not whole hex zeros - the whole-hex-zeros
+check solves a different, easier problem and the request is rejected.
+The challenge endpoint answers HTTP 201.
+
+### What is still missing
+
+Mainnet. The class is verified on mainnet too, but a mainnet treasury
+needs real STRK from StarkGate (Starknet's official Ethereum bridge)
+or from the Foundation. That needs a human decision.
