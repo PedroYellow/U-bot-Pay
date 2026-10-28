@@ -332,3 +332,37 @@ Every failure in this audit was one of three shapes:
 The third is the dangerous one, because a source pin that cannot find
 its subject raises rather than fails, and the file dies before it
 asserts anything. A pin that cannot run is not a pin.
+
+---
+
+## The runners
+
+The audit found the drift partly because nobody could run a whole
+deployment's suite in one command. The main deployment has
+`run_tests.sh`; the three whitelabels had none, so "do the tests
+pass?" meant running thirteen or thirty-nine filenames by hand.
+
+And the main deployment's runner could not be copied to a fork, because
+it hardcoded its own interpreter:
+
+    if [ -x "/opt/ubotpay/venv/bin/python" ]; then
+      PY="/opt/ubotpay/venv/bin/python"
+
+So there is now a PORTABLE runner, installed in all four deployments:
+
+    ./run_tests.sh          # all suites
+    ./run_tests.sh policy   # only the ones matching "policy"
+
+It finds the interpreter relative to itself - this deployment's own
+venv, which is the one with the right dependencies for its chain. It
+lists the suites that cannot apply, so they are visible rather than
+forgotten:
+
+    ── not applicable here ──
+      tests-main-deployment-only/ (4 suites)
+
+And a suite that times out is reported as a failure, not skipped.
+
+The main deployment keeps its own runner - it excludes test_brain.py,
+which reads /opt/ubotpay/.env at import time and only runs on the
+server.
