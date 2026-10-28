@@ -29,11 +29,15 @@ tokens."
 Usage:
     bootstrap_starknet_account.py --network sepolia --out /tmp/starknet_account.json
 """
+import os
 import runpy
 import sys
 
-sys.argv[0] = "bootstrap_starknet_account.py"
-runpy.run_path(
-    __file__.rsplit("bootstrap_starknet_account.py", 1)[0]
-    + "bootstrap_starknet_account_v2.py",
-    run_name="__main__")
+HERE = os.path.dirname(os.path.abspath(__file__))
+TARGET = os.path.join(HERE, "bootstrap_starknet_account_v2.py")
+
+if not os.path.exists(TARGET):
+    sys.exit(f"  {TARGET} is missing")
+
+sys.argv[0] = TARGET
+runpy.run_path(TARGET, run_name="__main__")
