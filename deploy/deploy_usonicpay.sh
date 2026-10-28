@@ -47,14 +47,40 @@ echo "── 2. the .env ──"
 # Secrets are generated here rather than copied from another deployment:
 # two deployments sharing a JWT secret would let a token from one be
 # replayed against the other.
-JWT=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
-VOICE=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+#
+# But they are only generated ONCE. A deploy that regenerates them
+# invalidates every issued JWT - the JWT secret signs the session
+# tokens - and breaks the ElevenLabs voice webhook, which authenticates
+# with the voice secret. An existing .env keeps its secrets; only a
+# first deploy generates them.
+#
+# The same applies to the API key: the front-end and the DataAgent
+# call this deployment with it, so regenerating it breaks them.
+read_existing() {
+  # print the value of a key from the existing .env, if there is one
+  [ -f "$DIR/.env" ] || return 0
+  sed -n "s/^$1=//p" "$DIR/.env" | head -1
+}
+
+JWT=$(read_existing USONIC_JWT_SECRET)
+[ -n "$JWT" ] || JWT=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+
+VOICE=$(read_existing USONIC_VOICE_SECRET)
+[ -n "$VOICE" ] || VOICE=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+
+APIKEY=$(read_existing USONIC_API_KEY)
+[ -n "$APIKEY" ] || APIKEY=$(head -c 32 /dev/urandom | base64 | tr -d ' \n')
 
 cat > "$DIR/.env" <<EOF
 # USonicPay — Sonic-side whitelabel of U-bot Pay.
 #
 # Every value here is specific to this deployment. It shares no secret,
 # no port and no database with ubotpay, usolpay or utronpay.
+
+# The prefix every setting below is read under. config.py turns
+# cfg("PORT") into USONIC_PORT. Without this line the service falls
+# back to USOL_* and every setting silently resolves to its default.
+DEPLOY_PREFIX=USONIC
 
 USONIC_PROFILE=$PROFILE
 USONIC_PORT=$PORT
@@ -81,9 +107,13 @@ USONIC_FEE_MIN_USDC=0.10
 USONIC_DEFAULT_DAILY_LIMIT=500
 USONIC_DEFAULT_DUAL_THRESHOLD=5
 
-# Generated for this deployment, not copied from another one.
+# Generated for this deployment, not copied from another one, and
+# kept across deploys - see the note above.
 USONIC_JWT_SECRET=$JWT
 USONIC_VOICE_SECRET=$VOICE
+
+# The server-to-server key. The service refuses to start without it.
+USONIC_API_KEY=$APIKEY
 
 USONIC_DAY_TZ_OFFSET=0
 USONIC_SETTLING_MAX_AGE_S=900
