@@ -1,0 +1,77 @@
+# U-tron Pay — Tron, USDT-TRC20.
+#
+# Everything chain-specific about this deployment lives here. Adding
+# Somnia, Canton or Arbitrum is a new file in this directory, not a
+# fork: copy this one, change the `chains:` block, done.
+#
+# Secrets are not in this file. The loader overrides `private_key`,
+# `revenue_address` and `api_key` from the U* environment variables
+# (UTRON_PRIVATE_KEY, UTRON_REVENUE_ADDRESS, UTRON_TRONGRID_KEY) so a
+# key never has to be committed.
+
+name: U-tron Pay
+brand: utronpay
+engine: tron
+
+chains:
+  kind: tron
+  network: mainnet
+  # Tron mainnet's chain id. The other three deployments report theirs
+  # correctly; this one reported 0, because the profile had no key and
+  # the engine defaulted to zero. The chain id is not cosmetic - it is
+  # what the x402 paths sign over and what identifies this deployment.
+  chain_id: 728126428
+  stable_symbol: USDT
+  native_symbol: TRX
+  # Tether USD (USDT), the stable of record on Tron. Circle has no USDC
+  # issuance here, so this is what "a dollar on Tron" means.
+  #
+  # Verified on-chain before being written down (name/symbol/decimals/
+  # totalSupply read from the contract, not copied from a website):
+  #   name()       = 'Tether USD'
+  #   symbol()     = 'USDT'
+  #   decimals()   = 6
+  #   totalSupply  = 94,248,137,158 USDT
+  # The check matters: an earlier draft of this profile carried
+  # TR7NHqje...ksyGmA9W, which is the same contract with the last four
+  # characters wrong. base58check rejected it — good — but it would have
+  # been one copy-paste away from shipping.
+  stable_address: TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t
+  explorer: https://tronscan.org
+  # TronGrid without an API key answers 429 from a shared IP, which is
+  # not hypothetical: it is how this profile was first verified. The
+  # reads below go through tronpy, which speaks /wallet/* on a java-tron
+  # node; the /v1/* TronGrid REST routes 404 there. api.tronstack.io is
+  # listed first because it is the one confirmed to answer both account
+  # and contract calls. Set UTRON_TRONGRID_KEY to use TronGrid properly.
+  rpc: https://api.tronstack.io
+  fallback_rpcs:
+    - https://api.trongrid.io
+    - https://tron-rpc.publicnode.com
+  # private_key / revenue_address / api_key come from the environment.
+
+# Payment policy. Same shape as U-bot Pay's core policy table so the
+# dual-control thresholds keep working unchanged.
+policy:
+  default_daily_limit: 500
+  dual_threshold: 5
+
+# One bot, one database, one treasury — one profile per deployment.
+telegram:
+  bot_token_env: UTRON_TELEGRAM_BOT_TOKEN
+
+database:
+  path: /opt/utronpay/utronpay.db
+
+# x402 / EIP-3009 needs transferWithAuthorization. USDT-TRC20 does not
+# have it, so the settlement routes are registered but refuse loudly.
+# Keeping them declared means /x402/settle answers 501 with a reason
+# instead of 404 with a stack trace.
+x402:
+  supported: false
+  reason: USDT-TRC20 has no transferWithAuthorization
+
+# LI.FI bridging still works for reading quotes; Tron stays a
+# destination. Bridging is optional in this profile.
+bridge:
+  enabled: true
