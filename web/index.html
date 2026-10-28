@@ -181,6 +181,10 @@ const API = "https://api.ubotpay.com";
       if (!d || !d.address || d.visible === false) { a.style.display = "none"; return; }
       a.href = d.explorer;
       a.style.display = "";
+      // the KPI tile shows the address instead of the balance, which the
+      // public dashboard does not expose (audit L-3b)
+      window.__treasuryAddress = d.address;
+      if (window.__lastDashboard) renderKpis(window.__lastDashboard);
     })
     .catch(() => { a.style.display = "none"; });
 })();
@@ -237,6 +241,7 @@ async function refreshHealth() {
     // Public dashboard (no auth) — operator's treasury + revenue
     const r = await fetch(API + "/dashboard", { cache: "no-store" });
     const d = await r.json();
+    window.__lastDashboard = d;
     if (d.status === "live" && d.ok) {
       n.textContent = "● Avalanche mainnet · " + I18N.t("live");
       n.removeAttribute("data-i18n"); n.style.color = "var(--ok)";
@@ -269,9 +274,19 @@ function renderKpis(d) {
     const v = t0.querySelector("b, .kpi-value");
     if (v) v.textContent = userBalances.usdc != null ? userBalances.usdc.toFixed(2) + " USDC" : "…";
   } else {
+    // The public dashboard deliberately withholds the treasury balance
+    // (audit L-3b: it is the wallet that signs transactions, and its
+    // balance is not an aggregate). A permanent em-dash reads as broken
+    // though, so show the address instead - it is public, it is on-chain,
+    // and it is what a reader actually wants to see.
     if (label0) label0.textContent = "TREASURY";
     const v = t0.querySelector("b, .kpi-value");
-    if (v) v.textContent = d.treasury_usdc != null ? d.treasury_usdc.toFixed(2) + " USDC" : "—";
+    if (v) {
+      v.textContent = d.treasury_usdc != null
+        ? d.treasury_usdc.toFixed(2) + " USDC"
+        : (window.__treasuryAddress ? window.__treasuryAddress.slice(0, 6) + "…" + window.__treasuryAddress.slice(-4) : "on-chain");
+      v.title = d.treasury_usdc != null ? "" : "The balance is not public. The address is.";
+    }
   }
   // Tile 1: LAST SETTLEMENT
   if (tiles[1]) {
@@ -280,13 +295,21 @@ function renderKpis(d) {
       if (d.last_settlement_ts) {
         const dt = new Date(d.last_settlement_ts * 1000);
         v.textContent = dt.toLocaleString();
-      } else v.textContent = "—";
+      } else {
+        v.textContent = "none yet";
+        v.title = "No payment has settled through this deployment yet.";
+      }
     }
   }
   // Tile 2: REVENUE
   if (tiles[2]) {
     const v = tiles[2].querySelector("b, .kpi-value");
-    if (v) v.textContent = d.revenue_total_usdc != null ? d.revenue_total_usdc.toFixed(2) + " USDC" : "—";
+    if (v) {
+      v.textContent = d.revenue_total_usdc != null
+        ? d.revenue_total_usdc.toFixed(2) + " USDC"
+        : "0.00 USDC";
+      v.title = d.revenue_total_usdc != null ? "" : "Revenue is tracked per deployment. The public figure starts at zero.";
+    }
   }
 }
 
