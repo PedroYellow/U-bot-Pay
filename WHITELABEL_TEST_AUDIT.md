@@ -296,3 +296,39 @@ expectation - so it compared `True == []` and failed, printing
 `got=True want=[]`.
 
 The value goes first. A helper's argument order is not a detail.
+
+### Two more, and the shape of the problem
+
+**test_seed_for_idempotent.py** - the same subprocess pattern: the
+env shim, this deployment's variable names, this deployment's
+interpreter.
+
+**test_settlement_reconciliation.py** - a source pin that looked for
+
+    pay["ubotpay_take_usdc"] = take
+
+The main deployment writes that. This one writes
+`pay["utronpay_take_usdc"] = take` - the same property, under a
+per-deployment key. The property is about the ORDERING, not the name:
+the take is recorded only inside the `ok` branch. So the assignment
+is found by shape now:
+
+    re.search(r'pay\["\w*take_usdc"\]\s*=\s*take', seg)
+
+### The shape of the whole thing
+
+Every failure in this audit was one of three shapes:
+
+  1. **A default pointing at the wrong place.** A local development
+     path, another deployment's venv, another deployment's variable
+     names.
+  2. **A test that cannot apply to this deployment.** A main-repo
+     test asserting EVM behaviour on a Tron deployment, or Solana
+     behaviour on an EVM one.
+  3. **A source pin on a different architecture.** Reading
+     `def _balance_usdc(` in a file that has no such function, or a
+     `Chain(...)` registry in a file that is profile-driven.
+
+The third is the dangerous one, because a source pin that cannot find
+its subject raises rather than fails, and the file dies before it
+asserts anything. A pin that cannot run is not a pin.
