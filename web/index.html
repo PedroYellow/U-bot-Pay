@@ -249,7 +249,10 @@ async function refreshHealth() {
     const d = await r.json();
     window.__lastDashboard = d;
     if (d.status === "live" && d.ok) {
-      n.textContent = "● Avalanche mainnet · " + I18N.t("live");
+      // The chain name comes from the API, so the status line cannot
+      // drift from what the service is actually on.
+      const chainName = (d.chain || "mainnet").replace(/-mainnet$/, "");
+      n.textContent = "● " + chainName + " mainnet · " + I18N.t("live");
       n.removeAttribute("data-i18n"); n.style.color = "var(--ok)";
     } else {
       n.textContent = I18N.t("offline");

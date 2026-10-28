@@ -40,6 +40,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/ubot.css">
+<link rel="stylesheet" href="/usonicpay-theme.css">
 <script src="/i18n.js"></script>
 
 <!-- PWA -->
@@ -249,7 +250,12 @@ async function refreshHealth() {
     const d = await r.json();
     window.__lastDashboard = d;
     if (d.status === "live" && d.ok) {
-      n.textContent = "● Starknet mainnet · " + I18N.t("live");
+      // The chain name comes from the API, so the status line cannot
+      // drift from what the service is actually on. It used to be a
+      // literal, which is how a Sonic deployment ended up claiming to
+      // be on Starknet.
+      const chainName = (d.chain || "mainnet").replace(/-mainnet$/, "");
+      n.textContent = "● " + chainName + " mainnet · " + I18N.t("live");
       n.removeAttribute("data-i18n"); n.style.color = "var(--ok)";
     } else {
       n.textContent = I18N.t("offline");

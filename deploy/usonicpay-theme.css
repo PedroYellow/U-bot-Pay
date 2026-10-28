@@ -1,0 +1,433 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   usonicpay — Sonic-inspired theme.
+
+   The visual system is taken from soniclabs.com. The values were read
+   out of Sonic's own stylesheet, not guessed from a logo:
+
+     - navy #214E81 as the primary ink, not black
+     - orange #ED5409 and amber #FFCB67 as the accent pair
+     - the signature gradient #214E81 -> #506179 -> #ED5409 -> #FFCB67
+       (Sonic's own 90deg gradient, mirrored so it runs warm-to-warm)
+     - light orange #FE9A4C for the chip accents
+     - 4px button radius, 24px card radius, 12px chip radius
+     - a light surface with hairline borders
+     - link blue taken down from Sonic's #3D76FF far enough to pass
+       WCAG AA on the light surface
+
+   The layout, the markup and the JavaScript are untouched: this is a
+   stylesheet swap, not a rewrite. Every selector below overrides the
+   base rules in ubot.css; the base file stays as the fallback.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* ── tokens ──────────────────────────────────────────────────────────── */
+:root{
+  /* Sonic's own scale, mapped onto this page's variables */
+  --ink:#141416;            /* --text-primary */
+  --ink2:#506179;           /* --text-subtitle */
+  --muted:#6B7280;          /* --text-secondary */
+  --line:#EAEAEA;           /* --border-card */
+  --paper:#FAFAFA;          /* --surface-background */
+  --white:#FFFFFF;          /* --surface-card */
+  --chipbg:#F3F4F6;         /* --surface-badge-related */
+  --chipbg2:#E5E7EB;        /* --surface-gray-200 */
+  --codebg:rgba(33,78,129,.06);
+  /* Sonic's #3D76FF is the card-link blue, but it only reaches 3.2:1 on
+     the light surface, which fails WCAG AA. #2A5FB8 is the same hue
+     taken down far enough to pass. The dark theme keeps #3D76FF. */
+  --blue:#2A5FB8;           /* --text-link */
+  --blue2:#1E4A91;
+  --navy:#214E81;           /* --colors-navy */
+  --slate:#506179;          /* Sonic's mid gradient stop */
+  --orange:#ED5409;         /* Sonic's primary accent */
+  --amber:#FFCB67;          /* Sonic's secondary accent */
+  --peach:#FE9A4C;          /* Sonic's light accent */
+  --ok:#065F46;
+  --warn:#92400E;
+  --bad:#E53E3E;
+  --r:8px;
+  --radius-card:24px;
+  --radius-btn:4px;
+  --radius-chip:12px;
+  --radius-pill:999px;
+  --container:1344px;
+  /* Sonic's own gradient: navy -> slate -> orange -> amber. */
+  --grad:linear-gradient(90deg,#214E81 0%,#506179 32%,#ED5409 74%,#FFCB67 100%);
+  --grad-hover:linear-gradient(90deg,#1B3F6B 0%,#445469 32%,#D34807 74%,#F5B94B 100%);
+  --shadow:0 1px 2px rgba(20,20,22,.04),0 8px 24px rgba(33,78,129,.06);
+  --shadow-lg:0 24px 60px rgba(33,78,129,.12);
+}
+
+html[data-theme="dark"]{
+  /* Sonic's dark palette: near-black base, warm accents */
+  --ink:#FFFFFF;
+  --ink2:#CCCCD0;
+  --muted:#8A93A3;
+  --line:#26262A;
+  --paper:#0A0A0B;
+  --white:#141416;
+  --chipbg:#1E1E20;
+  --chipbg2:#242427;
+  --codebg:rgba(255,255,255,.08);
+  --blue:#3D76FF;
+  --blue2:#6B98FF;
+  --navy:#214E81;
+  --slate:#506179;
+  --orange:#ED5409;
+  --amber:#FFCB67;
+  --ok:#D1FAE5;
+  --warn:#FEF3C7;
+  --bad:#FC8181;
+  --grad:linear-gradient(90deg,#2A5FB8 0%,#66748C 32%,#F36A1E 74%,#FFD98A 100%);
+  --grad-hover:linear-gradient(90deg,#3A73CC 0%,#7A879D 32%,#FF7E35 74%,#FFE4A6 100%);
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.24);
+  --shadow-lg:0 24px 60px rgba(0,0,0,.5);
+}
+
+*{box-sizing:border-box}
+
+/* ── typography ──────────────────────────────────────────────────────── */
+body{
+  font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  font-size:16px;
+  line-height:1.5;
+  color:var(--ink);
+  background:var(--paper);
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+}
+h1{font-weight:600;font-size:clamp(40px,7vw,80px);line-height:1;letter-spacing:-.02em}
+h2{font-weight:700;font-size:clamp(28px,4vw,48px);line-height:1.25;letter-spacing:-.01em}
+h3{font-weight:600;font-size:clamp(20px,2.4vw,28px);line-height:1.25}
+h4{font-weight:600;font-size:18px;line-height:1.4}
+p{line-height:1.78}
+a{color:var(--blue);text-decoration:none;transition:color .15s}
+a:hover{color:var(--blue2)}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;background:var(--codebg);padding:2px 6px;border-radius:6px}
+
+/* ── the hero: a rounded, tinted panel ──────────────────────────────── */
+.hero{
+  grid-template-columns:1fr 1fr;
+  min-height:100vh;
+  max-width:var(--container);
+  margin:0 auto;
+}
+.dark{
+  background:
+    linear-gradient(263.45deg,rgba(255,203,103,.16) -0.06%,rgba(237,84,9,.10) 101.57%),
+    var(--paper);
+  color:var(--ink);
+  padding:64px 40px;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+  border-radius:32px;
+  margin:16px 0 16px 16px;
+  border:1px solid var(--line);
+}
+html[data-theme="dark"] .dark{
+  background:
+    linear-gradient(263.45deg,rgba(237,84,9,.30) 0%,rgba(33,78,129,.34) 51%,rgba(255,203,103,.14) 100%),
+    var(--paper);
+}
+.dark:after{display:none}
+
+/* the brand mark */
+.brand{
+  font-weight:600;font-size:24px;letter-spacing:-.01em;
+  color:var(--ink);
+  gap:12px;
+}
+.brand svg{width:32px;height:32px;border-radius:8px}
+.brand small{font-weight:500;font-size:13px;opacity:.65;margin-left:4px;letter-spacing:.06em;text-transform:uppercase}
+
+/* the voice orb: the gradient becomes Sonic's signature one */
+.orbwrap{min-height:280px}
+.orb{
+  width:196px;height:196px;
+  background:var(--grad);
+  box-shadow:0 24px 60px rgba(237,84,9,.26),inset 0 0 40px rgba(255,255,255,.14);
+  border-radius:var(--radius-card);
+  border-radius:32px;
+}
+.orb .bars i{background:#fff;border-radius:2px;width:6px}
+.orb.listening{box-shadow:0 24px 60px rgba(255,203,103,.34),inset 0 0 40px rgba(255,255,255,.18)}
+
+/* the headline block */
+.tag h1{color:var(--ink)}
+.tag p{color:var(--muted);max-width:34em}
+
+/* ── chips ──────────────────────────────────────────────────────────── */
+.chips{gap:10px;margin-top:28px}
+.chip{
+  background:var(--chipbg);
+  color:var(--ink2);
+  border:1px solid var(--line);
+  border-radius:var(--radius-chip);
+  padding:6px 12px;
+  font-size:14px;
+  line-height:20px;
+  font-weight:500;
+  white-space:nowrap;
+}
+
+/* ── buttons ─────────────────────────────────────────────────────────── */
+.btn{
+  border-radius:var(--radius-btn);
+  padding:14px 20px;
+  font-weight:600;
+  font-size:16px;
+  border:1px solid var(--line);
+  background:var(--white);
+  color:var(--ink);
+  transition:background .15s,border-color .15s,color .15s;
+}
+.btn:hover{border-color:var(--blue2)}
+.btn.primary{
+  background:var(--grad);
+  color:#fff;
+  border-color:transparent;
+}
+.btn.primary:hover{background:var(--grad-hover);border-color:transparent}
+.btn.mic{background:var(--navy);border-color:var(--navy);color:#fff}
+.btn.mic:hover{background:#1B3F6B;border-color:#1B3F6B}
+
+/* ── the console / log panel ────────────────────────────────────────── */
+.console{
+  background:var(--white);
+  border:1px solid var(--line);
+  border-radius:var(--radius-card);
+  box-shadow:var(--shadow);
+  overflow:hidden;
+}
+html[data-theme="dark"] .console{box-shadow:var(--shadow)}
+.console .log{background:transparent}
+html[data-theme="dark"] .msg.b{background:#232323}
+
+/* ── the input row ───────────────────────────────────────────────────── */
+.inputrow{
+  background:var(--white);
+  border:1px solid var(--line);
+  border-radius:var(--radius-card);
+  padding:12px;
+  box-shadow:var(--shadow);
+}
+.inputrow input{
+  background:transparent;
+  border:0;
+  font:inherit;
+  font-size:16px;
+  color:var(--ink);
+}
+.inputrow input::placeholder{color:var(--muted)}
+.inputrow input:focus{outline:none;box-shadow:none}
+.inputrow:focus-within{border-color:var(--blue2);box-shadow:0 0 0 3px rgba(61,118,255,.16)}
+
+/* ── cards and sections ──────────────────────────────────────────────── */
+.card{
+  background:var(--white);
+  border:1px solid var(--line);
+  border-radius:var(--radius-card);
+  box-shadow:var(--shadow);
+}
+.card h4{color:var(--ink)}
+.card p{color:var(--muted)}
+.grid{gap:24px}
+section{max-width:var(--container);margin:0 auto;padding:0 24px}
+.page-section{margin-bottom:120px}
+.sec-title{color:var(--ink)}
+.sub2{color:var(--muted)}
+
+/* the architecture diagram block */
+.arch{
+  background:var(--white);
+  border:1px solid var(--line);
+  border-radius:var(--radius-card);
+  color:var(--ink2);
+  box-shadow:var(--shadow);
+  overflow-x:auto;
+}
+.arch pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.9}
+
+/* ── badges ──────────────────────────────────────────────────────────── */
+.badge{
+  border-radius:var(--radius-chip);
+  padding:2px 12px;
+  font-size:14px;
+  line-height:20px;
+  font-weight:500;
+}
+.badge.ok{background:#D1FAE5;color:#065F46}
+.badge.info{background:#DBEAFE;color:#1E40AF}
+.badge.warn{background:#FEF3C7;color:#92400E}
+.badge.bad{background:#FCE7F3;color:#9D174D}
+html[data-theme="dark"] .badge.warn{color:#FEF3C7}
+
+/* ── KPI tiles ───────────────────────────────────────────────────────── */
+.kpi{
+  background:var(--white);
+  border:1px solid var(--line);
+  border-radius:var(--radius-card);
+  box-shadow:var(--shadow);
+}
+.kpi b{color:var(--ink)}
+.kpi span{color:var(--muted);font-size:13px}
+
+/* ── the links row ───────────────────────────────────────────────────── */
+.links .link{
+  color:var(--blue);
+  border:1px solid var(--line);
+  border-radius:var(--radius-btn);
+  padding:10px 16px;
+  background:var(--white);
+  font-weight:500;
+  transition:border-color .15s,color .15s;
+}
+.links .link:hover{border-color:var(--blue2);color:var(--blue2)}
+
+/* ── footer ──────────────────────────────────────────────────────────── */
+.foot{
+  border-top:1px solid var(--line);
+  padding:32px 24px;
+  max-width:var(--container);
+  margin:0 auto;
+  /* The wallet button is fixed to the viewport's bottom-right, so the
+     footer's right edge needs clearance or the last link (GitHub) ends up
+     underneath it. The base CSS had 70px of bottom margin; overriding
+     `margin` to `0 auto` dropped it. */
+  margin-bottom:88px;
+  /* The wallet button is fixed to the viewport's bottom-right: 173px wide,
+     starting 24px from the edge. The footer lives in the right-hand
+     column, which is only ~590px wide, so the clearance has to be
+     measured, not guessed - 220px squeezed the links onto two lines. */
+  padding-right:140px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px 18px;
+  justify-content:center;
+  font-size:15px;
+}
+.foot a{color:var(--muted);font-weight:500}
+.foot a:hover{color:var(--ink)}
+
+/* ── the floating controls ───────────────────────────────────────────── */
+.theme{
+  border-radius:var(--radius-pill);
+  background:var(--white);
+  border:1px solid var(--line);
+  color:var(--ink);
+  font-size:14px;
+  font-weight:500;
+  padding:9px 16px;
+  box-shadow:var(--shadow);
+  backdrop-filter:none;
+}
+.theme:hover{border-color:var(--blue2);color:var(--blue)}
+html[data-theme="dark"] .theme{background:#1A1A1A;border-color:#2D2D2D;color:#fff}
+
+.wallet{
+  border-radius:var(--radius-pill);
+  background:var(--grad);
+  border:none;
+  color:#fff;
+  font-weight:600;
+  font-size:15px;
+  padding:11px 20px;
+  box-shadow:0 8px 24px rgba(237,84,9,.28);
+}
+.wallet:hover{box-shadow:0 10px 30px rgba(237,84,9,.36)}
+.wallet.connected{
+  background:#065F46;
+  box-shadow:0 8px 24px rgba(6,95,70,.28);
+}
+.wallet.connected:hover{box-shadow:0 10px 30px rgba(6,95,70,.36)}
+.wallet code{background:rgba(255,255,255,.16);color:#fff}
+
+/* ── the wallet modal ────────────────────────────────────────────────── */
+.wallet-modal{background:rgba(20,20,22,.5)}
+.wallet-modal .panel{
+  background:var(--white);
+  border:1px solid var(--line);
+  border-radius:var(--radius-card);
+  color:var(--ink);
+  box-shadow:var(--shadow-lg);
+  padding:28px;
+}
+.wallet-modal h3{color:var(--ink);font-size:24px;font-weight:700}
+.wallet-modal p.sub{color:var(--muted)}
+.wallet-modal .row{
+  background:var(--paper);
+  border:1px solid var(--line);
+  border-radius:var(--radius-chip);
+  padding:14px;
+}
+.wallet-modal .row:hover{background:var(--chipbg);border-color:var(--blue2)}
+.wallet-modal .row .ic{border:1px solid var(--line);background:#fff}
+
+/* ── the PWA install banner ──────────────────────────────────────────── */
+#pwa-install-banner{
+  background:var(--grad);
+  border-radius:var(--radius-card);
+  box-shadow:var(--shadow-lg);
+  font-family:Inter,sans-serif;
+  padding:16px 20px;
+}
+#pwa-install-btn{
+  background:#fff;
+  color:var(--navy);
+  border-radius:var(--radius-pill);
+  padding:8px 16px;
+  font:600 13px Inter,sans-serif;
+}
+
+/* ── the language switcher ───────────────────────────────────────────── */
+/* It floats over the hero, which is now a LIGHT panel, so the base's
+   translucent-white pill would be invisible. */
+.langsw{
+  border-radius:var(--radius-pill);
+  background:var(--white);
+  border:1px solid var(--line);
+  box-shadow:var(--shadow);
+  backdrop-filter:none;
+}
+.langsw button{
+  color:var(--muted);
+  font-family:Inter,sans-serif;
+  font-size:13px;
+  font-weight:500;
+  padding:5px 10px;
+  border-radius:var(--radius-pill);
+}
+.langsw button:hover{color:var(--ink)}
+.langsw button.on{background:var(--navy);color:#fff}
+html[data-theme="dark"] .langsw{background:#1A1A1A;border-color:#2D2D2D}
+html[data-theme="dark"] .langsw button{color:#858585}
+html[data-theme="dark"] .langsw button.on{background:#214E81;color:#fff}
+
+/* ── the message bubbles ─────────────────────────────────────────────── */
+.msg{border-radius:var(--radius-chip);line-height:1.6}
+.msg.a{background:var(--chipbg);color:var(--ink)}
+.msg.u{background:var(--navy);color:#fff;border-bottom-right-radius:4px}
+.msg.b{background:var(--white);color:var(--ink);border:1px solid var(--line)}
+html[data-theme="dark"] .msg.b{background:#232323;border-color:#2D2D2D}
+
+/* ── the "tx" result block ───────────────────────────────────────────── */
+.tx{border-top:1px solid var(--line);padding-top:14px}
+
+/* ── responsive ──────────────────────────────────────────────────────── */
+@media(max-width:900px){
+  .hero{grid-template-columns:1fr;min-height:auto}
+  .dark{margin:12px;padding:40px 24px;border-radius:24px}
+  .orb{width:140px;height:140px;border-radius:24px}
+  section{padding:0 16px}
+  .page-section{margin-bottom:72px}
+}
+@media(max-width:640px){
+  body{font-size:15px}
+  .chip{font-size:13px;padding:5px 10px}
+  .theme{top:12px;right:12px;padding:7px 12px;font-size:13px}
+  .wallet{bottom:16px;right:16px;padding:10px 16px;font-size:14px}
+  /* On a phone the fixed wallet button sits over the footer too, and the
+     footer's right padding would push the links off-centre. Give it the
+     bottom clearance instead and let the links use the full width. */
+  .foot{padding-right:24px;margin-bottom:96px}
+}
