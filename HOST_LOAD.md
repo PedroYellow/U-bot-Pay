@@ -79,3 +79,27 @@ init, where they sat for days.
 
 The live one - the CDP browser on port 9333 that the DOM-inspection
 skill uses - is not an orphan and must not be killed.
+
+---
+
+## The evidence that all 23 browsers are orphans
+
+29 Oct 2026. Before killing anything, this was established:
+
+    a driver process      none - no node or python process is
+                          controlling a browser
+    established sockets   none - ss shows no ESTABLISHED
+                          connection to any of the 23 CDP ports
+    the ages              89h, 101h, 102h, 103h, 114h, 118h
+                          the YOUNGEST is 89 hours old
+
+So nothing is attached to any of them. The one on port 9333 - the
+profile the DOM-inspection skill would connect to - is not "in use"; it
+is a leftover from the frontend testing three and a half days ago,
+showing the usolpay site it was last pointed at.
+
+Each browser leaves about 9-11 processes, and the driver exits
+without cleaning them up, so they are reparented to init and sit
+there burning CPU.
+
+Killing them is reversible: the next browser session starts its own.
