@@ -1,0 +1,172 @@
+# The five decisions — with the numbers, as of 2026-10-29
+
+Everything here was measured, not estimated. Each item says what it
+is, what it costs, and what happens if it is not done.
+
+Nothing here has been executed. No funds have moved.
+
+---
+
+## 1. The orphaned Chromium on the VPS
+
+**209 processes, 23 browsers, across 24 CDP ports (9333-9370).**
+Load average 59.54 on 2 CPUs.
+
+They are leftovers from the browser testing: the driver exited without
+cleaning them up, they were reparented to init, and they have been
+burning ~218% of CPU for three and a half days.
+
+**The evidence they are orphans** — checked before proposing anything:
+
+| check | result |
+|---|---|
+| a driver process | none — no node or python is controlling a browser |
+| ESTABLISHED sockets to their ports | none |
+| their ages | 89h, 101h, 102h, 103h, 114h, 118h |
+| the youngest | **89 hours** |
+| their pages | all `about:blank` |
+
+**What it costs now.** Every NEW python process pays for the CPU
+starvation:
+
+```
+import web3        -> 43 s
+import api         -> 46 s
+import dataagent   -> 78 s
+```
+
+The running services are **not** affected — they imported web3 once,
+at boot, and their health endpoints answer in 8-516 ms. But every test
+and every deploy crawls, and any measurement describes the load rather
+than the code. It is why `test_nonce_db_atomic.py` takes 478 seconds.
+
+**The command** (a dry run by default — it reports and changes
+nothing):
+
+    ssh hvps 'sh /opt/ubotpay/cleanup_orphaned_chrome.sh'          # report
+    ssh hvps 'sh /opt/ubotpay/cleanup_orphaned_chrome.sh --go'    # do it
+
+It keeps the ~10 processes on the `chrome-cdp-prof` profile — the
+browser the DOM-inspection skill connects to. Everything else goes.
+
+**Reversible**: the browser is not a service. The next session starts
+its own.
+
+**If not done**: everything stays working, and everything stays slow.
+
+---
+
+## 2. The Avalanche treasury has no gas
+
+```
+the USDC: 18.32
+the AVAX: 0.0000
+```
+
+**Zero AVAX means zero gas**, so the treasury cannot send. And 18.32
+USDC at the observed payment sizes is about six transfers before it
+is empty.
+
+Volume so far: 10 payments, 2,730 USDC, 8 settled and verified on
+chain.
+
+**What it needs**: a small amount of AVAX for gas. A few dollars is
+enough — the observed transactions used 45,059-62,159 gas.
+
+**If not done**: the service can read balances but not move money.
+
+---
+
+## 3. The Sonic treasury is empty
+
+The Sonic treasury has **0 S**. Every transaction on Sonic pays its
+fee in S, so it cannot send either.
+
+**The quote** — measured, not assumed:
+
+```
+50 USDC on Avalanche  ->  ~1,068.86 S on Sonic
+total cost            ->  ~$0.235
+route                 ->  LayerSwap
+```
+
+**What it needs**: your OK to spend ~$0.24 of your own USDC to get
+the S. The USDC comes from somewhere — either the Avalanche treasury
+(which has 18,32) or a separate source.
+
+**If not done**: the Sonic deployment stays read-only.
+
+---
+
+## 4. Starknet mainnet needs funding
+
+The account is **prepared**:
+
+```
+address    0x5378d0a08c1447c5d76095b47ae4b741afb27a7a0f54ee54b3188e516d5c2d4
+key        saved at 0600, before anything touched the chain
+class      OpenZeppelin v1.0.0, confirmed deployed on mainnet
+contract   NOT deployed
+STRK       0
+```
+
+The bootstrap stops at the funding gate on purpose — there is no
+mainnet faucet, and the deployment has to be paid for in STRK.
+
+**What it needs**:
+
+- STRK for the gas, and USDC for the treasury, sent to that address
+  via StarkGate or a Starknet Foundation grant
+- then the contract is deployed and the service can sign
+
+**Why it cannot be automated**: StarkGate is a bridge with its own
+steps, and the Foundation grant is a request to a person. Both need
+you.
+
+**If not done**: ustartkpay serves balances and quotes correctly
+(`chain: Starknet`, `SN_MAIN`) and cannot send.
+
+---
+
+## 5. The Stargate Foundation email
+
+Every number in it was measured today:
+
+| | |
+|---|---|
+| the pool's USDC | **67,335.87**, read straight from the contract |
+| the LP tokens outstanding | **0.00** |
+| the largest transfer that routes from Avalanche | **$882** (returns 878.54 USDC) |
+| $1,000 from Avalanche | no quote |
+| from Ethereum | routes past $10,000 |
+
+The ask is narrow and specific: **mint LP against the USDC already in
+the contract**. Not "fund the pool" — the USDC is there. It is
+collateral with nothing minted against it.
+
+**Before sending, re-run**:
+
+    cd /data/workspace/ubotpay
+    python3 deploy/verify_stargate_pool.py     # the balance
+    python3 deploy/find_stargate_threshold.py   # the threshold
+
+Both numbers move. The pool went 27,874 -> 27,339 -> 67,315.78 ->
+67,335.87 in two days.
+
+---
+
+## What is already done and verified
+
+| | |
+|---|---|
+| the main suite | 43/43 |
+| utronpay | 39/39 |
+| usolpay | 13/13 |
+| usonicpay | 6/6 |
+| Starknet | 31 + 12 + 5 + 8 |
+| the cron jobs | 6/6 |
+| the services | 6/6 active |
+| the sites | 4/4 at 200 |
+| the drift check | 0 failures |
+| the settled payments | 8/8 verified on chain |
+| the blocklist sync | EXIT=0, verified against production |
