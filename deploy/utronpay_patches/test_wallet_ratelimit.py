@@ -9,6 +9,7 @@ workspace so the buckets do not bleed between tests. Code-inspected parts
 are pure regex on api.py / core.py.
 """
 import os
+import tempfile
 import re
 import subprocess
 import sys
@@ -69,7 +70,19 @@ def _run(api_body):
     # for its own prefix.
     env.setdefault(f"{_DEPLOY_PREFIX}_API_KEY", "test-only")
     env.setdefault(f"{_DEPLOY_PREFIX}_JWT_SECRET", "test-only")
-    env.setdefault(f"{_DEPLOY_PREFIX}_DB", "/tmp/test_wallet_rl.db")
+    # The test's OWN database, in a fresh temp directory.
+    #
+    # The path used to be a fixed one - /tmp/test_wallet_rl.db - so
+    # two concurrent runs raced on it and one failed with an error
+    # that looked like a product defect.
+    #
+    # And it was set with setdefault, which does NOT set a variable
+    # that is already set: if UTRON_DB was in the environment, the
+    # test would write to THAT database - the deployment's real one.
+    # So it is assigned, not defaulted.
+    _db_dir = tempfile.mkdtemp(prefix="wallet_rl_")
+    _db_path = os.path.join(_db_dir, "test.db")
+    env[f"{_DEPLOY_PREFIX}_DB"] = _db_path
     r = subprocess.run(
         [os.path.join(HERE, "venv", "bin", "python"), "-c", code],
         capture_output=True, text=True, env=env,
