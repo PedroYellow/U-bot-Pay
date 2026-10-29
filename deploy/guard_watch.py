@@ -44,6 +44,10 @@ DEPLOYMENTS = {
     "usonicpay": (8094, "0xCC57d2f8A941B3408f939E6fe949fb7C2b1F01Af", 146),
     "usolpay":   (8093, "BX6sfCwA9CkVqfpppco3HgXi3gCMhxQgBFoH4yLpJk55", 1151111081099710),
     "utronpay":  (8092, None, 728126428),
+    # Starknet. The chain id is a STRING - "SN_MAIN" - because Starknet
+    # has no numeric CAIP-2 chain id. The treasury is empty until the
+    # mainnet account exists, so there is no treasury to protect yet.
+    "ustartkpay": (8095, None, "SN_MAIN"),
 }
 
 # The address the front-end uses for the demo, which must stay readable.
@@ -196,8 +200,12 @@ def main():
                 issues.append(f"dashboard={st}")
 
             got = p.get("chain_id")
-            if got is not None and int(got) != chain_id:
-                issues.append(f"chain_id={got}(want {chain_id})")
+            if got is not None:
+                # The chain id can be a NUMBER or a STRING - Starknet's
+                # is "SN_MAIN", because it has no numeric CAIP-2 chain
+                # id. So they are compared as strings.
+                if str(got) != str(chain_id):
+                    issues.append(f"chain_id={got}(want {chain_id})")
 
         if issues:
             problems.append(f"{name}: {', '.join(issues)}")
