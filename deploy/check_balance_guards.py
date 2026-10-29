@@ -14,6 +14,7 @@ request time reads as a 500 with nothing in the journal.
 
 Usage: check_balance_guards.py
 """
+import os
 import subprocess
 import sys
 import urllib.error
@@ -57,6 +58,28 @@ failures = []
 print("=" * 72)
 print("the guard in the CODE")
 print("=" * 72)
+
+# This script has to run ON THE VPS. It reads /opt/<name>/api.py and
+# queries 127.0.0.1:<port>, neither of which exists elsewhere. Run it
+# from the wrong machine and every check fails for the wrong reason -
+# "the guard is not in the code", "the treasury balance is readable
+# anonymously" - which reads like a serious breach and is not.
+#
+# So say so, and stop, rather than reporting eleven failures that all
+# mean "you are in the wrong place".
+if not os.path.isdir("/opt/ubotpay"):
+    print("  this script runs on the VPS - it reads /opt/<name>/api.py")
+    print("  and queries 127.0.0.1:<port>.")
+    print()
+    print("  run it there:")
+    print("    scp deploy/check_balance_guards.py hvps:/tmp/")
+    print("    ssh hvps 'python3 /tmp/check_balance_guards.py'")
+    print()
+    print("  NOT reporting failures: on this machine every check would")
+    print("  fail because the deployments are not here, not because")
+    print("  anything is wrong with them.")
+    sys.exit(2)
+
 for name in DEPLOYMENTS:
     n = guard_refs(f"/opt/{name}/api.py")
     ok = n > 0
