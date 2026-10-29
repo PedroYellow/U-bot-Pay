@@ -45,6 +45,12 @@ log = logging.getLogger("ustartpay.starknet")
 # The fee token. STRK pays for every transaction on Starknet.
 STRK = "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d"
 
+# The sentinel for "the key has not been read yet". None is a real
+# value here - it means the key was checked and rejected. So the two
+# have to be distinguishable, and a rejected key is not re-read on
+# every send.
+_UNSET = object()
+
 # USDC on Starknet mainnet, verified on chain:
 #   name() "USD Coin", symbol() "USDC", decimals() 6
 USDC = "0x053c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8"
@@ -106,6 +112,7 @@ class StarknetEngine:
                  explorer: str = "", native_symbol: str = "STRK",
                  account_address: str | None = None,
                  key_file: str | None = None,
+                 network: str = "mainnet",
                  fee_token_address: str = STRK,
                  rpc_urls: list | None = None,
                  timeout: int = 30):
@@ -120,10 +127,16 @@ class StarknetEngine:
         # environment: an env var is visible in /proc/<pid>/environ, in
         # ps eww and in crash dumps. The file is mode 0600.
         self._key_file = key_file or ""
+        # The network this deployment serves. The key file names its
+        # own network, and the two have to agree.
+        self.network = network or "mainnet"
         self._timeout = timeout
         self._client = None
         self._decimals = None
         self._fee_decimals = None
+        # The validated KeyPair, cached. _UNSET means "not read yet",
+        # so a rejected key is not re-read on every send.
+        self._key_pair_cache = _UNSET
 
     # ── the client ────────────────────────────────────────────────────
     @property
@@ -190,13 +203,21 @@ class StarknetEngine:
         return self._account_address
 
     def has_signer(self) -> bool:
-        """Whether an account exists.
+        """Whether this deployment can actually sign.
 
-        A read-only deployment does not have one, and saying so plainly
-        is more useful than a warning about an env var that by design
-        never holds the key.
+        A read-only deployment does not have an account, and saying so
+        plainly is more useful than a warning about an env var that by
+        design never holds the key.
+
+        The account address alone is not enough. The key has to be
+        there AND it has to belong to this deployment - same network,
+        same address. So this asks for the KeyPair, not for the
+        address: a key file for another network makes the deployment
+        read-only, which is what it is.
         """
-        return bool(self._account_address)
+        if not self._account_address:
+            return False
+        return self._key_pair() is not None
 
     async def _decimals_async(self) -> int:
         if self._decimals is None:
@@ -444,7 +465,13 @@ class StarknetEngine:
 
         from starknet_py.net.account.account import Account
         account = Account(
-            client=await self.client,
+            # NOT `await self.client` - `client` is a PROPERTY that
+            # returns the client, not a coroutine. Awaiting it raises
+            # "object FullNodeClient can't be used in 'await'
+            # expression", and that happened inside a try/except that
+            # turned it into a send failure with no reason. Every
+            # Starknet transfer failed this way.
+            client=self.client,
             address=hex(int(self._account_address, 16)),
             signer=signer,
             chain=chain_id,
@@ -459,7 +486,9 @@ class StarknetEngine:
 
     async def _confirm(self, tx: str, timeout: int = 60) -> dict:
         """Wait for a transaction to settle."""
-        client = await self.client
+        # `client` is a PROPERTY that returns the client. Not a
+        # coroutine - awaiting it raises.
+        client = self.client
         receipt = await client.wait_for_tx(tx)
         failure = getattr(receipt, "failure_reason", None)
         return {
@@ -474,17 +503,93 @@ class StarknetEngine:
         """The account's KeyPair, if this deployment has one.
 
         The key is read from a file, never from the environment - an
-        env var is visible in /proc/<pid>/environ, in ps eww and in
+        env var is visible in /proc/<pid>/environ, in `ps eww` and in
         crash dumps. The file is mode 0600.
+
+        It is VALIDATED before it is returned. The bug this fixes: the
+        mainnet deployment pointed at a SEPOLIA account file and
+        has_signer() said True, because the old version loaded any
+        file that had a private_key in it and never asked whether the
+        key belonged to this network or to this address. A deployment
+        that advertises a signer it cannot use is worse than one that
+        says it has none.
+
+        So the key must agree with the deployment on three counts:
+
+          - the NETWORK: the file's "network" against this deployment's
+          - the ADDRESS: the file's "address" against account_address
+          - the DERIVATION: the address re-derived from the key
+
+        The derivation check catches a hand-edited file, which the
+        other two do not.
+
+        The result is cached, so the file is read once and not on every
+        send. And the file must be mode 0600: a key file with loose
+        permissions is a key file that has been exposed.
         """
+        if self._key_pair_cache is not _UNSET:
+            return self._key_pair_cache
+        self._key_pair_cache = None
         if not self._key_file:
             return None
         try:
-            from starknet_py.net.signer.key_pair import KeyPair
             import json
+            import os
+            from starknet_py.net.signer.key_pair import KeyPair
+
+            # the permissions check. A key file that anyone can read
+            # is a key file that has already been exposed.
+            mode = os.stat(self._key_file).st_mode & 0o777
+            if mode & 0o077:
+                log.warning(
+                    "starknet: the key file %s is mode %o; it should be "
+                    "0600. Not using it.", self._key_file, mode)
+                return None
+
             with open(self._key_file, encoding="utf-8") as fh:
                 d = json.load(fh)
-            return KeyPair(int(d["private_key"], 16), d["public_key"])
+
+            kp = KeyPair(int(d["private_key"], 16), d["public_key"])
+
+            # 1. the network
+            file_net = str(d.get("network") or "").lower()
+            want_net = str(self.network or "").lower()
+            if file_net and want_net and file_net != want_net:
+                log.error(
+                    "starknet: the key file is for %s but this deployment "
+                    "is %s. Not using it.", file_net, want_net)
+                return None
+
+            # 2. the address
+            file_addr = str(d.get("address") or "").lower()
+            want_addr = str(self._account_address or "").lower()
+            if file_addr and want_addr and file_addr != want_addr:
+                log.error(
+                    "starknet: the key file's address does not match this "
+                    "deployment's account_address. Not using it.")
+                return None
+
+            # 3. the derivation - catches a hand-edited file
+            try:
+                from starknet_py.hash.address import compute_address
+                derived = compute_address(
+                    salt=int(str(d.get("salt") or "0x0"), 16),
+                    class_hash=int(str(d.get("class_hash") or "0x0"), 16),
+                    constructor_calldata=[kp.public_key],
+                    deployer_address=0,
+                )
+                if file_addr and hex(derived).lower() != file_addr:
+                    log.error(
+                        "starknet: the key file's address does not match "
+                        "the address derived from its key. Not using it.")
+                    return None
+            except Exception:
+                # if the file has no class_hash or salt, the derivation
+                # cannot be checked - the other two checks still stand
+                pass
+
+            self._key_pair_cache = kp
+            return kp
         except Exception:
             return None
 

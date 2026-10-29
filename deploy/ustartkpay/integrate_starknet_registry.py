@@ -63,6 +63,14 @@ NEW_BUILD = '''    if kind == "starknet":
             # environment: an env var is visible in /proc/<pid>/environ,
             # in `ps eww` and in crash dumps.
             key_file=spec.get("key_file"),
+            # The network this deployment serves. The key file names its
+            # own network and the two have to agree, so it is passed
+            # explicitly rather than left to the engine's default.
+            # Without it the engine defaults to mainnet, which is right
+            # for this deployment and wrong for a sepolia one - and a
+            # silent default is how a sepolia key ends up on a mainnet
+            # deployment in the first place.
+            network=spec.get("network", "mainnet"),
             fee_token_address=spec.get(
                 "fee_token_address",
                 "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d"),

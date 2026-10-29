@@ -108,7 +108,7 @@ ADDED = '''    async def _native_balance_async(self, address: str) -> float:
 
         from starknet_py.net.account.account import Account
         account = Account(
-            client=await self.client,
+            client=self.client,
             address=hex(int(self._account_address, 16)),
             signer=signer,
             chain=chain_id,
@@ -123,7 +123,7 @@ ADDED = '''    async def _native_balance_async(self, address: str) -> float:
 
     async def _confirm(self, tx: str, timeout: int = 60) -> dict:
         """Wait for a transaction to settle."""
-        client = await self.client
+        client = self.client
         receipt = await client.wait_for_tx(tx)
         failure = getattr(receipt, "failure_reason", None)
         return {

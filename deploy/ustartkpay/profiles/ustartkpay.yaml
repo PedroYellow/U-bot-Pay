@@ -49,12 +49,27 @@ chains:
   # The public RPC. It serves mainnet.
   # The account. On Starknet it is a CONTRACT: the address is derived
   # from (public key, salt, class hash) and the contract has to be
-  # deployed at it before it can sign anything. This one IS deployed
-  # and HAS signed - on SEPOLIA.
-  account_address: 0x4af96d3945b91f77f2f36abfd45291ec5e0d7d753709ee2a5484a34f05ce259
+  # deployed at it before it can sign anything.
+  #
+  # This is the MAINNET account. The key was generated and its address
+  # derived, but the contract is NOT deployed yet and the address holds
+  # 0 STRK - so it cannot sign and cannot pay for its own deployment.
+  # It is deployed once the address is funded through StarkGate or a
+  # Foundation grant.
+  #
+  # The sepolia account (0x4af96d...e259) IS deployed and HAS signed,
+  # but it belongs to another network. Pointing this deployment at it
+  # was a real bug: the engine loaded the key without checking which
+  # network it belonged to, so has_signer() said True on a deployment
+  # that could not possibly sign. The engine now validates the key's
+  # network and address against the deployment's.
+  account_address: 0x5378d0a08c1447c5d76095b47ae4b741afb27a7a0f54ee54b3188e516d5c2d4
   # The key file, by path. Never an environment variable: an env var
   # is visible in /proc/<pid>/environ, in `ps eww` and in crash dumps.
-  key_file: /opt/ustartkpay/secrets/account.json
+  key_file: /opt/ustartkpay/secrets/mainnet_account.json
+  # The network this deployment serves. The key file names its own
+  # network and the engine refuses a key that disagrees with this.
+  network: mainnet
 
   rpc: https://starknet-rpc.publicnode.com
   rpc_urls:
