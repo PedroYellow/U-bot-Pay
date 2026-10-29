@@ -64,6 +64,26 @@ FILES = [
     ("web/agent.html", "web/agent.html"),
 ]
 
+# The Starknet deployment has its own script, and it is NOT in the
+# list above - which is how it drifted. The copy on the server had
+# the OLD pip check, the inverted one, so the deploy failed every
+# time with a perfectly good venv underneath. The repository's copy
+# was already correct.
+#
+# So the deploy scripts are compared too. A script that is not the
+# repository's is a script that will do something the repository does
+# not say it does.
+STARKNET_FILES = [
+    ("deploy/ustartkpay/deploy_ustartkpay.sh",
+     "/opt/ustartkpay/deploy/deploy_ustartkpay.sh"),
+    ("deploy/ustartkpay/requirements.txt",
+     "/opt/ustartkpay/deploy/ustartkpay/requirements.txt"),
+    ("deploy/ustartkpay/evm_stub.py",
+     "/opt/ustartkpay/evm_stub.py"),
+    ("deploy/ustartkpay/chains_starknet_engine.py",
+     "/opt/ustartkpay/chains/starknet.py"),
+]
+
 # The nginx vhosts are compared against the live server, because they
 # are edited in place there and are the one place where a stale file
 # silently changes behaviour.
@@ -114,6 +134,28 @@ print("D1: the deployed files match the repository")
 print("=" * 72)
 for rel, remote_rel in FILES:
     check(rel, remote_rel)
+
+print()
+print("=" * 72)
+print("D1b: the Starknet deployment's own files match the repository")
+print("=" * 72)
+for rel, remote_abs in STARKNET_FILES:
+    local = md5_local(os.path.join(REPO, rel))
+    if local is None:
+        print(f"  FAIL  {rel} is not in the repository")
+        failures.append(f"{rel} missing from the repository")
+        continue
+    remote = md5_remote(remote_abs)
+    if remote is None:
+        print(f"  FAIL  {remote_abs} is missing on the VPS")
+        failures.append(f"{remote_abs} missing on the VPS")
+        drifted.append(rel)
+    elif remote != local:
+        print(f"  FAIL  {rel} differs (repo {local[:8]} / vps {remote[:8]})")
+        failures.append(f"{rel} differs from the repository")
+        drifted.append(rel)
+    else:
+        print(f"  PASS  {rel}")
 
 print()
 print("=" * 72)
