@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 import core, chain, brain, x402_client
+from chains.engine import NotSupported
 import energy as _energy
 from brain import say
 try:
@@ -491,7 +492,7 @@ def auth(x_api_key: str | None):
         raise HTTPException(401, "Unauthorized")
 
 
-def resolve_user(user_key: str | None, chain_id: int = 43114) -> dict:
+def resolve_user(user_key: str | None, chain_id: int = 728126428) -> dict:
     """Resolve a user by:
       1) literal "demo" or None → demo user (telegram_id=0)
       2) an int that exists as telegram_id → that user
@@ -521,7 +522,7 @@ class Turn(BaseModel):
     # a caller passing chain_id=8453 got a 200 with Avalanche data and no warning.
     # Declared with validation so an unknown chain is a clear 422, not a silent
     # wrong answer.
-    # The default is this deployment's chain, TRON mainnet (0).
+    # The default is this deployment's chain, TRON mainnet.
     #
     # It was 43114 -- Avalanche -- because this file came from U-bot Pay.
     # On Utronpay that chain is not in the profile at all, so every
@@ -529,9 +530,9 @@ class Turn(BaseModel):
     # the handler's own except block called get_chain(43114).name, which
     # raised again inside the except.
     #
-    # ge=0, because TRON's chain id is 0 and ge=1 rejected it.
-    chain_id: int = Field(default=0, ge=0, le=999_999,
-                          description="chain to read balances from; default TRON mainnet (0)")
+    # The lower bound stays 0 so a caller can still ask for chain 0.
+    chain_id: int = Field(default=728126428, ge=0, le=999_999,
+                          description="chain to read balances from; default TRON mainnet")
 
 
 @app.get("/treasury")
@@ -1239,7 +1240,7 @@ def _anon_balance_allowlist() -> set[str]:
     return {a.strip().lower() for a in raw.split(",") if a.strip()}
 
 @app.get("/balance/{address}")
-def balance_by_address(address: str, chain_id: int = 0, x_api_key: str | None = Header(default=None)):
+def balance_by_address(address: str, chain_id: int = 728126428, x_api_key: str | None = Header(default=None)):
     """Public balance lookup on TRON.
 
     UtronPay settles on TRON mainnet (chain id 0). Addresses are TRON
@@ -1251,7 +1252,12 @@ def balance_by_address(address: str, chain_id: int = 0, x_api_key: str | None = 
     """
     try:
         target = chain.get_chain(chain_id)
-    except ValueError as e:
+    except (ValueError, NotSupported) as e:
+        # NotSupported is what the registry raises for a chain that is
+        # not in this profile - and it is NOT a ValueError, so the
+        # old `except ValueError` let it escape as a 500. A chain
+        # that is not in the profile is a bad request, not a server
+        # error.
         raise HTTPException(400, str(e))
     if not chain.is_address(address):
         raise HTTPException(400, "bad TRON address")
@@ -1427,11 +1433,11 @@ def _require_session(request: Request) -> dict:
 # ───────── wallet-based auth (Nivel 1) ─────────
 class WalletNonceRequest(BaseModel):
     address: str
-    chain_id: int = 43114
+    chain_id: int = 728126428
 
 class WalletVerifyRequest(BaseModel):
     address: str
-    chain_id: int = 43114
+    chain_id: int = 728126428
     signature: str     # 0x-prefixed 65-byte EIP-191 signature
 
 class WalletVerifyResponse(BaseModel):
