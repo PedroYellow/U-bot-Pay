@@ -41,6 +41,7 @@ def _run(api_body):
     r = subprocess.run(
         ["/opt/ubotpay/venv/bin/python", "-c", code],
         capture_output=True, text=True, env=env,
+        timeout=300,
     )
     if r.returncode != 0:
         raise RuntimeError(f"rc={r.returncode}: {r.stderr}")

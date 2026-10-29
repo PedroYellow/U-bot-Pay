@@ -47,6 +47,7 @@ def _run(script_body):
     r = subprocess.run(
         ["/opt/ubotpay/venv/bin/python", p],
         capture_output=True, text=True, env=env, cwd="/opt/ubotpay",
+        timeout=300,
     )
     if r.returncode != 0:
         raise RuntimeError("rc=%d: %s\n%s" % (r.returncode, r.stdout, r.stderr))

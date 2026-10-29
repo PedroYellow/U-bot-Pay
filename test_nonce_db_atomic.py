@@ -48,6 +48,13 @@ Test setup:
 """
 import os
 import subprocess
+
+# Each case spawns a fresh Python that imports dataagent, which
+# imports web3. On a loaded host that import alone takes 78 seconds -
+# measured. So the timeout is generous, but it has to EXIST: without
+# it a stuck subprocess hangs the suite, and the runner records the
+# eventual kill as a FAIL with no reason.
+SUBPROCESS_TIMEOUT = 300
 import sys
 import tempfile
 
@@ -76,10 +83,21 @@ def _run(code):
         + "import sqlite3\n"
         + code
     )
-    r = subprocess.run(
-        ["/opt/ubotpay/venv/bin/python", "-c", full],
-        capture_output=True, text=True, env=env,
-    )
+    # The timeout is the point of this change. Without it a stuck
+    # subprocess hangs the whole suite, and the runner records the
+    # eventual kill as a FAIL with no reason. Each case spawns a fresh
+    # Python that imports dataagent - which imports web3 - and on a
+    # loaded host that import alone takes 78 seconds.
+    try:
+        r = subprocess.run(
+            ["/opt/ubotpay/venv/bin/python", "-c", full],
+            capture_output=True, text=True, env=env,
+            timeout=SUBPROCESS_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            "the case did not finish in %ss - it is hung, not wrong"
+            % SUBPROCESS_TIMEOUT)
     if r.returncode != 0:
         raise RuntimeError("rc=%d: %s\n%s" % (r.returncode, r.stdout, r.stderr))
     out = [ln for ln in r.stdout.strip().splitlines() if ln.strip()]
@@ -148,10 +166,17 @@ def t_nonce_seen_hits_db_after_cold_start():
         full = ('import sys\n'
                 + 'sys.path.insert(0, "%s")\n' % HERE
                 + code)
-        r = subprocess.run(
-            ["/opt/ubotpay/venv/bin/python", "-c", full],
-            capture_output=True, text=True, env=env,
-        )
+        # The timeout is the point of this change - see _run().
+        try:
+            r = subprocess.run(
+                ["/opt/ubotpay/venv/bin/python", "-c", full],
+                capture_output=True, text=True, env=env,
+                timeout=SUBPROCESS_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(
+                "the case did not finish in %ss - it is hung, not wrong"
+                % SUBPROCESS_TIMEOUT)
         if r.returncode != 0:
             raise RuntimeError("rc=%d: %s\n%s" % (r.returncode, r.stdout, r.stderr))
         return r.stdout.strip().splitlines()[-1]

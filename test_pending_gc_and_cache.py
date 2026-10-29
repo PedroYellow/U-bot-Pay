@@ -41,6 +41,7 @@ def _run(code):
     r = subprocess.run(
         ["/opt/ubotpay/venv/bin/python", "-c", full],
         capture_output=True, text=True, env=env,
+        timeout=300,
     )
     if r.returncode != 0:
         raise RuntimeError("rc=%d: %s\n%s" % (r.returncode, r.stdout, r.stderr))
@@ -79,6 +80,7 @@ def test_pending_gc_caps_at_max():
     r = subprocess.run(
         ["/opt/ubotpay/venv/bin/python", "-c", "import sys; sys.path.insert(0, '" + HERE + "'); " + code],
         capture_output=True, text=True, env=env,
+        timeout=300,
     )
     if r.returncode != 0:
         raise RuntimeError("rc=%d: %s %s" % (r.returncode, r.stdout, r.stderr))
