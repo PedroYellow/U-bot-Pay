@@ -128,7 +128,49 @@ you.
 
 ---
 
-## 5. The Stargate Foundation email
+## 5. The Solana treasury has no USDC
+
+Found on 29 Oct, while running the whitelabel suites again.
+
+```
+the treasury: BX6sfCwA9CkVqfpppco3HgXi3gCMhxQgBFoH4yLpJk55
+the SOL:     0.099626      <- gas, and that is all there is
+the USDC:    0             <- it does not even have the ATA
+```
+
+The chain's own log says it:
+
+```
+Program log: Error: insufficient funds
+Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA failed:
+custom program error: 0x1
+```
+
+**0.0996 SOL is the gas, not the token.** On Solana the fee is paid in
+SOL and the token is transferred separately, so a treasury can hold
+enough SOL to sign a transaction and still have nothing to send.
+
+It shows up in the tests as two failures that look like software
+faults and are not:
+
+  - the concurrent-confirm test expected "settled" and got "failed"
+  - the transaction simulation expected the chain to accept a USDC
+    transfer and got "insufficient funds"
+
+Both are the chain and the guard working correctly. The tests now say
+what they can actually prove - that exactly one of four racing
+confirms takes the pending payment - and the settle/fail split is
+printed as a note.
+
+**What it needs**: USDC in the treasury. The SOL it already has
+covers the fee.
+
+**If not done**: the Solana deployment can read balances and build
+transactions, but cannot send.
+
+---
+
+## 6. The Stargate Foundation email
 
 Every number in it was measured today:
 
