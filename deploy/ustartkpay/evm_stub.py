@@ -23,12 +23,35 @@ that SDK is not installable here:
     starknet-py 0.30.0  ->  eth-keyfile <1.0.0, >=0.8.1
     eth-account 0.14.0  ->  eth-keyfile >=0.10
 
-Those are incompatible - 0.10 satisfies the first only if the ceiling
-were >=0.10. So installing web3 alongside starknet-py resolves to
-eth-keyfile 0.9.1, which breaks eth-account, and pip exits 120:
+Those are incompatible. There are two ways pip meets that, and the
+second one is the dangerous one.
+
+Install both in one command, and pip detects the conflict and
+installs nothing:
+
+    ERROR: Cannot install eth-account==0.14.0, starknet-py and
+    starknet-py==0.30.0 because these package versions have conflicting
+    dependencies.
+    ERROR: ResolutionImpossible
+
+    the exit code: 1
+
+Install the EVM packages first and starknet-py second, and pip
+resolves the conflict by DOWNGRADING eth-keyfile to 0.9.1, installs
+everything, and exits 0. The breakage is silent at install time and
+only shows up afterwards:
 
     eth-account 0.14.0 requires eth-keyfile>=0.10, but you have
     eth-keyfile 0.9.1 which is incompatible.
+
+    the exit code: 0
+
+So the exit code of pip is not the signal - pip exits 0 on the path
+that leaves the environment broken. That is why the deployment script
+runs 'pip check' and makes it fatal.
+
+And there is no version combination that makes them coexist:
+pinning eth-account below 0.14 moves the conflict to web3 itself.
 
 The two SDKs cannot share an interpreter. That is the same rule the
 engine registry follows, and the same thing that broke U-bot Pay's
