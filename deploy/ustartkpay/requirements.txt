@@ -1,0 +1,57 @@
+# Runtime dependencies for U-StarkPay — the Starknet whitelabel.
+#
+# This is the Sonic deployment's requirements.txt with the EVM SDKs
+# removed, and starknet-py added.
+#
+# WHY THE EVM SDKs ARE NOT HERE
+#
+# Starknet is not EVM. But dataagent.py was carried over from U-bot
+# Pay and imported three EVM things at module level:
+#
+#     from web3 import Web3
+#     from eth_account import Account
+#     from eth_account.messages import encode_typed_data
+#
+# On this deployment Web3 is used EXACTLY ONCE, for
+# to_checksum_address, and Account and encode_typed_data are imported
+# and NEVER USED. So the module pulled in a whole EVM SDK to use one
+# checksum helper.
+#
+# And that SDK cannot be installed beside starknet-py:
+#
+#     starknet-py 0.30.0  ->  eth-keyfile <1.0.0, >=0.8.1
+#     eth-account 0.14.0  ->  eth-keyfile >=0.10
+#
+# Those are incompatible. pip resolves to eth-keyfile 0.9.1, eth-account
+# breaks, and pip exits 120:
+#
+#     eth-account 0.14.0 requires eth-keyfile>=0.10, but you have
+#     eth-keyfile 0.9.1 which is incompatible.
+#
+# Two chain SDKs cannot share an interpreter. That is the same rule the
+# engine registry follows, and the same thing that broke U-bot Pay's
+# payments once before.
+#
+# So the EVM helpers come from evm_stub.py instead, which is what
+# api.py already did. See that file for why skipping the EIP-55
+# checksum is correct here rather than a shortcut.
+#
+# Network/HTTP
+httpx>=0.28,<0.30
+requests>=2.34,<3
+
+# Web framework
+fastapi>=0.110,<1.0
+uvicorn>=0.30,<0.60
+python-multipart>=0.0.10,<0.1   # pulled in transitively by FastAPI for form parsing
+python-telegram-bot>=21,<22
+anthropic>=1.10,<2.0
+cryptography>=40,<60
+
+# Starknet. 0.30.0 - on 0.25.1 the v3 deploy failed at the RPC with
+# "Field validation for 'L1DataGas' failed on the 'required' tag",
+# because the transaction was missing a field a v3 transaction
+# requires.
+#
+# NO web3, NO eth-account. See the header.
+starknet-py==0.30.0

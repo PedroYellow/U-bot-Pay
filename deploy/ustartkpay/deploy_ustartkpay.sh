@@ -54,7 +54,22 @@ if [ -d "$BASE/chains" ]; then
     cp -r "$BASE/chains" "$DEPLOY_DIR/chains"
     rm -rf "$DEPLOY_DIR/chains/__pycache__"
 fi
-mkdir -p "$DEPLOY_DIR/profiles" "$SECRETS" "$DEPLOY_DIR/data" "$DEPLOY_DIR/deploy"
+mkdir -p "$DEPLOY_DIR/profiles" "$SECRETS" "$DEPLOY_DIR/data" "$DEPLOY_DIR/deploy" \
+         "$DEPLOY_DIR/deploy/ustartkpay"
+# The Starknet requirements, and the EVM stub. Both come from the
+# repository's deploy/ustartkpay/ directory, and both are needed
+# BEFORE the venv is built - the requirements decide what goes in it,
+# and the stub is what dataagent.py imports instead of web3.
+#
+# The stub is also copied to the deployment root, because dataagent.py
+# imports it as a top-level module.
+for f in requirements.txt evm_stub.py; do
+    if [ -f "/opt/ustartkpay/deploy/ustartkpay/$f" ]; then
+        cp "/opt/ustartkpay/deploy/ustartkpay/$f" "$DEPLOY_DIR/deploy/ustartkpay/$f"
+        cp "/opt/ustartkpay/deploy/ustartkpay/$f" "$DEPLOY_DIR/$f"
+    fi
+done
+echo "  the Starknet requirements and the EVM stub are in place"
 cp "$BASE/requirements.txt" "$DEPLOY_DIR/" 2>/dev/null || true
 echo "  the app is copied from $BASE"
 
@@ -69,9 +84,42 @@ fi
 # "Field validation for 'L1DataGas' failed on the 'required' tag" -
 # the transaction was missing a field a v3 transaction requires.
 echo "  installing the dependencies"
-"$VENV/bin/pip" install -q -r "$DEPLOY_DIR/requirements.txt" 2>&1 | tail -2 || true
-"$VENV/bin/pip" install -q "starknet-py==0.30.0" 2>&1 | tail -2 || true
+# The requirements are the STARKNET ones - no web3, no eth-account.
+#
+# starknet-py 0.30.0 wants eth-keyfile<1.0.0,>=0.8.1 and
+# eth-account 0.14.0 wants eth-keyfile>=0.10. Those are incompatible,
+# and installed together the resolver picks eth-keyfile 0.9.1, which
+# breaks eth-account:
+#
+#     eth-account 0.14.0 requires eth-keyfile>=0.10, but you have
+#     eth-keyfile 0.9.1 which is incompatible.
+#
+# and pip exits 120. Two chain SDKs cannot share an interpreter.
+#
+# So the Starknet requirements file has no EVM SDKs in it at all, and
+# the EVM helpers come from evm_stub.py - which is what api.py already
+# did. See deploy/ustartkpay/requirements.txt for the full reasoning.
+#
+# starknet-py is in that file, so it is ONE install command and the
+# resolver sees every constraint at once.
+if [ -f "$DEPLOY_DIR/deploy/ustartkpay/requirements.txt" ]; then
+    REQS="$DEPLOY_DIR/deploy/ustartkpay/requirements.txt"
+else
+    REQS="$DEPLOY_DIR/requirements.txt"
+fi
+echo "  the requirements: $REQS"
+"$VENV/bin/pip" install -q -r "$REQS" 2>&1 | tail -3 || true
 "$VENV/bin/pip" show starknet-py 2>/dev/null | head -2
+# the resolution is checked, not assumed
+"$VENV/bin/python" - <<'CHECK' || exit 1
+import subprocess, sys
+out = subprocess.run([sys.executable, "-m", "pip", "check"],
+                     capture_output=True, text=True).stdout.strip()
+if out:
+    print("  pip check:", out)
+    sys.exit(1)
+print("  pip check: no conflicts")
+CHECK
 
 # ── 3. the prefix everywhere ───────────────────────────────────────
 echo
@@ -86,17 +134,73 @@ for f in api.py brain.py bridge.py chain.py core.py dataagent.py \
 done
 echo "  the USONIC prefix is now $PREFIX"
 
+# ── 3b. the EVM imports in dataagent.py ────────────────────────────
+# dataagent.py is carried over from U-bot Pay and imports web3 and
+# eth_account at module level. This deployment has neither - and cannot
+# have them, because starknet-py and eth-account need incompatible
+# versions of eth-keyfile.
+#
+# So the imports become the stub. The only one that is used is
+# Web3.to_checksum_address, and the stub's version of it is correct
+# for a non-EVM chain.
+echo
+echo "=== the EVM imports ==="
+if [ -f "$DEPLOY_DIR/dataagent.py" ]; then
+    if grep -q "^from web3 import Web3" "$DEPLOY_DIR/dataagent.py"; then
+        python3 "$DEPLOY_DIR/deploy/ustartkpay/fix_starknet_dataagent_imports.py" \
+            "$DEPLOY_DIR/dataagent.py" 2>/dev/null \
+            || python3 /tmp/fix_starknet_dataagent_imports.py \
+               "$DEPLOY_DIR/dataagent.py"
+    else
+        echo "  it already uses the stub"
+    fi
+    grep -n "from evm_stub\|from web3" "$DEPLOY_DIR/dataagent.py" | head -3
+fi
+
 # ── 4. the engine and the registry ────────────────────────────────
 echo
 echo "=== the Starknet engine ==="
-python3 /tmp/integrate_starknet_registry.py \
-    "$DEPLOY_DIR/chains/registry.py" \
-    /opt/ustartkpay_test/chains_starknet_engine.py 2>/dev/null || \
+# The engine comes from the REPOSITORY's copy, not from
+# /opt/ustartkpay_test - that is a test directory, it is not kept in
+# sync, and it is where a stale engine was living.
+#
+# And it has to land at chains/starknet.py, because that is the name
+# the registry imports:
+#
+#     from .starknet import StarknetEngine
+#
+# The bug this fixes: the deployment ended up with TWO copies of the
+# engine - chains/starknet.py (the OLD one, the one that is imported)
+# and chains_starknet_engine.py (the fixed one, imported by nothing).
+# So three real fixes were deployed and none of them was live.
+#
+# After the copy, both names are made identical, so there is no
+# second copy to drift.
+ENGINE_SRC="/opt/ustartkpay/deploy/ustartkpay/chains_starknet_engine.py"
+ENGINE_DST="$DEPLOY_DIR/chains/starknet.py"
+
+if [ ! -f "$ENGINE_SRC" ]; then
+    echo "  the engine source is missing: $ENGINE_SRC"
+    echo "  (it comes from the repository - deploy/ustartkpay/chains_starknet_engine.py)"
+    exit 1
+fi
+
+cp "$ENGINE_SRC" "$ENGINE_DST"
+# the second name, so there is no copy that can drift
+cp "$ENGINE_SRC" "$DEPLOY_DIR/chains_starknet_engine.py"
+
 python3 "$DEPLOY_DIR/deploy/integrate_starknet_registry.py" \
     "$DEPLOY_DIR/chains/registry.py" \
-    /opt/ustartkpay_test/chains_starknet_engine.py
+    "$ENGINE_SRC" 2>/dev/null || \
+python3 /tmp/integrate_starknet_registry.py \
+    "$DEPLOY_DIR/chains/registry.py" \
+    "$ENGINE_SRC"
 "$VENV/bin/python" -m py_compile "$DEPLOY_DIR/chains/registry.py" \
     "$DEPLOY_DIR/chains/starknet.py" && echo "  it compiles"
+
+# the check that the file the service imports is the fixed one
+"$VENV/bin/python" "$DEPLOY_DIR/check_starknet_engine_copy.py" "$DEPLOY_DIR" \
+    2>/dev/null | tail -3 || true
 
 # ── 5. the profile ────────────────────────────────────────────────
 echo
@@ -131,7 +235,15 @@ cat > "$DEPLOY_DIR/deploy/run_ustartkpay.sh" <<'WRAPPER'
 set -e
 
 SECRETS_DIR="/opt/ustartkpay/secrets"
-KEY="$SECRETS_DIR/account.json"
+# The MAINNET key. The sepolia one is account.json, and it belongs to
+# another network - the engine now refuses a key whose network does not
+# match the deployment's, so pointing at it would make the deployment
+# read-only.
+#
+# This is the same file the profile names in key_file. Both must agree,
+# because the env var is what a person reads and the profile is what
+# the code uses.
+KEY="$SECRETS_DIR/mainnet_account.json"
 
 if [ -r "$KEY" ]; then
     export USTARTPAY_ACCOUNT_KEY="$KEY"
