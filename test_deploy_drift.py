@@ -184,6 +184,48 @@ else:
 
 print()
 print("=" * 72)
+print("D5: the Starknet engine implements the whole engine interface")
+print("=" * 72)
+# StarknetEngine inherits from NOTHING, so it does not get
+# ChainEngine's methods. One of them was missing and it broke a
+# public endpoint: /bridge/chains answered 500 on the Starknet
+# deployment with
+#
+#     AttributeError: 'StarknetEngine' object has no attribute
+#     'explorer'. Did you mean: '_explorer'?
+#
+# while ubotpay and usonicpay answered 200 - because their engines
+# inherit from ChainEngine.
+#
+# So the Starknet engine's public surface is compared with the EVM
+# engine's effective surface (the base class plus its own).
+iface_check_remote = "/opt/ustartkpay/deploy/ustartkpay/check_starknet_interface.py"
+# The SCRIPT is read from the deployment's copy, not from the
+# repository's: the repository is on this machine and the deployment
+# is on the other one, so a path that exists here does not exist
+# there.
+#
+# It runs ON THE VPS, because the deployment is there. The other
+# checks in this file do the same thing - md5_remote, and the nginx
+# vhosts - for the same reason: a check that reads the deployment
+# has to run where the deployment is.
+r = subprocess.run(
+    ["ssh", "-o", "BatchMode=yes", SSH,
+     f"test -f {iface_check_remote} && "
+     f"python3 {iface_check_remote} /opt/ustartkpay"],
+    capture_output=True, text=True, timeout=180)
+out = r.stdout or ""
+for line in out.splitlines():
+    if line.strip():
+        print(f"  {line}")
+if "MISSING" in out:
+    failures.append("the Starknet engine is missing interface methods")
+elif not out.strip():
+    print("  the check did not run - is the deployment there?")
+    failures.append("the Starknet interface check did not run")
+
+print()
+print("=" * 72)
 print(f"{len(failures)} failure(s)")
 if drifted:
     print("drifted:")

@@ -37,6 +37,14 @@ import os
 
 log = logging.getLogger("ustartpay.starknet")
 
+
+class NotSupported(RuntimeError):
+    """A chain cannot do what was asked of it.
+
+    The same name as the base class's, so the messages read the same
+    whichever engine raised them.
+    """
+
 # The Starknet token list registry address used in most guides no
 # longer has a contract at it ("Contract not found"), so the token list
 # has to come from an indexer and every address has to be verified
@@ -201,6 +209,65 @@ class StarknetEngine:
     @property
     def _treasury_address(self):
         return self._account_address
+
+    # ── the ChainEngine interface ───────────────────────────────────
+    # This engine inherits from nothing, so it does not get
+    # ChainEngine's methods. Six of them were missing, and one broke
+    # a public endpoint: /bridge/chains answered 500 here with
+    #
+    #     AttributeError: 'StarknetEngine' object has no attribute
+    #     'explorer'. Did you mean: '_explorer'?
+    #
+    # while ubotpay and usonicpay answered 200 - because their
+    # engines inherit from ChainEngine and this one does not.
+    #
+    # So the surface is provided here explicitly. The x402 methods
+    # raise NotSupported with the same reason the base class uses:
+    # transferWithAuthorization is an EVM-only primitive, and Starknet
+    # is not EVM. Saying that plainly beats an AttributeError.
+
+    def explorer(self) -> str:
+        """The block explorer's base URL."""
+        return getattr(self, "_explorer", "")
+
+    def account(self):
+        """The account object, if this deployment has a signer.
+
+        There is no account object until the account contract is
+        deployed, so this is None before that and the KeyPair's
+        address after it.
+        """
+        return getattr(self, "_account_address", "") or None
+
+    def send(self, to: str, amount, memo_hash: str | None = None,
+             fee: float = 0.0, symbol: str | None = None) -> dict:
+        """Submit then confirm, which is what the base class does.
+
+        `symbol` says which token to pay in. It travels all the way
+        from the API to the engine here too: without it every payment
+        would use the wrong fee token.
+        """
+        sub = self.submit(to, amount, fee)
+        if not sub.get("ok"):
+            return sub
+        return self.confirm(sub["tx"], sub.get("fee_tx"))
+
+    def sign_authorization(self, *a, **k) -> dict:
+        raise NotSupported(
+            f"{self.name} has no transferWithAuthorization; x402 permits are "
+            f"an EVM-only primitive."
+        )
+
+    def verify_authorization(self, auth: dict, *, expected_payee=None,
+                             min_value=None):
+        if not self.supports_x402:
+            return False, f"unsupported on {self.name}"
+        return False, "not implemented"
+
+    def settle_authorization(self, auth: dict) -> dict:
+        return {"ok": False, "tx": None, "error": f"unsupported on {self.name}",
+                "reason": f"{self.name} cannot execute an EIP-3009 authorization",
+                "explorer": None, "latency_s": 0.0}
 
     def has_signer(self) -> bool:
         """Whether this deployment can actually sign.
