@@ -93,48 +93,65 @@ U-bot Pay · https://ubotpay.com · security@ubotpay.com
 
 **To:** Stargate DAO Discourse → "New Chain Deployments"
 **Thread:** `stargate.discourse.group/t/stargate-deployment-to-sonic/62`
-**Subject:** Sonic USDC pool is live but cannot route — here's a consumer with volume
+**Subject:** Sonic USDC pool: LP shares missing, route caps at $100 from Avalanche
 
 Hi Stargate team,
 
 The Sonic deployment was ratified at 95.55% with USDC and USDT pools
 promised on day one, and the contracts are deployed. But the USDC pool
-currently holds **27,874 USDC**, and it cannot service a transfer in
-practice. I wanted to share that with a concrete number, because we are
-already routing volume into Sonic and would rather it went through you.
+currently holds **67,316 USDC** and its LP tokens report zero
+outstanding, so the route through it stops working above about $100
+from Avalanche. I wanted to share that with a concrete number, because
+we are already routing volume into Sonic and would rather it went
+through you.
 
 **What we measured, today**
 
 The Stargate V2 USDC pool on Sonic:
-`0xa272ffe20cffe769cdfc4b63088dcd2c82a2d8f9` — **27,339 USDC held**,
-read straight from the contract on 2026-10-28. It was 27,874 USDC
-the day before, so the liquidity is draining rather than being
-supplied.
+`0xa272ffe20cffe769cdfc4b63088dcd2c82a2d8f9` — **67,315.78 USDC held**,
+read straight from the contract on 2026-10-29. It was 27,339 USDC
+the day before, so the liquidity has actually been supplied rather
+than drained.
 
-But the number that matters is a different one. **The pool has zero LP
-tokens outstanding.** Not a thin market — no market. The 27,339 USDC
-is sitting in the contract with nothing minted against it, so there is
-no counterparty on the other side of a swap and no price for the pool
-share. That is consistent with everything else we see: the pool is
-configured correctly (`pool.token()` returns your USDC address), the
-address is the one your own API publishes for chainKey `sonic`, and
-your API lists 56 chains with Sonic among them — and yet nothing can
-route through it.
-
-So the route is not mispriced or thin. It is not connected to a
-liquidity provider at all.
-
-And with Stargate as the only allowed bridge, the aggregator returns no
-route at any size, from either direction we tried (Ethereum → Sonic
-and Avalanche → Sonic):
+**The route works — but only where the pool has shares to trade.**
+With Stargate as the only allowed bridge, from both directions:
 
 ```
-10 USDC      -> No available quotes for the requested transfer
-100 USDC     -> No available quotes for the requested transfer
-1,000 USDC   -> No available quotes for the requested transfer
-10,000 USDC  -> No available quotes for the requested transfer
-100,000 USDC -> No available quotes for the requested transfer
+Ethereum → Sonic
+  10 USDC      -> routes, out 9.96 USDC
+  100 USDC     -> routes, out 99.61 USDC
+  1,000 USDC   -> routes, out 996.11 USDC
+  10,000 USDC  -> routes, out 9,961.05 USDC
+
+Avalanche → Sonic
+  10 USDC      -> routes, out 9.96 USDC
+  100 USDC     -> routes, out 99.58 USDC
+  1,000 USDC   -> No available quotes for the requested transfer
+  10,000 USDC  -> No available quotes for the requested transfer
 ```
+
+So the pool is not dead, and I want to be precise about what we are
+asking, because the difference is the whole point.
+
+**The pool's USDC balance is 67,315.78** — up from 27,874 two days
+ago, read straight from the contract on Sonic mainnet. The liquidity
+has been growing, and small transfers do clear in both directions.
+
+**But the pool's LP tokens report zero outstanding.** The USDC is
+sitting in the contract with nothing minted against it. That is why
+the route survives only while the trade is small: below roughly
+$100 there is enough for the routing algorithm to price a swap on its
+own, and above it there is no counterparty on the other side and no
+price for the pool share to quote against.
+
+From Ethereum the route holds to $10,000 — Ethereum-side liquidity
+covers the gap. From Avalanche, our own chain, it stops at $100, and
+that is where we would be moving real payment volume.
+
+So the request is not "make the pool work" — it works. It is to get
+**LP minted against the USDC already in the contract**, so the route
+stops being size-limited. The USDC alone is not a route; it is
+collateral waiting for someone to mint against it.
 
 For context, DefiLlama has Stargate V2 TVL at $75.58M, of which Ethereum
 alone holds $53.02M and Sonic holds $27,836. Sonic's 30-day bridge volume
@@ -155,12 +172,13 @@ so it goes through Polymer.
 
 **What we're asking for**
 
-1. **A liquidity proposal for the Sonic USDC pool** at a size that can
-   service real payment volume rather than a few hundred thousand. The
-   original proposal asked for 1m USDC and 1m USDT to be migrated; that
-   would change the picture entirely. Concretely: whoever supplies the
-   USDC also needs to mint the pool's LP tokens against it. The USDC
-   alone is not a route — there is nothing to trade it for.
+1. **LP minted against the USDC already in the pool.** This is the
+   specific, small ask. The 67,315.78 USDC is there; it just has no
+   pool shares minted against it, which caps the route at $100 from
+   Avalanche. The original proposal asked for 1m USDC and 1m USDT to
+   be migrated — that would change the picture entirely — but the LP
+   shares are the part that decides whether the route works at
+   volume.
 2. **A named technical contact** so we can point our bridge at Stargate
    directly rather than through an aggregator — we would rather not take a
    fixed fee out of a 0.5% payment.
@@ -187,11 +205,18 @@ U-bot Pay · https://ubotpay.com · security@ubotpay.com
 - **The Stargate one goes in the existing Sonic deployment thread**, not a
   new one. A follow-up on a live integration is on-topic there, and the
   thread already has attention.
-- **Lead with the number.** "$27,874" and "no route at $100" are the
-  whole message. Everything else is context.
+- **Lead with the number.** "$67,316" and "no route above $100 from
+  Avalanche" are the whole message. Everything else is context.
 - **Do not promise a date.** If asked directly: "about a week of
   engineering once the route is settled, and we'd rather agree a date
   together than guess."
-- **Re-check the pool balance before sending.** It moves. If it has been
-  refilled, drop the "cannot route" claim and lead with the consumer
-  volume instead.
+- **Re-check the pool balance and the quote table before sending.** Both
+  move. The pool grew from 27,874 to 67,315.78 in two days, and the
+  quote table changes with it. Re-run:
+  - `deploy/verify_stargate_pool.py` for the balance, straight from
+    the contract
+  - `deploy/track_stargate_sonic.py --json` for the quote table, and
+    the size that routes from each direction
+
+  If the pool has been refilled AND the route now works at volume,
+  drop the size-cap claim and lead with the consumer instead.

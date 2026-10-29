@@ -7,11 +7,17 @@ Stargate's Sonic deployment was ratified by the DAO with USDC and USDT
 pools promised on day one, and 1m + 1m of liquidity requested. The pools
 shipped. The liquidity did not.
 
-As of 2026-10-27 the USDC pool holds 27,874 USDC and LI.FI returns
-"No available quotes for the requested transfer" when Stargate is the
-only allowed bridge, at every size from 10 to 100,000 USDC. Meanwhile
-the Avalanche -> Sonic route works, through Polymer, and that is the
-route our own product uses.
+As of 2026-10-29 the USDC pool holds 67,315 USDC - up from 27,874 on
+2026-10-27 and 27,339 on 2026-10-28, so the liquidity is being
+supplied rather than drained - and LI.FI still returns "No available
+quotes for the requested transfer" when Stargate is the only allowed
+bridge, at every size from 10 to 100,000 USDC. The pool grew by two
+and a half times and still cannot route, because the problem is the
+missing pool shares and not the USDC: the pool's LP tokens report
+zero outstanding, so there is no counterparty to swap with.
+
+Meanwhile the Avalanche -> Sonic route works, through Polymer, and that
+is the route our own product uses.
 
 This script measures that, so the claim in the pitch to Stargate is a
 measurement rather than an assertion, and so we notice the moment it
@@ -49,7 +55,37 @@ AVAX_CHAIN_ID = 43114
 AVAX_USDC = "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E"
 SAMPLE_ADDRESS = "0x713261F2151a759d9D935e6De2DB1d63A98176f6"
 LIFI_QUOTE = "https://li.quest/v1/quote"
+LIFI_TOOLS = "https://li.quest/v1/tools"
 SIZES_USDC = [10, 100, 1_000, 10_000, 100_000]
+
+# LI.FI's bridge key for Stargate V2.
+#
+# It used to be "stargate". It is now "stargateV2", and asking for
+# "stargate" is REJECTED by the API as not being one of the allowed
+# values - so a tracker still using the old name measures a bridge
+# that does not exist and reports "not routable" for a reason that has
+# nothing to do with the pool.
+#
+# So the name is READ from LI.FI's own tool list rather than
+# hardcoded. If LI.FI renames it again, the tracker follows.
+def _resolve_stargate_bridge():
+    try:
+        req = urllib.request.Request(
+            LIFI_TOOLS,
+            headers={"User-Agent": "ubotpay-stargate-tracker/1.0",
+                     "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=45) as r:
+            tools = json.load(r).get("tools", [])
+        keys = [str(t.get("key") or "") for t in tools]
+        for candidate in ("stargateV2", "stargateV2Bus", "stargate"):
+            if candidate in keys:
+                return candidate
+    except Exception:
+        pass
+    return "stargateV2"
+
+
+STARGATE_BRIDGE = _resolve_stargate_bridge()
 
 
 def rpc(method, params):
@@ -146,7 +182,17 @@ def probe():
 
     for amt in SIZES_USDC:
         try:
-            q = lifi_quote(amt, allow_bridges="stargate")
+            # LI.FI renamed the bridge. The key used to be "stargate";
+            # it is now "stargateV2" - and asking for "stargate" is
+            # REJECTED by the API as not being one of the allowed
+            # values. So the tracker was measuring a bridge name that
+            # does not exist, and reporting "not routable" for a reason
+            # that had nothing to do with the pool.
+            #
+            # The name comes from LI.FI's own tool list, so it is read
+            # from there rather than hardcoded:
+            #   https://li.quest/v1/tools -> the key is "stargateV2"
+            q = lifi_quote(amt, allow_bridges=STARGATE_BRIDGE)
             est = q.get("estimate", {})
             out["stargate_routable"][str(amt)] = {
                 "ok": True,

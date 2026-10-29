@@ -223,32 +223,50 @@ registration path is at `docs.soniclabs.com/funding/fee-monetization/apply`.
 
 ---
 
-## The finding that makes this a real conversation (added 2026-10-27, 14:40 UTC)
+## The finding that makes this a real conversation
 
-**Stargate cannot route a single USDC into Sonic right now.**
+(added 2026-10-27, 14:40 UTC; the quote table re-measured
+2026-10-29 — the bridge key had been renamed, so the original
+measurement was of a bridge name that no longer exists)
+
+**Stargate routes small transfers into Sonic, but it stops at $100 from
+Avalanche.**
 
 Measured on-chain and against the aggregator, not from a website:
 
 | What | Value | How |
 |---|---|---|
 | Stargate V2 USDC pool on Sonic | `0xa272ffe20cffe769cdfc4b63088dcd2c82a2d8f9` | sonicscan trace + contract read |
-| USDC held by that pool | **27,874.19 USDC** | `balanceOf(pool)` on `0x29219dd4…` |
+| USDC held by that pool | **67,315.78 USDC** | `balanceOf(pool)` on `0x29219dd4…` |
 | Stargate V2 total TVL | $75.58M | DefiLlama |
 | of which Ethereum | $53.02M | DefiLlama |
 | of which **Sonic** | **$27,836** | DefiLlama |
 | Sonic 30-day bridge volume via Stargate | $118,471 (vs $301M Ethereum) | DefiLlama |
 | LayerZero Endpoint V2 on Sonic | `0x88853d410299bcbfe5fcc9eef93c03115e908279` | storage slot 2 of the pool |
 
-And with Stargate as the only allowed bridge, LI.FI returns **no route at
-any size**:
+And with Stargate as the only allowed bridge (`allowBridges=stargateV2`),
+LI.FI returns a quote at small sizes and none above $100 from Avalanche:
 
 ```
-10 USDC       -> No available quotes for the requested transfer
-100 USDC      -> No available quotes for the requested transfer
+Ethereum -> Sonic
+10 USDC       -> QUOTE, out 9.96 USDC
+100 USDC      -> QUOTE, out 99.61 USDC
+1,000 USDC    -> QUOTE, out 996.11 USDC
+10,000 USDC   -> QUOTE, out 9,961.05 USDC
+
+Avalanche -> Sonic
+10 USDC       -> QUOTE, out 9.96 USDC
+100 USDC      -> QUOTE, out 99.58 USDC
 1,000 USDC    -> No available quotes for the requested transfer
 10,000 USDC   -> No available quotes for the requested transfer
 100,000 USDC  -> No available quotes for the requested transfer
 ```
+
+The cap is the missing LP shares, not the USDC: the pool's LP token
+reports 0.00 outstanding, so below roughly $100 the router can price
+a small swap on the USDC that is sitting there, and above it there is
+nothing to price against. Ethereum reaches $10,000 because
+Ethereum-side liquidity covers the gap.
 
 Meanwhile the Avalanche→Sonic route **does** work, through Polymer, and our
 own live endpoint quotes it:
@@ -261,13 +279,13 @@ $ curl 'https://api.ubotpay.com/bridge/quote?from_chain=43114&to_chain=146&amoun
   execution_duration : 1080s
 ```
 
-**The consequence for the pitch.** A payments rail that cannot move $100
+**The consequence for the pitch.** A payments rail that cannot move $1,000
 is not a payments rail. And the Stargate Sonic deployment was ratified by
 the DAO at 95.55% with USDC and USDT pools promised on day one, and 1m USDC
-+ 1m USDT of liquidity requested — **the pools shipped and the liquidity
-never arrived.** That is a fair thing to raise, politely, with the $27,874
-figure attached, alongside the offer to be a recurring consumer of the
-route.
++ 1m USDT of liquidity requested — **the USDC arrived; the LP shares
+minted against it did not.** That is a fair thing to raise, politely, with
+the $67,316 figure attached, alongside the offer to be a recurring consumer
+of the route.
 
 **It also sharpens the CCTP point.** Circle's CCTP is not deployed on Sonic
 either — of the 69 addresses in Circle's registry, only the Sonic USDC

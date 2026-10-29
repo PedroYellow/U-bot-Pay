@@ -67,6 +67,10 @@ def main():
     route = (tracker.get("working_route") or {}).get("tool")
 
     if first is not None:
+        # The state names the SMALLEST size that routes, not just
+        # "routable". Stargate routes $10 and $100 but not $1,000, and
+        # a state that only said ROUTABLE would hide the part that
+        # matters to anyone moving real volume.
         state = f"ROUTABLE_FROM_{int(first)}"
     else:
         state = "NOT_ROUTABLE"

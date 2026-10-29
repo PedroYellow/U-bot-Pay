@@ -27,23 +27,40 @@ important one.
 
 ## The finding that makes this a real conversation
 
-**Stargate cannot route a single USDC into Sonic right now.**
+**Stargate routes small transfers into Sonic, but it stops at $100 from
+Avalanche.**
 
-The Stargate V2 USDC pool on Sonic exists on-chain, but it holds
-**27,874 USDC** and LI.FI returns *"No available quotes for the requested
-transfer"* when Stargate is the only allowed bridge — at every size we
-tested:
+The Stargate V2 USDC pool on Sonic exists on-chain and holds
+**67,316 USDC** — up from 27,874 two days earlier, so the liquidity is
+being supplied, not drained. With Stargate as the only allowed
+bridge:
 
 ```
-$ curl 'https://li.quest/v1/quote?fromChain=43114&toChain=146&...&allowBridges=stargate'
-  10 USDC     -> NO QUOTE
-  100 USDC    -> NO QUOTE
+$ curl 'https://li.quest/v1/quote?fromChain=43114&toChain=146&...&allowBridges=stargateV2'
+  10 USDC     -> QUOTE, out 9.96 USDC
+  100 USDC    -> QUOTE, out 99.58 USDC
   1,000 USDC  -> NO QUOTE
   10,000 USDC -> NO QUOTE
   100,000 USDC-> NO QUOTE
 ```
 
-Meanwhile the Avalanche→Sonic route **does** work, through Polymer:
+The same query from Ethereum does better:
+
+```
+$ curl 'https://li.quest/v1/quote?fromChain=1&toChain=146&...&allowBridges=stargateV2'
+  10 USDC     -> QUOTE, out 9.96 USDC
+  100 USDC    -> QUOTE, out 99.61 USDC
+  1,000 USDC  -> QUOTE, out 996.11 USDC
+  10,000 USDC -> QUOTE, out 9,961.05 USDC
+```
+
+So the pool is not empty and not broken. What it has is a **size
+cap**, and the cap bites hardest on the direction we care about:
+from Avalanche — our own chain, where our product's volume would
+come from — it stops at $100.
+
+Meanwhile the Avalanche→Sonic route **does** work at that size,
+through Polymer:
 
 ```
 $ curl 'https://api.ubotpay.com/bridge/quote?from_chain=43114&to_chain=146&amount_usdc=100&...'
@@ -66,7 +83,8 @@ token has code on chain 146, with no `MessageTransmitter` or
 
 - **Polymer** — works, and is what our product uses today.
 - **Sonic Gateway** — Sonic's own trustless Ethereum↔Sonic bridge.
-- **Stargate** — deployed, but effectively empty.
+- **Stargate** — deployed and live, but capped at $100 from
+  Avalanche by the missing LP shares.
 - **CCTP** — not live yet.
 
 A native Sonic U-bot Pay is a **demand generator** for exactly this. A
@@ -75,24 +93,32 @@ takes a fraction of a percent, is a recurring flow through whichever bridge
 carries it. That is the argument for Stargate's Sonic deployment being
 funded, and it is not a hypothetical — the product already sends volume to
 Sonic via Polymer today, and the same volume would go through Stargate if the
-pool were liquid.
+pool had LP shares minted against it.
 
 ---
 
 ## The diagnosis: the pool has zero LP tokens outstanding
 
-This is the number that explains the rest. The pool holds ~27,339 USDC
+This is the number that explains the rest. The pool holds ~67,316 USDC
 and **0.00 S*USDC** — the pool's own LP token, read from the contract.
 Nobody has deposited against it, so:
 
 - there is no counterparty on the other side of a swap
 - there is no price for the pool share
-- the USDC sitting in the contract is not tradeable
+- the USDC sitting in the contract cannot be traded at size
 
-The pool is not thin. It has no market. The USDC was seeded into the
-contract without the LP being minted against it. The fix is for whoever
-supplies the USDC to mint the pool's LP tokens, not just to transfer
-tokens to the pool address.
+The pool is not thin. It has no market at size. The USDC was seeded
+into the contract without the LP being minted against it. The fix is
+for whoever supplies the USDC to mint the pool's LP tokens, not just
+to transfer tokens to the pool address.
+
+**This is why the route caps at $100 rather than failing outright.**
+Below roughly $100 the routing algorithm can price a small swap
+without a pool share — enough to fill the order on the USDC sitting
+there. Above that it has nothing to price against, so it declines.
+That is also why Ethereum reaches $10,000 while Avalanche stops at
+$100: Ethereum-side liquidity covers the gap that the Sonic-side
+missing shares leave open.
 
 ## Stargate does not support Starknet — this matters for the ask
 
@@ -121,7 +147,7 @@ Stargate.
 | Avalanche→Sonic bridge works today | `GET api.ubotpay.com/bridge/quote` — Polymer, 18 min, $0.26 total fee |
 | 40 regression suites green | `run_tests.sh` → `40 suites passed, EXIT=0` |
 | Stargate routability is measured, not asserted | `deploy/track_stargate_sonic.py`, re-run every 6h by a watchdog |
-| The Sonic pool's own state, from the contract | `deploy/read_stargate_sonic_pool.py` — 27,339 USDC, 0.00 LP outstanding |
+| The Sonic pool's own state, from the contract | `deploy/read_stargate_sonic_pool.py` — 67,316 USDC, 0.00 LP outstanding |
 | Stargate's chain list, from their own API | `GET mainnet.stargate-api.com/v1/metadata?version=v2` — 56 chains: Sonic yes, Starknet no |
 | USDC on Starknet, read on chain | `deploy/verify_starknet_usdc.py` — "USD Coin", 6 decimals, 4,388,217.22 supply |
 | USDC on Sonic is **native Circle USDC** | Circle's own registry lists `0x29219dd400f2Bf60E5a23d13Be72B486D4038894` for Sonic mainnet |
@@ -140,7 +166,7 @@ do not copy it.**
 
 ### 1. Stargate: fund the Sonic USDC pool
 
-**The pool holds $27.8K and cannot route $100.** Every route into Sonic
+**The pool holds $67.3K and cannot route $100 from Avalanche.** Every route into Sonic
 through Stargate fails at LI.FI's aggregator level. We are ready to be a
 recurring consumer of that route — our bridge already quotes and executes
 Avalanche→Sonic.
@@ -312,10 +338,11 @@ set is registered defensively and pointed at the same deployment.
 the relationship, and the asks — sponsorship, FeeM, listing, Innovator
 Fund — are the ones that need a human answer). Send the Stargate message
 in parallel but frame it as *a live consumer with volume, plus a concrete
-liquidity number*. Their Sonic thread already has 780 views and 40 likes;
-the deployment was ratified at 95.55% with USDC and USDT pools promised on
-day one. **The pools were promised and never funded.** That is a fair thing
-to point out, politely, with the $27.8K figure attached.
+number on what is missing from the pool*. Their Sonic thread already has
+780 views and 40 likes; the deployment was ratified at 95.55% with USDC
+and USDT pools promised on day one. **The USDC arrived; the LP shares
+against it did not.** That is a fair thing to point out, politely, with
+the $67.3K figure attached.
 
 ---
 
