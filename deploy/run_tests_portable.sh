@@ -19,8 +19,27 @@
 #     tests-<something>-not-applicable/ directory and are not run -
 #     they are listed, so they are visible rather than forgotten
 #   - a suite that times out is reported as a failure, not skipped
-set -uo pipefail
 cd "$(dirname "$0")"
+
+# `set -o pipefail` is a bash option. Run under dash - which is what
+# `sh` is on Debian - it dies with:
+#
+#     set: Illegal option -o pipefail
+#
+# which says nothing about the real problem. The runner has a bash
+# shebang, so ./run_tests.sh works; only `sh run_tests.sh` breaks.
+# This says so plainly.
+#
+# The check has to come BEFORE `set -o pipefail`, or dash dies on the
+# option before it ever reaches the message.
+if [ -z "${BASH_VERSION:-}" ]; then
+    echo "This runner needs bash, not sh."
+    echo "  run it as:  ./run_tests.sh"
+    echo "  or:         bash run_tests.sh"
+    exit 2
+fi
+
+set -uo pipefail
 
 FILTER="${1:-}"
 PASS=0; FAIL=0; FAILED_SUITES=""

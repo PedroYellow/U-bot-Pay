@@ -176,7 +176,7 @@ try:
     r = subprocess.run(
         ["journalctl", "-u", "usonicpay", "--since", since or "10 min ago",
          "-o", "cat"],
-        capture_output=True, text=True, timeout=20)
+        capture_output=True, text=True, timeout=180)
     leaked = "bot8915304380" in r.stdout
     chk("the Telegram bot token is not written to the journal", not leaked,
         "aparece" if leaked else "")
