@@ -165,6 +165,16 @@ class StarknetEngine:
 
     # ── the engine interface, as the facade expects it ───────────────
     def chain_id(self):
+        """Starknet has no NUMERIC chain id.
+
+        CAIP-2 chain ids are integers, and Starknet's is not - it is
+        the string "SN_MAIN". The chain module maps CHAIN_ID to the
+        engine's _chain_id attribute, so it is set here as well.
+        """
+        return "SN_MAIN"
+
+    @property
+    def _chain_id(self):
         return "SN_MAIN"
 
     @property

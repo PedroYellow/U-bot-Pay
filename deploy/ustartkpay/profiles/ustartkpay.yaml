@@ -1,0 +1,61 @@
+# U-StarkPay — Starknet mainnet, USDC.
+#
+# Everything chain-specific about this deployment lives here. Starknet
+# is NOT EVM: it is a Cairo-based, account-abstraction chain, so it
+# needs its own engine (chains_starknet_engine.py) rather than the
+# shared `evm` one.
+#
+# Secrets are not in this file. The account's key is read from a 0600
+# file by path - an exported secret lands in /proc/<pid>/environ, which
+# is world-readable on the host, and shows up in `ps eww`, `systemctl
+# show` and crash dumps.
+#
+# What is different from every other chain:
+#   - the gas token is STRK, not ETH or AVAX
+#   - USDC is a Cairo contract, not an ERC-20
+#   - an account is a CONTRACT: the address is derived from
+#     (public key, salt, class hash) and the contract has to be
+#     deployed at it before it can sign anything
+#   - addresses are 63 hex digits, not 40 - the field is 251 bits
+
+name: U-StarkPay
+brand: ustartkpay
+engine: starknet
+
+chains:
+  kind: starknet
+  stable_symbol: USDC
+  native_symbol: STRK
+
+  # Starknet mainnet's chain id. It is a STRING, not a number: Starknet
+  # has no numeric CAIP-2 chain id, and the value that identifies the
+  # network is "SN_MAIN".
+  chain_id: SN_MAIN
+  name: Starknet
+
+  # USDC on Starknet mainnet. Read from the contract on chain before
+  # being written here: decimals() == 6, symbol() == "USDC", and the
+  # total supply is about 4.4 million.
+  #
+  # The addresses that circulate on the web for "USDC on Starknet" are
+  # wrong. Do not copy them from a search result.
+  stable_address: 0x053c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8
+  explorer: https://starkscan.co
+
+  # STRK, the fee token. Every transaction on Starknet pays its fee in
+  # STRK, so a treasury that cannot hold STRK cannot send anything.
+  fee_token_address: 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d
+
+  # The public RPC. It serves mainnet.
+  # The account. On Starknet it is a CONTRACT: the address is derived
+  # from (public key, salt, class hash) and the contract has to be
+  # deployed at it before it can sign anything. This one IS deployed
+  # and HAS signed - on SEPOLIA.
+  account_address: 0x4af96d3945b91f77f2f36abfd45291ec5e0d7d753709ee2a5484a34f05ce259
+  # The key file, by path. Never an environment variable: an env var
+  # is visible in /proc/<pid>/environ, in `ps eww` and in crash dumps.
+  key_file: /opt/ustartkpay/secrets/account.json
+
+  rpc: https://starknet-rpc.publicnode.com
+  rpc_urls:
+    - https://starknet.api.onfinality.io/public
