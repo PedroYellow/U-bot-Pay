@@ -22,11 +22,32 @@
 #     starknet-py 0.30.0  ->  eth-keyfile <1.0.0, >=0.8.1
 #     eth-account 0.14.0  ->  eth-keyfile >=0.10
 #
-# Those are incompatible. pip resolves to eth-keyfile 0.9.1, eth-account
-# breaks, and pip exits 120:
+# Those are incompatible. There are two ways pip meets that, and they
+# fail differently - which is why the original failure was so hard to
+# read.
+#
+# Both in one command - pip detects the conflict and installs nothing:
+#
+#     ERROR: Cannot install eth-account==0.14.0, starknet-py and
+#     starknet-py==0.30.0 because these package versions have conflicting
+#     dependencies.
+#     ERROR: ResolutionImpossible
+#
+#     the exit code: 1
+#
+# In two steps - the EVM packages first, then starknet-py. pip resolves
+# the conflict by DOWNGRADING eth-keyfile to 0.9.1, installs
+# everything, and exits 0. The breakage is silent at install time and
+# only shows up afterwards:
 #
 #     eth-account 0.14.0 requires eth-keyfile>=0.10, but you have
 #     eth-keyfile 0.9.1 which is incompatible.
+#
+#     the exit code: 0
+#
+# That is why `pip check` is what the deployment script runs, and why
+# it is FATAL (`|| exit 1`). The exit code of pip is not the signal:
+# pip exits 0 on the path that leaves the environment broken.
 #
 # Two chain SDKs cannot share an interpreter. That is the same rule the
 # engine registry follows, and the same thing that broke U-bot Pay's
