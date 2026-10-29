@@ -72,12 +72,25 @@ def main():
         print(f"  {p}: {md5(p) or 'MISSING'}")
 
     print()
-    print("=== they must be identical ===")
+    print("=== they must be the same file ===")
     a, b = md5(IMPORTED), md5(OTHER)
     if b is None:
         # only one copy - that is fine, as long as it is the right one
         chk("the other copy does not exist", True,
             "nothing to compare against")
+    elif os.path.islink(OTHER):
+        # The second name is a SYMLINK, so there is only one engine in
+        # the deployment and no second copy that can drift.
+        #
+        # That is the fix for the bug where chains/starknet.py was the
+        # OLD engine and chains_starknet_engine.py the FIXED one that
+        # nothing imported - so three fixes were deployed and none of
+        # them was live.
+        chk("the second name is a symlink to the imported one",
+            os.path.realpath(OTHER) == os.path.realpath(IMPORTED),
+            os.readlink(OTHER))
+        chk("they are the same file", a == b,
+            f"{str(a)[:8]} vs {str(b)[:8]}")
     else:
         chk("the two copies are identical", a == b,
             f"{str(a)[:8]} vs {str(b)[:8]}")

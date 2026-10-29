@@ -56,6 +56,17 @@ if [ -d "$BASE/chains" ]; then
 fi
 mkdir -p "$DEPLOY_DIR/profiles" "$SECRETS" "$DEPLOY_DIR/data" "$DEPLOY_DIR/deploy" \
          "$DEPLOY_DIR/deploy/ustartkpay"
+# The base's requirements come FIRST, and the Starknet ones overwrite
+# them. The order matters: the base is the Sonic deployment, and its
+# requirements.txt lists web3 and eth-account, which is exactly what
+# cannot be installed beside starknet-py.
+#
+# It was the other way round once, and the deploy failed with
+# ResolutionImpossible on every run - because the base's file was
+# copied over the Starknet one right after the Starknet one was put
+# in place.
+cp "$BASE/requirements.txt" "$DEPLOY_DIR/" 2>/dev/null || true
+
 # The Starknet requirements, and the EVM stub. Both come from the
 # repository's deploy/ustartkpay/ directory, and both are needed
 # BEFORE the venv is built - the requirements decide what goes in it,
@@ -64,13 +75,22 @@ mkdir -p "$DEPLOY_DIR/profiles" "$SECRETS" "$DEPLOY_DIR/data" "$DEPLOY_DIR/deplo
 # The stub is also copied to the deployment root, because dataagent.py
 # imports it as a top-level module.
 for f in requirements.txt evm_stub.py; do
-    if [ -f "/opt/ustartkpay/deploy/ustartkpay/$f" ]; then
-        cp "/opt/ustartkpay/deploy/ustartkpay/$f" "$DEPLOY_DIR/deploy/ustartkpay/$f"
-        cp "/opt/ustartkpay/deploy/ustartkpay/$f" "$DEPLOY_DIR/$f"
+    SRC="/opt/ustartkpay/deploy/ustartkpay/$f"
+    if [ ! -f "$SRC" ]; then
+        continue
+    fi
+    # cp fails when the source and the destination are the same file,
+    # and `set -e` turns that into a dead deploy. It happens on the
+    # second run, because the first run already put the file where it
+    # belongs.
+    if [ "$SRC" != "$DEPLOY_DIR/deploy/ustartkpay/$f" ]; then
+        cp "$SRC" "$DEPLOY_DIR/deploy/ustartkpay/$f"
+    fi
+    if [ "$SRC" != "$DEPLOY_DIR/$f" ]; then
+        cp "$SRC" "$DEPLOY_DIR/$f"
     fi
 done
 echo "  the Starknet requirements and the EVM stub are in place"
-cp "$BASE/requirements.txt" "$DEPLOY_DIR/" 2>/dev/null || true
 echo "  the app is copied from $BASE"
 
 # ── 2. the venv ────────────────────────────────────────────────────
@@ -109,13 +129,26 @@ else
 fi
 echo "  the requirements: $REQS"
 "$VENV/bin/pip" install -q -r "$REQS" 2>&1 | tail -3 || true
-"$VENV/bin/pip" show starknet-py 2>/dev/null | head -2
+# `pip show` returns 120 when there is a dependency conflict WARNING,
+# even though it printed the version. With `set -e` that killed the
+# deploy at the last step - after a venv that was perfectly fine. So
+# the exit code is explicitly ignored here and the real check is the
+# `pip check` below, which reads the ACTUAL state.
+"$VENV/bin/pip" show starknet-py 2>/dev/null | head -2 || true
 # the resolution is checked, not assumed
 "$VENV/bin/python" - <<'CHECK' || exit 1
 import subprocess, sys
-out = subprocess.run([sys.executable, "-m", "pip", "check"],
-                     capture_output=True, text=True).stdout.strip()
-if out:
+r = subprocess.run([sys.executable, "-m", "pip", "check"],
+                   capture_output=True, text=True)
+# `pip check` writes its result to STDERR, not stdout. Reading only
+# stdout made an empty string look like a clean check - and the
+# `|| exit 1` then killed the deploy at the last step, after a venv
+# that was perfectly fine.
+out = (r.stdout or "").strip() or (r.stderr or "").strip()
+if r.returncode != 0 and "No broken requirements found" not in out:
+    print("  pip check:", out)
+    sys.exit(1)
+if out and "No broken requirements" not in out:
     print("  pip check:", out)
     sys.exit(1)
 print("  pip check: no conflicts")
@@ -148,9 +181,7 @@ echo "=== the EVM imports ==="
 if [ -f "$DEPLOY_DIR/dataagent.py" ]; then
     if grep -q "^from web3 import Web3" "$DEPLOY_DIR/dataagent.py"; then
         python3 "$DEPLOY_DIR/deploy/ustartkpay/fix_starknet_dataagent_imports.py" \
-            "$DEPLOY_DIR/dataagent.py" 2>/dev/null \
-            || python3 /tmp/fix_starknet_dataagent_imports.py \
-               "$DEPLOY_DIR/dataagent.py"
+            "$DEPLOY_DIR/dataagent.py"
     else
         echo "  it already uses the stub"
     fi
@@ -186,13 +217,19 @@ if [ ! -f "$ENGINE_SRC" ]; then
 fi
 
 cp "$ENGINE_SRC" "$ENGINE_DST"
-# the second name, so there is no copy that can drift
-cp "$ENGINE_SRC" "$DEPLOY_DIR/chains_starknet_engine.py"
+# The second name is a COPY, and a copy is what caused this whole
+# class of bug: the deployment had chains/starknet.py (the old one,
+# the one the registry imports) and chains_starknet_engine.py (the
+# fixed one, imported by nothing). Three fixes were deployed and none
+# of them was live.
+#
+# So the second name is not a separate copy that can drift. It is the
+# SAME file - a symlink - so there is only one engine in the
+# deployment and the check can prove it.
+rm -f "$DEPLOY_DIR/chains_starknet_engine.py"
+ln -s chains/starknet.py "$DEPLOY_DIR/chains_starknet_engine.py"
 
 python3 "$DEPLOY_DIR/deploy/integrate_starknet_registry.py" \
-    "$DEPLOY_DIR/chains/registry.py" \
-    "$ENGINE_SRC" 2>/dev/null || \
-python3 /tmp/integrate_starknet_registry.py \
     "$DEPLOY_DIR/chains/registry.py" \
     "$ENGINE_SRC"
 "$VENV/bin/python" -m py_compile "$DEPLOY_DIR/chains/registry.py" \
@@ -205,8 +242,18 @@ python3 /tmp/integrate_starknet_registry.py \
 # ── 5. the profile ────────────────────────────────────────────────
 echo
 echo "=== the profile ==="
-cp /tmp/ustartkpay.yaml "$DEPLOY_DIR/profiles/ustartkpay.yaml" 2>/dev/null || true
-grep -E "^kind:|^name:|^  chain_id:|^  stable_address:" \
+# From the REPOSITORY's copy, not from /tmp. The /tmp one was a
+# leftover from an earlier run, it is not kept in sync, and it is why
+# the deployed profile still said key_file: account.json - the
+# SEPOLIA key - while the code expected the mainnet one.
+PROFILE_SRC="/opt/ustartkpay/deploy/ustartkpay/profiles/ustartkpay.yaml"
+if [ -f "$PROFILE_SRC" ]; then
+    cp "$PROFILE_SRC" "$DEPLOY_DIR/profiles/ustartkpay.yaml"
+else
+    echo "  the profile source is missing: $PROFILE_SRC"
+    exit 1
+fi
+grep -E "^kind:|^name:|^  chain_id:|^  stable_address:|^  key_file:|^  network:" \
     "$DEPLOY_DIR/profiles/ustartkpay.yaml" | sed 's/^/  /'
 
 # ── 6. the env ────────────────────────────────────────────────────
