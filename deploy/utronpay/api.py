@@ -534,6 +534,80 @@ class Turn(BaseModel):
                           description="chain to read balances from; default TRON mainnet (0)")
 
 
+@app.get("/treasury")
+def treasury_public(request: Request = None):
+    """Public treasury address for the homepage footer link.
+
+    Audit round 3 (S-3): the treasury address was hardcoded in the
+    static HTML, so it was baked into every cached copy and could not
+    be rotated without a full redeploy. The address is on-chain
+    anyway, so it is not a secret - but it must be rotatable.
+
+    The footer reads this endpoint at runtime and fills the link in.
+
+    It was missing from this deployment, and the nginx vhost had no
+    route for it either - so the request fell through to the SPA
+    fallback and the API host answered 200 with the site's HTML. A 200
+    that is not the endpoint. The check_public_endpoints.py check only
+    looked at the status code, so it read as healthy.
+
+    The address comes from the deployment's own engine - the same
+    wallet the payments use - so it cannot drift.
+
+    Resolving it took some care, because the engines do not agree on
+    how to expose it:
+
+      - the facade maps WALLET_ADDRESS to the engine's
+        `_treasury_address`, which on Solana is a METHOD. Reading the
+        attribute gives the bound method, not the address - and
+        str() of a bound method is what the first version returned.
+      - the Tron engine names it `treasury_address()` instead.
+
+    So it is resolved by trying the public name first, then the
+    private one, and calling it if it turns out to be callable. An
+    address is a string; a bound method is not.
+    """
+    addr = ""
+    try:
+        eng = chain._eng() if hasattr(chain, "_eng") else None
+    except Exception:
+        eng = None
+
+    if eng is not None:
+        for name in ("treasury_address", "_treasury_address"):
+            val = getattr(eng, name, None)
+            if callable(val):
+                try:
+                    val = val()
+                except Exception:
+                    val = None
+            if isinstance(val, str) and val:
+                addr = val
+                break
+
+    if not addr:
+        val = getattr(chain, "WALLET_ADDRESS", "")
+        if isinstance(val, str) and val:
+            addr = val
+
+    explorer = getattr(chain, "EXPLORER", "") or ""
+    if not isinstance(explorer, str):
+        explorer = ""
+
+    link = ""
+    if addr and explorer:
+        link = f"{explorer.rstrip('/')}/address/{addr}"
+
+    return {
+        "ok": True,
+        "address": addr,
+        "explorer": link,
+        "visible": bool(addr),
+        "chain": getattr(chain, "NETWORK_NAME", ""),
+        "configured": bool(addr),
+    }
+
+
 @app.get("/health")
 def health():
     """Public health check — only return status, never operational or treasury details (audit #5).

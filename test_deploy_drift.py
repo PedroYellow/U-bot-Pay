@@ -41,21 +41,27 @@ SSH = os.environ.get("UBOT_SSH_HOST", "hvps")
 # Files the deployment owns. The web assets are listed explicitly
 # because the site is assembled from them, and a missing one falls back
 # to the SPA catch-all and reads as a 200 to anyone checking.
+#
+# Each entry is (repository path, path on the VPS). They differ for
+# one file: the runner is deploy/run_tests_portable.sh in the
+# repository and run_tests.sh on the server. Listing it as one name
+# assumed they were the same, and the drift check reported it as
+# missing - a false alarm about the one file it was checking.
 FILES = [
-    "api.py",
-    "chain.py",
-    "run_tests.sh",
-    "deploy/deploy_web.sh",
-    "deploy/nginx.conf",
-    "deploy/add_agent_vhost.sh",
-    "deploy/add_agent_port80.py",
-    "web/index.html",
-    "web/ubot.css",
-    "web/i18n.js",
-    "web/sw.js",
-    "web/manifest.json",
-    "web/security.txt",
-    "web/agent.html",
+    ("api.py", "api.py"),
+    ("chain.py", "chain.py"),
+    ("deploy/run_tests_portable.sh", "run_tests.sh"),
+    ("deploy/deploy_web.sh", "deploy/deploy_web.sh"),
+    ("deploy/nginx.conf", "deploy/nginx.conf"),
+    ("deploy/add_agent_vhost.sh", "deploy/add_agent_vhost.sh"),
+    ("deploy/add_agent_port80.py", "deploy/add_agent_port80.py"),
+    ("web/index.html", "web/index.html"),
+    ("web/ubot.css", "web/ubot.css"),
+    ("web/i18n.js", "web/i18n.js"),
+    ("web/sw.js", "web/sw.js"),
+    ("web/manifest.json", "web/manifest.json"),
+    ("web/security.txt", "web/security.txt"),
+    ("web/agent.html", "web/agent.html"),
 ]
 
 # The nginx vhosts are compared against the live server, because they
@@ -84,16 +90,16 @@ def md5_remote(path):
     return out if out else None
 
 
-def check(rel):
+def check(rel, remote_rel=None):
     local = md5_local(os.path.join(REPO, rel))
     if local is None:
         print(f"  FAIL  {rel} is not in the repository ({REPO})")
         failures.append(f"{rel} missing from the repository")
         return
-    remote = md5_remote(f"/opt/ubotpay/{rel}")
+    remote = md5_remote(f"/opt/ubotpay/{remote_rel or rel}")
     if remote is None:
-        print(f"  FAIL  {rel} is missing on the VPS")
-        failures.append(f"{rel} missing on the VPS")
+        print(f"  FAIL  {remote_rel or rel} is missing on the VPS")
+        failures.append(f"{remote_rel or rel} missing on the VPS")
         drifted.append(rel)
     elif remote != local:
         print(f"  FAIL  {rel} differs (repo {local[:8]} / vps {remote[:8]})")
@@ -106,8 +112,8 @@ def check(rel):
 print("=" * 72)
 print("D1: the deployed files match the repository")
 print("=" * 72)
-for rel in FILES:
-    check(rel)
+for rel, remote_rel in FILES:
+    check(rel, remote_rel)
 
 print()
 print("=" * 72)

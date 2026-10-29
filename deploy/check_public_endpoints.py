@@ -32,6 +32,12 @@ DOMAINS = [
     "api.ubotpay.com",
     "api.usonicpay.com",
     "api.ustartkpay.com",
+    # These two were NOT in the list at first, and they were the two
+    # with the broken /treasury route. The check only covers the
+    # domains it was written for, so it could not see a bug in the
+    # two it did not look at.
+    "api.usolpay.com",
+    "api.utronpay.com",
 ]
 
 # the endpoint, and what a healthy answer looks like
@@ -52,21 +58,29 @@ QUOTE = ("/bridge/quote?partner=best&from_chain=43114&to_chain=146"
          "&from_address=0x713261F2151a759d9D935e6De2DB1d63A98176f6"
          "&to_address={to_address}")
 
-# The destination address has to match the DESTINATION chain's format.
+# The destination address has to match the format the DEPLOYMENT
+# expects - not the format of the chain the query names.
 #
 # The source must stay EVM in every case - the user signs an
 # eth_sendTransaction payload on it, and from_address is validated as
-# 0x + 40 hex. But the destination may be a non-EVM chain, where
-# to_address is a base58 mint instead of a 0x address.
+# 0x + 40 hex. But the destination is validated by the deployment's
+# own engine, and those differ:
 #
-# So the Sonic deployment gets a base58 destination and the others get
-# an EVM one. With an EVM address on the Sonic deployment the service
-# answers 400 - which is the service validating the request, not a
-# broken endpoint.
+#   - the Solana deployment's engine is an EVM engine, so it demands a
+#     0x address: "to_address must be a 0x-prefixed EVM address"
+#   - the Sonic deployment's engine is the Solana engine, so it wants
+#     a base58 address
+#
+# With an EVM address on the Sonic deployment the service answers 400,
+# which is the service validating the request, not a broken endpoint.
+# And with a base58 address on the Solana deployment it answers 400
+# the other way round.
 TO_ADDRESS = {
     "api.ubotpay.com": "0x29219dd400f2Bf60E5a23d13Be72B486D4038894",
     "api.usonicpay.com": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
     "api.ustartkpay.com": "0x29219dd400f2Bf60E5a23d13Be72B486D4038894",
+    "api.usolpay.com": "0x29219dd400f2Bf60E5a23d13Be72B486D4038894",
+    "api.utronpay.com": "0x29219dd400f2Bf60E5a23d13Be72B486D4038894",
 }
 
 # LI.FI has no quote for every pair at every size, and a 502 from the
@@ -76,22 +90,28 @@ TRANSIENT = (502, 503, 504)
 
 
 def get(url, timeout=40):
-    """Return (status, body). The body is NOT truncated.
+    """Return (status, body, content_type). The body is NOT truncated.
 
     It was truncated to 400 bytes at first, and the quote's JSON is
     longer than that - so the check read a partial document, failed to
     parse it, and reported a working quote as a failure.
+
+    The content type comes back too, and it matters: the API hosts
+    fall through to the SPA fallback for a path they do not have a
+    route for, and the fallback answers 200 with the site's HTML. So
+    a JSON API can answer 200 with text/html, and that is a broken
+    route that looks perfectly healthy if you only check the status.
     """
     try:
         req = urllib.request.Request(url, headers={
             "User-Agent": "ubotpay-endpoint-check/1.0",
             "Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.status, r.read()
+            return r.status, r.read(), r.headers.get("Content-Type", "")
     except urllib.error.HTTPError as e:
-        return e.code, e.read()
+        return e.code, e.read(), e.headers.get("Content-Type", "")
     except Exception as e:
-        return None, str(e)[:200].encode()
+        return None, str(e)[:200].encode(), ""
 
 
 def main():
@@ -102,20 +122,36 @@ def main():
     for domain in DOMAINS:
         print(f"  {domain}")
         for path, want in ENDPOINTS:
-            status, body = get(f"https://{domain}{path}")
+            status, body, ctype = get(f"https://{domain}{path}")
             checked += 1
             ok = status in ((want,) if isinstance(want, int) else want)
+            detail = ""
+            # The API hosts fall through to the SPA fallback for a path
+            # they have no route for, and the fallback answers 200
+            # with the site's HTML. So a JSON API answering 200 with
+            # text/html is a BROKEN route - and a status-only check
+            # reads it as healthy.
+            #
+            # That is exactly what /treasury did on the Solana and
+            # Tron deployments: no route, so the SPA answered 200
+            # with the page.
+            if ok and status == 200 and path not in ("/docs", "/openapi.json"):
+                if "json" not in (ctype or "").lower():
+                    ok = False
+                    detail = f"it answered {ctype}, not JSON"
             if not ok:
                 failures.append(f"{domain}{path} -> {status} "
-                                f"(want {want})")
-            print(f"    {'OK  ' if ok else 'FAIL'} {path:22s} {status}")
+                                f"(want {want})"
+                                + (f" {detail}" if detail else ""))
+            print(f"    {'OK  ' if ok else 'FAIL'} {path:22s} {status}"
+                  + (f"  {detail}" if detail else ""))
 
         # the quote, with its parameters and an address that matches
         # the destination chain's format
         url = f"https://{domain}{QUOTE}".format(
             to_address=TO_ADDRESS.get(domain,
                                      TO_ADDRESS["api.ubotpay.com"]))
-        status, body = get(url)
+        status, body, ctype = get(url)
         checked += 1
         ok = status == 200
         transient = False
