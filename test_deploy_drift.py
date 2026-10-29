@@ -158,6 +158,32 @@ for site, rel in [
 
 print()
 print("=" * 72)
+print("D4: the nginx vhosts have one Host header per location")
+print("=" * 72)
+# A duplicated `proxy_set_header Host` makes nginx send TWO Host
+# headers, and uvicorn rejects the request with "Invalid HTTP
+# request received". So the endpoint answers 400 to every caller from
+# the internet while working perfectly from inside the VPS - which is
+# exactly why the drift check above could not see it: both sides of
+# that check run inside the server.
+#
+# So the vhosts are checked for the duplicate as well as for being
+# identical to the repository.
+host_check = os.path.join(REPO, "deploy", "check_nginx_host_headers.py")
+if os.path.exists(host_check):
+    r = subprocess.run([sys.executable, host_check,
+                         os.path.join(REPO, "deploy", "nginx-vhosts")],
+                        capture_output=True, text=True, timeout=120)
+    for line in (r.stdout or "").splitlines():
+        if line.strip():
+            print(f"  {line}")
+    if r.returncode != 0:
+        failures.append("an nginx vhost has a duplicated Host header")
+else:
+    print("  the check script is missing")
+
+print()
+print("=" * 72)
 print(f"{len(failures)} failure(s)")
 if drifted:
     print("drifted:")
