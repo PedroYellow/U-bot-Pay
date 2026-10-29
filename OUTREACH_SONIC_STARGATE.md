@@ -27,11 +27,11 @@ important one.
 
 ## The finding that makes this a real conversation
 
-**Stargate routes small transfers into Sonic, but it stops at $100 from
+**Stargate routes small transfers into Sonic, but it stops at $882 from
 Avalanche.**
 
 The Stargate V2 USDC pool on Sonic exists on-chain and holds
-**67,316 USDC** — up from 27,874 two days earlier, so the liquidity is
+**67,336 USDC** — up from 27,874 two days earlier, so the liquidity is
 being supplied, not drained. With Stargate as the only allowed
 bridge:
 
@@ -57,7 +57,7 @@ $ curl 'https://li.quest/v1/quote?fromChain=1&toChain=146&...&allowBridges=starg
 So the pool is not empty and not broken. What it has is a **size
 cap**, and the cap bites hardest on the direction we care about:
 from Avalanche — our own chain, where our product's volume would
-come from — it stops at $100.
+come from — it stops at $882.
 
 Meanwhile the Avalanche→Sonic route **does** work at that size,
 through Polymer:
@@ -83,7 +83,7 @@ token has code on chain 146, with no `MessageTransmitter` or
 
 - **Polymer** — works, and is what our product uses today.
 - **Sonic Gateway** — Sonic's own trustless Ethereum↔Sonic bridge.
-- **Stargate** — deployed and live, but capped at $100 from
+- **Stargate** — deployed and live, but capped at $882 from
   Avalanche by the missing LP shares.
 - **CCTP** — not live yet.
 
@@ -99,7 +99,7 @@ pool had LP shares minted against it.
 
 ## The diagnosis: the pool has zero LP tokens outstanding
 
-This is the number that explains the rest. The pool holds ~67,316 USDC
+This is the number that explains the rest. The pool holds ~67,336 USDC
 and **0.00 S*USDC** — the pool's own LP token, read from the contract.
 Nobody has deposited against it, so:
 
@@ -112,8 +112,8 @@ into the contract without the LP being minted against it. The fix is
 for whoever supplies the USDC to mint the pool's LP tokens, not just
 to transfer tokens to the pool address.
 
-**This is why the route caps at $100 rather than failing outright.**
-Below roughly $100 the routing algorithm can price a small swap
+**This is why the route caps at $882 rather than failing outright.**
+Below roughly $880 the routing algorithm can price a small swap
 without a pool share — enough to fill the order on the USDC sitting
 there. Above that it has nothing to price against, so it declines.
 That is also why Ethereum reaches $10,000 while Avalanche stops at
@@ -147,7 +147,7 @@ Stargate.
 | Avalanche→Sonic bridge works today | `GET api.ubotpay.com/bridge/quote` — Polymer, 18 min, $0.26 total fee |
 | 40 regression suites green | `run_tests.sh` → `40 suites passed, EXIT=0` |
 | Stargate routability is measured, not asserted | `deploy/track_stargate_sonic.py`, re-run every 6h by a watchdog |
-| The Sonic pool's own state, from the contract | `deploy/read_stargate_sonic_pool.py` — 67,316 USDC, 0.00 LP outstanding |
+| The Sonic pool's own state, from the contract | `deploy/read_stargate_sonic_pool.py` — 67,336 USDC, 0.00 LP outstanding |
 | Stargate's chain list, from their own API | `GET mainnet.stargate-api.com/v1/metadata?version=v2` — 56 chains: Sonic yes, Starknet no |
 | USDC on Starknet, read on chain | `deploy/verify_starknet_usdc.py` — "USD Coin", 6 decimals, 4,388,217.22 supply |
 | USDC on Sonic is **native Circle USDC** | Circle's own registry lists `0x29219dd400f2Bf60E5a23d13Be72B486D4038894` for Sonic mainnet |
@@ -166,7 +166,7 @@ do not copy it.**
 
 ### 1. Stargate: fund the Sonic USDC pool
 
-**The pool holds $67.3K and cannot route $100 from Avalanche.** Every route into Sonic
+**The pool holds $67.3K and cannot route $880 from Avalanche.** Every route into Sonic
 through Stargate fails at LI.FI's aggregator level. We are ready to be a
 recurring consumer of that route — our bridge already quotes and executes
 Avalanche→Sonic.

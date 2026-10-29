@@ -56,7 +56,21 @@ AVAX_USDC = "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E"
 SAMPLE_ADDRESS = "0x713261F2151a759d9D935e6De2DB1d63A98176f6"
 LIFI_QUOTE = "https://li.quest/v1/quote"
 LIFI_TOOLS = "https://li.quest/v1/tools"
-SIZES_USDC = [10, 100, 1_000, 10_000, 100_000]
+# The sizes to probe.
+#
+# The coarse set - 10, 100, 1,000, 10,000, 100,000 - is not enough to
+# see WHERE the route stops. With it, the first size that fails is
+# 1,000, so the threshold looks like $100, and that went into the
+# outreach email as the headline claim.
+#
+# The real threshold from Avalanche is $882. The finer sizes below
+# bracket it: 500 and 750 route, 1,000 does not. So the tracker can
+# say "somewhere between 750 and 1,000" rather than guessing.
+#
+# The threshold itself is found exactly by deploy/find_stargate_threshold.py,
+# which binary searches between the last size that worked and the
+# first that did not.
+SIZES_USDC = [10, 100, 500, 750, 1_000, 5_000, 10_000, 100_000]
 
 # LI.FI's bridge key for Stargate V2.
 #

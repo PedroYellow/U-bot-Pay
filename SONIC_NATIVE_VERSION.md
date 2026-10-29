@@ -229,7 +229,7 @@ registration path is at `docs.soniclabs.com/funding/fee-monetization/apply`.
 2026-10-29 — the bridge key had been renamed, so the original
 measurement was of a bridge name that no longer exists)
 
-**Stargate routes small transfers into Sonic, but it stops at $100 from
+**Stargate routes small transfers into Sonic, but it stops at $882 from
 Avalanche.**
 
 Measured on-chain and against the aggregator, not from a website:
@@ -237,7 +237,7 @@ Measured on-chain and against the aggregator, not from a website:
 | What | Value | How |
 |---|---|---|
 | Stargate V2 USDC pool on Sonic | `0xa272ffe20cffe769cdfc4b63088dcd2c82a2d8f9` | sonicscan trace + contract read |
-| USDC held by that pool | **67,315.78 USDC** | `balanceOf(pool)` on `0x29219dd4…` |
+| USDC held by that pool | **67,335.87 USDC** | `balanceOf(pool)` on `0x29219dd4…` |
 | Stargate V2 total TVL | $75.58M | DefiLlama |
 | of which Ethereum | $53.02M | DefiLlama |
 | of which **Sonic** | **$27,836** | DefiLlama |
@@ -245,7 +245,7 @@ Measured on-chain and against the aggregator, not from a website:
 | LayerZero Endpoint V2 on Sonic | `0x88853d410299bcbfe5fcc9eef93c03115e908279` | storage slot 2 of the pool |
 
 And with Stargate as the only allowed bridge (`allowBridges=stargateV2`),
-LI.FI returns a quote at small sizes and none above $100 from Avalanche:
+LI.FI returns a quote at small sizes and none above $880 from Avalanche:
 
 ```
 Ethereum -> Sonic
@@ -263,7 +263,7 @@ Avalanche -> Sonic
 ```
 
 The cap is the missing LP shares, not the USDC: the pool's LP token
-reports 0.00 outstanding, so below roughly $100 the router can price
+reports 0.00 outstanding, so below roughly $880 the router can price
 a small swap on the USDC that is sitting there, and above it there is
 nothing to price against. Ethereum reaches $10,000 because
 Ethereum-side liquidity covers the gap.
@@ -284,7 +284,7 @@ is not a payments rail. And the Stargate Sonic deployment was ratified by
 the DAO at 95.55% with USDC and USDT pools promised on day one, and 1m USDC
 + 1m USDT of liquidity requested — **the USDC arrived; the LP shares
 minted against it did not.** That is a fair thing to raise, politely, with
-the $67,316 figure attached, alongside the offer to be a recurring consumer
+the $67,336 figure attached, alongside the offer to be a recurring consumer
 of the route.
 
 **It also sharpens the CCTP point.** Circle's CCTP is not deployed on Sonic
