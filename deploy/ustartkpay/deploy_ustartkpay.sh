@@ -140,15 +140,27 @@ echo "  the requirements: $REQS"
 import subprocess, sys
 r = subprocess.run([sys.executable, "-m", "pip", "check"],
                    capture_output=True, text=True)
-# `pip check` writes its result to STDERR, not stdout. Reading only
-# stdout made an empty string look like a clean check - and the
-# `|| exit 1` then killed the deploy at the last step, after a venv
-# that was perfectly fine.
+# The EXIT CODE is the signal. Measured:
+#
+#     rc     : 0
+#     stdout : 'No broken requirements found.\n'
+#     stderr : ''
+#
+# `pip check` PRINTS on success, so a check on whether the output is
+# empty treats every clean venv as a conflict - and with `|| exit 1`
+# that killed the deploy at the last step, after a venv that was
+# perfectly fine.
+#
+# It was worse than that: the copy of this script that ran on the
+# server was an older one with the check INVERTED, so the deploy
+# failed every single time. The repository's copy had been fixed
+# already and the two had drifted. That is why the deploy scripts are
+# now compared against the repository - D1b in test_deploy_drift.py.
+#
+# The message is kept for the failure case: the point of a fatal
+# check is that the next person sees WHY.
 out = (r.stdout or "").strip() or (r.stderr or "").strip()
-if r.returncode != 0 and "No broken requirements found" not in out:
-    print("  pip check:", out)
-    sys.exit(1)
-if out and "No broken requirements" not in out:
+if r.returncode != 0:
     print("  pip check:", out)
     sys.exit(1)
 print("  pip check: no conflicts")
