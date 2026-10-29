@@ -1,9 +1,13 @@
-# The five decisions — with the numbers, as of 2026-10-29
+# The six decisions — with the numbers, as of 2026-10-29
 
 Everything here was measured, not estimated. Each item says what it
 is, what it costs, and what happens if it is not done.
 
 Nothing here has been executed. No funds have moved.
+
+**1 and 6 cost nothing.** The other four move money and need the
+user's explicit go-ahead on how much to put in each. That is why the
+numbers are given here rather than acted on.
 
 ---
 
@@ -202,13 +206,17 @@ Both numbers move. The pool went 27,874 -> 27,339 -> 67,315.78 ->
 | | |
 |---|---|
 | the main suite | 43/43 |
-| utronpay | 39/39 |
-| usolpay | 13/13 |
-| usonicpay | 6/6 |
+| utronpay | 39 suites |
+| usolpay | 13 suites |
+| usonicpay | 6 suites |
 | Starknet | 31 + 12 + 5 + 8 |
+| the public endpoints | 45/45, 0 failures, across all five API domains |
 | the cron jobs | 6/6 |
 | the services | 6/6 active |
-| the sites | 4/4 at 200 |
-| the drift check | 0 failures |
+| the sites | 6/6 at 200 |
+| the venvs | 5/5 clean under pip check |
+| the drift check | 0 failures, including the deploy scripts |
+| the balance guard | 5/5 deployments OK |
+| the Starknet deploy | EXIT=0, five times in a row |
 | the settled payments | 8/8 verified on chain |
 | the blocklist sync | EXIT=0, verified against production |
