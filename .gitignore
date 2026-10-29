@@ -16,3 +16,9 @@ pitch/video_raw.mp4
 pitch/video_nosub.mp4
 pitch/check_*.png
 pitch/concat.txt
+
+# The fix scripts write a .bak next to the file they change, so a
+# mistake can be undone. They are a working copy, not source: six of
+# them got committed by accident.
+*.bak
+*.bak-*
