@@ -254,7 +254,20 @@ async function refreshHealth() {
       // drift from what the service is actually on. It used to be a
       // literal, which is how a Sonic deployment ended up claiming to
       // be on Starknet.
-      const chainName = (d.chain || "mainnet").replace(/-mainnet$/, "");
+      // The chain name comes from the API, so the pill cannot drift
+      // from what the service is actually on.
+      //
+      // But the APIs spell it their own way - "avalanche-mainnet",
+      // "USolPay", "Sonic", "Starknet", "Tron Mainnet" - so the
+      // hyphenated form is stripped and any "Mainnet" the name
+      // already carries is stripped too. Otherwise Tron read
+      // "Tron Mainnet mainnet", and Avalanche read "avalanche
+      // mainnet" in lowercase.
+      const chainName = (d.chain || "mainnet")
+        .replace(/-mainnet$/i, "")
+        .replace(/\s+mainnet$/i, "")
+        .replace(/^\s+|\s+$/g, "")
+        .replace(/^[a-z]/, (c) => c.toUpperCase());
       n.textContent = "● " + chainName + " mainnet · " + I18N.t("live");
       n.removeAttribute("data-i18n"); n.style.color = "var(--ok)";
     } else {
@@ -476,6 +489,18 @@ const startTalk = async () => {
     tick = () => { if (!conv) { document.getElementById("lvl").style.width = "0"; return; } an.getByteTimeDomainData(buf); let m = 0; for (const v of buf) m = Math.max(m, Math.abs(v - 128)); peak = Math.max(peak, m); document.getElementById("lvl").style.width = Math.min(100, m * 1.6) + "%"; requestAnimationFrame(tick); };
     setTimeout(() => { if (conv && peak < 3) add("sys", I18N.t("v_nomic")); }, 6000);
     setTalkUI(true);
+    // The ElevenLabs Conversations endpoint needs a real agent id.
+    // This one was removed from the bundle during the 17 Oct security
+    // audit - correctly, it sat next to the API key injection - but
+    // the USE of it stayed, so the microphone threw a ReferenceError:
+    //
+    //     Error de microfono o conexion: AGENT_ID is not defined
+    //
+    // which reads like a microphone fault and is not one. This is the
+    // PUBLIC agent id - the same one the standard widget on this page
+    // already connects to. No key, no credential: just which agent to
+    // talk to, and the page already says so.
+    const AGENT_ID = "agent_3601m4yz1xhgffmb1mb4j0sab89a";
     conv = await Conversation.startSession({
       agentId: AGENT_ID, connectionType: "webrtc", clientTools: { open_url: p => { add("sys", "↗ Opening " + esc(p.label || p.url)); return window.__ubotOpenUrl(p); } }, ...(pref ? { inputDeviceId: pref } : {}),
       onConnect: () => { orbstate.removeAttribute("data-i18n"); orbstate.textContent = I18N.t("listening"); orb.className = "orb listening"; add("sys", I18N.t("v_start")); requestAnimationFrame(tick); },
