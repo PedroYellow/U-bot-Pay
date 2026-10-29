@@ -53,7 +53,21 @@
 # engine registry follows, and the same thing that broke U-bot Pay's
 # payments once before.
 #
-# So the EVM helpers come from evm_stub.py instead, which is what
+# There is no version combination that makes them coexist. Pinning
+# eth-account below 0.14 does not help - the conflict moves to
+# web3 itself:
+#
+#     pip install web3==8.0.0 'eth-account>=0.13,<0.14' starknet-py==0.30.0
+#
+#     ERROR: Cannot install eth-account<0.14 and >=0.13 and web3==8.0.0
+#     because these package versions have conflicting dependencies.
+#     ERROR: ResolutionImpossible
+#
+#     the exit code: 1
+#
+# So the separation is structural, not a version to be found.
+#
+# The EVM helpers come from evm_stub.py instead, which is what
 # api.py already did. See that file for why skipping the EIP-55
 # checksum is correct here rather than a shortcut.
 #
