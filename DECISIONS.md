@@ -217,17 +217,37 @@ transactions, but cannot send.
 
 ---
 
-## 6. The Stargate Foundation email
+## 6. The Stargate Foundation email — READY, waiting to be published
 
-Every number in it was measured today:
+The email is written and its numbers are current. It is in
+`OUTREACH_EMAILS.md`, section 2.
+
+**It is not an email.** It is a post on the Stargate DAO's Discourse,
+in the "New Chain Deployments" category, on the thread
+`stargate.discourse.group/t/stargate-deployment-to-sonic/62`. There
+are no Discourse credentials configured, so it cannot be published
+automatically - it needs either the account or the post itself.
+
+Every number in it was re-measured on 31 Oct, right before this:
 
 | | |
 |---|---|
-| the pool's USDC | **67,335.87**, read straight from the contract |
+| the pool's USDC | **67,869.81**, read straight from the contract |
 | the LP tokens outstanding | **0.00** |
-| the largest transfer that routes from Avalanche | **$882** (returns 878.54 USDC) |
-| $1,000 from Avalanche | no quote |
+| the largest transfer that routes from Avalanche | **$1,056** (returns 1,051.76 USDC) |
+| $1,000 from Avalanche | **routes now**, returns 995.79 USDC |
+| $1,320 from Avalanche | no quote |
 | from Ethereum | routes past $10,000 |
+
+**The threshold moved while the email was being written.** It was $882
+on 29 Oct, because the pool was 67,335.87. It is $1,056 now, because
+the pool is 67,869.81. And the draft's claim that $1,000 got no quote
+had become FALSE - the recipient would have corrected it, which is
+not a good look. That is why the numbers are re-read immediately
+before publishing, and why the scripts are checked in:
+
+    python3 deploy/verify_stargate_pool.py     # the balance
+    python3 deploy/find_stargate_threshold.py   # the threshold
 
 The ask is narrow and specific: **mint LP against the USDC already in
 the contract**. Not "fund the pool" — the USDC is there. It is
