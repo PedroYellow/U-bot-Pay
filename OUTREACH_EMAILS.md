@@ -166,7 +166,7 @@ through Stargate is $118K against $301M on Ethereum.
 **Why we are the right kind of consumer**
 
 We are U-bot Pay — a voice-first payments product running in production on
-Avalanche (`ubotpay.com`, 8 settled payments, 40 regression suites green,
+Avalanche (`ubotpay.com`, 8 settled payments, 42 regression suites green,
 0.5% fee against a 5.5% bank benchmark). It already bridges to Sonic: today
 100 USDC goes Avalanche → Sonic via Polymer in 18 minutes for $0.26 total.
 
