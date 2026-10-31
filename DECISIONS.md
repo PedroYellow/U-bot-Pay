@@ -11,7 +11,50 @@ numbers are given here rather than acted on.
 
 ---
 
-## 1. The orphaned Chromium on the VPS
+## 1. The orphaned Chromium on the VPS — DONE, 31 Oct
+
+**It was executed. 191 orphan processes killed; the CDP browser was
+kept.**
+
+```
+before   the chrome processes: 201     load 154
+after    the chrome processes: 10      load 240  (the 1-minute average
+                                               still counts the processes
+                                               that were running)
++2 min   the chrome processes: 12      load 4.64
+```
+
+The load is a 1, 5 and 15 minute average, so it reads high for a
+while after the kill and then falls.
+
+| | before | after |
+|---|---|---|
+| the chrome processes | 201 | 12 |
+| the load average | 142-157 | **4.64** |
+| `import api` | 51 s | 21 s |
+| `import web3` | 43 s | 14 s |
+| `test_cors.py` | slow | **1 s** |
+
+**What it did NOT fix.** `import api` is still 21 s, and it is not I/O
+and not saturation:
+
+```
+User time:           15.48 s
+System time:          3.40 s
+Percent of CPU:        99 %
+File system inputs:    0
+```
+
+99 % CPU, zero file reads. The disk has 87 G free and 2 % of its
+inodes; 6.6 G of RAM is available. So the import costs real CPU on
+this machine, and the Chrome processes were stealing part of it - now
+they are not, and the rest is the code being genuinely expensive to
+import on two slow vCPUs.
+
+That is a separate question from the orphans, and it is not a
+security matter.
+
+**The history, for the record:**
 
 **209 processes, 23 browsers, across 24 CDP ports (9333-9370).**
 Load average 59.54 on 2 CPUs.
