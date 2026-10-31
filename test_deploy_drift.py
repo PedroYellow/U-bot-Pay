@@ -82,6 +82,12 @@ STARKNET_FILES = [
      "/opt/ustartkpay/evm_stub.py"),
     ("deploy/ustartkpay/chains_starknet_engine.py",
      "/opt/ustartkpay/chains/starknet.py"),
+    # The global nginx.conf carries the maps that decide whether the
+    # API hosts answer 404 for unknown paths. A map is global, so
+    # this file matters to every vhost at once - and it was never
+    # compared, which is how a vhost could be patched and the map
+    # that makes it work could be missing.
+    ("deploy/nginx-global.conf", "/etc/nginx/nginx.conf"),
 ]
 
 # The nginx vhosts are compared against the live server, because they
