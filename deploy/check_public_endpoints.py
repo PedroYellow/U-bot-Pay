@@ -40,6 +40,17 @@ DOMAINS = [
     "api.utronpay.com",
 ]
 
+# The paths that MUST NOT exist. The API host used to answer 200 with
+# the site's HTML for anything it had no route for - including these.
+# A 200 there tells a scanner the path exists, and gives an API
+# client HTML where it expected JSON.
+FORBIDDEN = [
+    "/.env",
+    "/.git/config",
+    "/server.key",
+    "/seedphrase.txt",
+]
+
 # the endpoint, and what a healthy answer looks like
 ENDPOINTS = [
     ("/health", 200),
@@ -145,6 +156,16 @@ def main():
                                 + (f" {detail}" if detail else ""))
             print(f"    {'OK  ' if ok else 'FAIL'} {path:22s} {status}"
                   + (f"  {detail}" if detail else ""))
+
+        # the paths that must not be there
+        for path in FORBIDDEN:
+            status, body, ctype = get(f"https://{domain}{path}")
+            checked += 1
+            ok = status == 404
+            if not ok:
+                failures.append(f"{domain}{path} -> {status} (want 404)")
+            print(f"    {'OK  ' if ok else 'FAIL'} {path:22s} {status}"
+                  + ("" if ok else "  it should not exist"))
 
         # the quote, with its parameters and an address that matches
         # the destination chain's format
